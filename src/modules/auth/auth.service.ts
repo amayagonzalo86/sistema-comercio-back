@@ -1,10 +1,10 @@
-import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import * as argon2 from 'argon2';
+import { Repository } from 'typeorm';
 import { UserEntity } from '../users/entities/user.entity';
-import { LoginDto } from './dto/login.dto';
+import { LoginDto } from './../../modules/auth/dto/login.dto';
 
 export interface JwtPayload {
   sub: string;
@@ -19,7 +19,7 @@ export class AuthService {
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     private readonly jwtService: JwtService,
-  ) {}
+  ) { }
 
   async validateUserCredentials(loginDto: LoginDto): Promise<UserEntity> {
     const user = await this.userRepository

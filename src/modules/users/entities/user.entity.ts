@@ -1,15 +1,17 @@
-import { Column, Entity, Index, Unique } from 'typeorm';
+import { Entity, Column, Index, OneToMany } from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
+import { SessionEntity } from '../../auth/entities/session.entity';
+
 export enum UserRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
   ADMIN = 'ADMIN',
+  MANAGER = 'MANAGER',
   CASHIER = 'CASHIER',
-  WAREHOUSE = 'WAREHOUSE',
+  STOCK_CLERK = 'STOCK_CLERK',
 }
 
 @Entity('users')
-@Unique(['tenantId', 'email'])
-@Index(['tenantId', 'status'])
+@Index(['tenantId', 'email'], { unique: true })
 export class UserEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 150, nullable: false })
   email!: string;
@@ -18,7 +20,10 @@ export class UserEntity extends BaseAuditEntity {
   passwordHash!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: false })
-  fullName!: string;
+  firstName!: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: false })
+  lastName!: string;
 
   @Column({
     type: 'enum',
@@ -30,6 +35,9 @@ export class UserEntity extends BaseAuditEntity {
   @Column({ type: 'boolean', default: true })
   status!: boolean;
 
-  @Column({ type: 'varchar', length: 255, nullable: true, select: false })
+  @Column({ type: 'varchar', length: 255, nullable: true, select: false, name: 'current_hashed_refresh_token' })
   currentHashedRefreshToken?: string;
+
+  @OneToMany(() => SessionEntity, (session) => session.user)
+  sessions!: SessionEntity[];
 }

@@ -4,24 +4,20 @@ import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  // Headers de Seguridad HTTP
+  // Seguridad Cabeceras HTTP
   app.use(helmet());
 
-  // Parser de cookies para Refresh Tokens seguros
+  // Parser de Cookies para Refresh Tokens
   app.use(cookieParser());
 
-  // Configuración de CORS
-  const allowedOrigins = configService
-    .get<string>('ALLOWED_ORIGINS', 'http://localhost:5173')
-    .split(',');
-
+  // CORS de Alta Seguridad
+  const allowedOrigins = configService.get<string>('ALLOWED_ORIGINS', '').split(',');
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,
@@ -29,10 +25,10 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID', 'X-Branch-ID'],
   });
 
-  // Prefijo global de API
+  // Prefijo Único de Versionado de API
   app.setGlobalPrefix('api/v1');
 
-  // Pipe global de validación DTO
+  // Pipe Global de Sanitización y Conversión DTO
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -44,12 +40,9 @@ async function bootstrap() {
     }),
   );
 
-  // Filtro de excepciones estandarizado
-  app.useGlobalFilters(new HttpExceptionFilter());
-
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
-  logger.log(`Servidor ERP (Argentina) iniciado correctamente en el puerto: ${port}`);
+  logger.log(`Servidor ERP backend iniciado exitosamente en puerto: ${port}`);
 }
 
 bootstrap();
