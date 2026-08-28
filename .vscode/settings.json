@@ -1,10 +1,10 @@
 {
   "typescript.tsdk": "node_modules/typescript/lib",
   "editor.formatOnSave": true,
+  "prettier.enable": false,
   "editor.defaultFormatter": "vscode.typescript-language-features",
   "editor.codeActionsOnSave": {
-    "source.organizeImports": "explicit",
-    "source.fixAll.eslint": "explicit"
+    "source.organizeImports": "explicit"
   },
   "files.associations": {
     "*.env*": "dotenv"

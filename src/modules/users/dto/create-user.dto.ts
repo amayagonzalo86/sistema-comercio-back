@@ -1,4 +1,10 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsString, IsUUID, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsString,
+  MinLength
+} from 'class-validator';
 import { UserRole } from '../entities/user.entity';
 
 export class CreateUserDto {
@@ -20,7 +26,4 @@ export class CreateUserDto {
 
   @IsEnum(UserRole)
   readonly role!: UserRole;
-
-  @IsUUID('4', { message: 'El tenantId debe ser UUID v4' })
-  readonly tenantId!: string;
 }

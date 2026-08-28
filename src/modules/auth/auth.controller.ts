@@ -1,56 +1,30 @@
 import {
-  Controller,
-  Post,
   Body,
+  Controller,
   HttpCode,
   HttpStatus,
-  Res,
+  Post,
   Req,
-  UnauthorizedException,
-  UseGuards,
+  Res,
+  UnauthorizedException
 } from '@nestjs/common';
-import { Response, Request } from 'express';
+import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(
-    @Body() loginDto: LoginDto,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    // 1. Validar identidad del usuario (Tenant ID, Email, Password Hash Argon2)
-    const user = await this.authService.validateUserCredentials(loginDto);
+  async login(@Body() loginDto: LoginDto, @Req() req: Request) {
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'];
 
-    // 2. Generar Access Token (15 min) y Refresh Token (7 días)
-    const tokens = await this.authService.generateTokens(user);
-
-    // 3. Inyectar Refresh Token en Cookie HTTP-Only Segura
-    response.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días en milisegundos
-      path: '/api/v1/auth/refresh',
-    });
-
-    // 4. Retornar Access Token y datos mínimos de usuario para la sesión en React
-    return {
-      accessToken: tokens.accessToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        tenantId: user.tenantId,
-      },
-    };
+    return await this.authService.login(loginDto, ipAddress, userAgent);
   }
 
   @Post('refresh')

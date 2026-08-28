@@ -2,27 +2,43 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { JwtPayload } from '../auth.service';
+
+export interface JwtPayload {
+    sub: string;
+    email: string;
+    role: string;
+    tenantId: string;
+}
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-    constructor(configService: ConfigService) {
+    constructor(private readonly configService: ConfigService) {
+        const jwtSecret = configService.get<string>('JWT_SECRET');
+        if (!jwtSecret) {
+            throw new Error(
+                'CRÍTICO: JWT_SECRET no está configurado en las variables de entorno (.env)',
+            );
+        }
+
         super({
             jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
             ignoreExpiration: false,
-            secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+            secretOrKey: jwtSecret,
         });
     }
 
     async validate(payload: JwtPayload) {
-        if (!payload || !payload.tenantId) {
-            throw new UnauthorizedException('Token de acceso inválido o corrupto');
+        if (!payload || !payload.sub || !payload.tenantId) {
+            throw new UnauthorizedException(
+                'Acceso denegado: El token no contiene la información multi-tenant válida',
+            );
         }
+
         return {
             userId: payload.sub,
             email: payload.email,
-            tenantId: payload.tenantId,
             role: payload.role,
+            tenantId: payload.tenantId,
         };
     }
 }

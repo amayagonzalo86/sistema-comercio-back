@@ -13,6 +13,7 @@ import { BranchesModule } from './modules/branches/branches.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: '.env',
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
