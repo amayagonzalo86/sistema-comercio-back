@@ -6,6 +6,8 @@ import { AppService } from './app.service';
 import { UserModule } from './modules/users/user.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ProductModule } from './modules/inventory/product/product.module';
+import { SeederModule } from './database/seeders/seeder.module';
+import { BranchesModule } from './modules/branches/branches.module';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { ProductModule } from './modules/inventory/product/product.module';
     UserModule,
     AuthModule,
     ProductModule,
+    SeederModule,
+    BranchesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

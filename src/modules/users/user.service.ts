@@ -1,26 +1,64 @@
-import { Injectable } from '@nestjs/common';
-import { UpdateUserDto } from './dto/update-use.dto';
-import { CreateUserDto } from './dto/create-use.dto';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import * as argon2 from 'argon2';
+import { Repository } from 'typeorm';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UserEntity, UserRole } from './entities/user.entity';
 
 @Injectable()
-export class UserService {
-  create(createUserDto: CreateUserDto) {
-    return 'This action adds a new user';
+export class UsersService {
+  constructor(
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
+  ) { }
+
+  async create(createUserDto: CreateUserDto, tenantId: string): Promise<Omit<UserEntity, 'passwordHash'>> {
+    const existingUser = await this.userRepository.findOne({
+      where: {
+        tenantId,
+        email: createUserDto.email.toLowerCase().trim(),
+      },
+    });
+
+    if (existingUser) {
+      throw new ConflictException(
+        `El correo '${createUserDto.email}' ya está registrado en su organización`,
+      );
+    }
+
+    const passwordHash = await argon2.hash(createUserDto.password);
+
+    const newUser = this.userRepository.create({
+      tenantId,
+      email: createUserDto.email.toLowerCase().trim(),
+      passwordHash,
+      firstName: createUserDto.firstName,
+      lastName: createUserDto.lastName,
+      role: createUserDto.role ?? UserRole.CASHIER,
+      status: true,
+    });
+
+    const savedUser = await this.userRepository.save(newUser);
+
+    // Excluir passwordHash de la respuesta
+    const { passwordHash: _, currentHashedRefreshToken: __, ...userResult } = savedUser;
+    return userResult as Omit<UserEntity, 'passwordHash'>;
   }
 
-  findAll() {
-    return `This action returns all users`;
-  }
-
-  findOne(id: number) {
-    return `This action returns a #${id} use`;
-  }
-
-  update(id: number, updateUseDto: UpdateUserDto) {
-    return `This action updates a #${id} use`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} use`;
+  async findAllByTenant(tenantId: string): Promise<UserEntity[]> {
+    return await this.userRepository.find({
+      where: { tenantId },
+      select: {
+        id: true,
+        tenantId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        createdAt: true,
+      },
+      order: { createdAt: 'DESC' },
+    });
   }
 }
