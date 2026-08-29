@@ -25,13 +25,7 @@ export class UserEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 150, nullable: false })
   email!: string;
 
-  @Column({
-    type: 'varchar',
-    length: 255,
-    nullable: false,
-    select: false,
-    name: 'password_hash',
-  })
+  @Column({ type: 'varchar', length: 255, nullable: false, select: false, name: 'password_hash' })
   passwordHash!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: false, name: 'first_name' })
@@ -40,31 +34,21 @@ export class UserEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 100, nullable: false, name: 'last_name' })
   lastName!: string;
 
-  @Column({
-    type: 'enum',
-    enum: UserRole,
-    default: UserRole.USER,
-  })
+  @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
   role!: UserRole;
 
   @Column({ type: 'boolean', default: true })
   status!: boolean;
 
-  @Column({
-    type: 'varchar',
-    length: 500,
-    name: 'current_hashed_refresh_token',
-    nullable: true,
-    select: false,
-  })
+  @Column({ type: 'varchar', length: 500, name: 'current_hashed_refresh_token', nullable: true, select: false })
   currentHashedRefreshToken?: string;
 
   @Column({ type: 'uuid', nullable: true, name: 'branch_id' })
-  branchId?: string;
+  branchId?: string | null;
 
   @ManyToOne(() => BranchEntity, (branch) => branch.users, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'branch_id' })
-  branch?: BranchEntity;
+  branch?: BranchEntity | null;
 
   @OneToMany(() => SessionEntity, (session) => session.user)
   sessions!: SessionEntity[];

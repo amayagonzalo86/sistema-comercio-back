@@ -19,6 +19,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserEntity, UserRole } from './entities/user.entity';
 import { UsersService } from './user.service';
+import { AssignBranchDto } from './dto/assign-branch.dto';
 
 @Controller('users')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -41,6 +42,38 @@ export class UsersController {
     @GetUser('tenantId') tenantId: string,
   ): Promise<UserEntity[]> {
     return await this.usersService.findAllByTenant(tenantId);
+  }
+
+  @Patch(':id/assign-branch')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async assignBranch(
+    @Param('id', ParseUUIDPipe) userId: string,
+    @Body() assignBranchDto: AssignBranchDto,
+    @GetUser('tenantId') tenantId: string,
+    @GetUser('id') adminId: string,
+  ): Promise<UserEntity> {
+    return await this.usersService.assignBranch(userId, assignBranchDto, tenantId, adminId);
+  }
+
+  @Delete(':id/unassign-branch')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async unassignBranch(
+    @Param('id', ParseUUIDPipe) userId: string,
+    @GetUser('tenantId') tenantId: string,
+    @GetUser('id') adminId: string,
+  ): Promise<{ message: string }> {
+    return await this.usersService.unassignBranch(userId, tenantId, adminId);
+  }
+
+  @Get('by-branch/:branchId')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  async findUsersByBranch(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @GetUser('tenantId') tenantId: string,
+  ): Promise<UserEntity[]> {
+    return await this.usersService.findUsersByBranch(branchId, tenantId);
   }
 
   @Patch(':id')

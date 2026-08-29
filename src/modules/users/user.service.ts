@@ -5,6 +5,8 @@ import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UserEntity, UserRole } from './entities/user.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { BranchEntity } from '../branches/entities/branch.entity';
+import { AssignBranchDto } from './dto/assign-branch.dto';
 
 @Injectable()
 export class UsersService {
@@ -13,6 +15,8 @@ export class UsersService {
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(BranchEntity)
+    private readonly branchRepository: Repository<BranchEntity>,
   ) { }
 
   async create(createUserDto: CreateUserDto, tenantId: string): Promise<Omit<UserEntity, 'passwordHash'>> {
@@ -159,5 +163,120 @@ export class UsersService {
     return {
       message: `Usuario ${user.email} habilitado con éxito`,
     };
+  }
+
+  /**
+   * Asigna o actualiza la sucursal activa de un usuario dentro del mismo tenant.
+   */
+  async assignBranch(
+    userId: string,
+    assignBranchDto: AssignBranchDto,
+    tenantId: string,
+    adminId: string,
+  ): Promise<UserEntity> {
+    const { branchId } = assignBranchDto;
+
+    // 1. Validar que el usuario exista en el mismo tenant
+    const user = await this.userRepository.findOne({
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`El usuario con ID '${userId}' no existe en su organización`);
+    }
+
+    // 2. Validar que la sucursal exista, pertenezca al tenant y esté activa
+    const branch = await this.branchRepository.findOne({
+      where: { id: branchId, tenantId },
+    });
+
+    if (!branch) {
+      throw new NotFoundException(
+        `La sucursal con ID '${branchId}' no fue encontrada en su organización`,
+      );
+    }
+
+    if (!branch.status) {
+      throw new BadRequestException(
+        `No se puede asignar la sucursal '${branch.name}' porque se encuentra deshabilitada`,
+      );
+    }
+
+    // 3. Verificar si ya está asignado a esa misma sucursal
+    if (user.branchId === branchId) {
+      throw new ConflictException(
+        `El usuario '${user.email}' ya se encuentra asignado a la sucursal '${branch.name}'`,
+      );
+    }
+
+    const previousBranchId = user.branchId;
+    user.branchId = branchId;
+    user.branch = branch;
+
+    const updatedUser = await this.userRepository.save(user);
+
+    this.logger.log(
+      `[AUDITORÍA] Admin ID '${adminId}' reasignó al Usuario ID '${userId}' de Sucursal '${previousBranchId || 'NINGUNA'}' a Sucursal '${branch.id}' (${branch.name})`,
+    );
+
+    return updatedUser;
+  }
+
+  /**
+   * Remueve la asignación de sucursal de un usuario (deja el campo branchId en null).
+   */
+  async unassignBranch(
+    userId: string,
+    tenantId: string,
+    adminId: string,
+  ): Promise<{ message: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId, tenantId },
+      relations: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`El usuario con ID '${userId}' no existe en su organización`);
+    }
+
+    if (!user.branchId) {
+      throw new BadRequestException(`El usuario '${user.email}' no tiene ninguna sucursal asignada`);
+    }
+
+    const previousBranchName = user.branch?.name || user.branchId;
+
+    user.branchId = null;
+    user.branch = null;
+
+    await this.userRepository.save(user);
+
+    this.logger.log(
+      `[AUDITORÍA] Admin ID '${adminId}' desvinculó al Usuario ID '${userId}' de la Sucursal '${previousBranchName}'`,
+    );
+
+    return {
+      message: `El usuario '${user.email}' fue desvinculado de la sucursal '${previousBranchName}' correctamente`,
+    };
+  }
+
+  /**
+   * Obtiene todos los usuarios asignados a una sucursal específica.
+   */
+  async findUsersByBranch(
+    branchId: string,
+    tenantId: string,
+  ): Promise<UserEntity[]> {
+    const branch = await this.branchRepository.findOne({
+      where: { id: branchId, tenantId },
+    });
+
+    if (!branch) {
+      throw new NotFoundException(`La sucursal especificada no existe en su organización`);
+    }
+
+    return await this.userRepository.find({
+      where: { branchId, tenantId },
+      order: { email: 'ASC' },
+    });
   }
 }
