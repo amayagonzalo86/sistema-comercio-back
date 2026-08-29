@@ -1,27 +1,44 @@
-import { Column, CreateDateColumn, Index, PrimaryGeneratedColumn, UpdateDateColumn, } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  DeleteDateColumn,
+  Index,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 export abstract class BaseAuditEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  @Column({ type: 'varchar', length: 36, name: 'tenant_id', nullable: false })
   @Index()
-  @Column({ type: 'varchar', length: 36, nullable: false, name: 'tenant_id' })
   tenantId!: string;
 
-  @Column({ type: 'varchar', length: 36, nullable: true, name: 'created_by' })
-  createdBy?: string;
-
-  @Column({ type: 'varchar', length: 36, nullable: true, name: 'updated_by' })
-  updatedBy?: string;
-
-  @CreateDateColumn({ type: 'datetime', precision: 6, name: 'created_at' })
+  @CreateDateColumn({
+    type: 'timestamp',
+    name: 'created_at',
+    default: () => 'CURRENT_TIMESTAMP(6)',
+  })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'datetime', precision: 6, name: 'updated_at' })
+  @UpdateDateColumn({
+    type: 'timestamp',
+    name: 'updated_at',
+    default: () => 'CURRENT_TIMESTAMP(6)',
+    onUpdate: 'CURRENT_TIMESTAMP(6)',
+  })
   updatedAt!: Date;
 
+  @DeleteDateColumn({
+    type: 'timestamp',
+    nullable: true,
+    name: 'deleted_at',
+  })
+  deletedAt?: Date;
+
   constructor(partial?: Partial<BaseAuditEntity>) {
-    if (partial && typeof partial === 'object' && !Array.isArray(partial)) {
+    if (partial) {
       Object.assign(this, partial);
     }
   }

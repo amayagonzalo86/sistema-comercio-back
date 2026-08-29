@@ -1,8 +1,8 @@
 import {
   Injectable,
-  UnauthorizedException,
-  Logger,
   InternalServerErrorException,
+  Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -35,23 +35,27 @@ export class AuthService {
     private readonly sessionRepository: Repository<SessionEntity>,
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   async login(
     loginDto: LoginDto,
     ipAddress?: string,
     userAgent?: string,
   ): Promise<{ user: Omit<UserEntity, 'passwordHash'>; tokens: AuthTokens }> {
-    const { email, password, tenantId } = loginDto;
+    const sanitizedEmail = loginDto.email.toLowerCase().trim();
+    const sanitizedTenantId = loginDto.tenantId.trim();
 
-    // 1. Buscar usuario
+    // 1. Buscar usuario con proyección mediante objeto FindOptionsSelect (TypeORM 0.3+)
     const user = await this.userRepository.findOne({
-      where: { email: email.toLowerCase().trim(), tenantId },
+      where: {
+        email: sanitizedEmail,
+        tenantId: sanitizedTenantId,
+      },
       select: {
         id: true,
         tenantId: true,
         email: true,
-        passwordHash: true,
+        passwordHash: true, // Forzamos selección de columna declarada con select: false
         firstName: true,
         lastName: true,
         role: true,
@@ -59,19 +63,48 @@ export class AuthService {
       },
     });
 
-    if (!user || !user.status) {
+    // Diagnóstico de existencia y estado del usuario
+    if (!user) {
+      this.logger.warn(
+        `Intento de login fallido: Usuario no encontrado para email [${sanitizedEmail}] y tenant [${sanitizedTenantId}]`,
+      );
       throw new UnauthorizedException(
-        'Credenciales inválidas o cuenta desactivada'
+        'Credenciales inválidas o cuenta desactivada',
       );
     }
 
-    // 2. Verificar Hash
-    const isPasswordValid = await argon2.verify(user.passwordHash, password);
-    if (!isPasswordValid) {
+    if (!user.status) {
+      this.logger.warn(
+        `Intento de login fallido: Usuario [${user.id}] desactivado en tenant [${sanitizedTenantId}]`,
+      );
+      throw new UnauthorizedException(
+        'Credenciales inválidas o cuenta desactivada',
+      );
+    }
+
+    // 2. Control defensivo contra hashes de contraseña nulos o inválidos
+    if (!user.passwordHash || typeof user.passwordHash !== 'string' || user.passwordHash.trim() === '') {
+      this.logger.error(
+        `Error de integridad: El usuario ID [${user.id}] posee un hash de contraseña no válido o nulo en la BD.`,
+      );
+      throw new UnauthorizedException('Credenciales inválidas o cuenta desactivada');
+    }
+
+    // 3. Verificar Hash con Argon2
+    let isPasswordValid = false;
+    try {
+      isPasswordValid = await argon2.verify(user.passwordHash, loginDto.password);
+    } catch (error) {
+      this.logger.error(`Excepción al deserializar hash Argon2 para el usuario [${user.id}]:`, error);
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // 3. Generar Tokens
+    if (!isPasswordValid) {
+      this.logger.warn(`Intento de login fallido: Contraseña incorrecta para el usuario [${user.id}]`);
+      throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    // 4. Generar Tokens JWT
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -89,10 +122,10 @@ export class AuthService {
       expiresIn: '7d',
     });
 
-    // 4. Hashear Refresh Token
+    // 5. Hashear Refresh Token
     const refreshTokenHash = await argon2.hash(refreshToken);
 
-    // 5. Persistencia mediante QueryRunner (Garantiza ejecución y captura errores MySQL)
+    // 6. Transacción ACID para persistir sesión activa y token hash
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -127,8 +160,9 @@ export class AuthService {
       await queryRunner.release();
     }
 
-    // 6. Formatear respuesta
-    const { passwordHash: _, ...userWithoutPassword } = user;
+    // 7. Formatear respuesta sin retornar hashes sensibles
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { passwordHash: _, currentHashedRefreshToken: __, ...userWithoutPassword } = user;
     const userResponse = {
       ...userWithoutPassword,
       fullName: `${user.firstName} ${user.lastName}`.trim(),
@@ -145,6 +179,7 @@ export class AuthService {
   }
 
   async refreshTokens(userId: string, refreshToken: string): Promise<AuthTokens> {
+    // Proyección corregida mediante FindOptionsSelect
     const user = await this.userRepository.findOne({
       where: { id: userId },
       select: {

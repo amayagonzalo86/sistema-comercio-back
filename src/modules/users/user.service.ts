@@ -1,14 +1,10 @@
-import {
-  ConflictException,
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UserEntity, UserRole } from './entities/user.entity';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -17,12 +13,9 @@ export class UsersService {
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
-  ) {}
+  ) { }
 
-  async create(
-    createUserDto: CreateUserDto,
-    tenantId: string,
-  ): Promise<Omit<UserEntity, 'passwordHash'>> {
+  async create(createUserDto: CreateUserDto, tenantId: string): Promise<Omit<UserEntity, 'passwordHash'>> {
     const normalizedEmail = createUserDto.email.toLowerCase().trim();
 
     // 1. Verificar existencia del usuario dentro del Tenant
@@ -34,9 +27,7 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException(
-        `El correo '${createUserDto.email}' ya está registrado en su organización`,
-      );
+      throw new ConflictException(`El correo '${createUserDto.email}' ya está registrado en su organización`);
     }
 
     try {
@@ -55,9 +46,7 @@ export class UsersService {
       });
 
       const savedUser = await this.userRepository.save(newUser);
-      this.logger.log(`
-        Usuario creado exitosamente con ID: ${savedUser.id} en Tenant: ${tenantId}
-      `);
+      this.logger.log(`Usuario creado exitosamente con ID: ${savedUser.id} en Tenant: ${tenantId}`);
 
       // 4. Limpieza de campos sensibles en la respuesta
       const { passwordHash: _, currentHashedRefreshToken: __, ...userResult } = savedUser;
@@ -88,5 +77,87 @@ export class UsersService {
       },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async findOne(id: string, tenantId: string): Promise<UserEntity> {
+    const user = await this.userRepository.findOne({
+      where: { id, tenantId },
+      relations: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`El usuario con ID ${id} no fue encontrado`);
+    }
+
+    return user;
+  }
+
+  async update(
+    id: string,
+    tenantId: string,
+    updateUserDto: UpdateUserDto,
+  ): Promise<UserEntity> {
+    const user = await this.findOne(id, tenantId);
+
+    if (updateUserDto.email && updateUserDto.email !== user.email) {
+      const emailExists = await this.userRepository.findOne({
+        where: { email: updateUserDto.email, tenantId },
+        withDeleted: true,
+      });
+
+      if (emailExists) {
+        throw new ConflictException(
+          'El correo electrónico ya está registrado en este tenant',
+        );
+      }
+    }
+
+    if (updateUserDto.password) {
+      user.passwordHash = await argon2.hash(updateUserDto.password, {
+        type: argon2.argon2id,
+        memoryCost: 2 ** 16,
+        timeCost: 3,
+        parallelism: 1,
+      });
+      delete updateUserDto.password;
+    }
+
+    Object.assign(user, updateUserDto);
+    return await this.userRepository.save(user);
+  }
+
+  async disable(id: string, tenantId: string): Promise<{ message: string }> {
+    const user = await this.findOne(id, tenantId);
+
+    user.status = false;
+    await this.userRepository.save(user);
+    await this.userRepository.softDelete({ id: user.id, tenantId });
+
+    return {
+      message: `Usuario ${user.email} deshabilitado con éxito`,
+    };
+  }
+
+  async enable(id: string, tenantId: string): Promise<{ message: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id, tenantId },
+      withDeleted: true,
+    });
+
+    if (!user) {
+      throw new NotFoundException(`Usuario con ID ${id} no existe`);
+    }
+
+    if (!user.deletedAt && user.status) {
+      throw new BadRequestException('El usuario ya está activo');
+    }
+
+    await this.userRepository.restore({ id, tenantId });
+    user.status = true;
+    await this.userRepository.save(user);
+
+    return {
+      message: `Usuario ${user.email} habilitado con éxito`,
+    };
   }
 }

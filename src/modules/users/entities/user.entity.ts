@@ -1,6 +1,14 @@
-import { Column, Entity, Index, OneToMany } from 'typeorm';
+import {
+  Entity,
+  Column,
+  Index,
+  ManyToOne,
+  OneToMany,
+  JoinColumn,
+} from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { SessionEntity } from '../../auth/entities/session.entity';
+import { BranchEntity } from '../../branches/entities/branch.entity';
 
 export enum UserRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
@@ -8,6 +16,7 @@ export enum UserRole {
   MANAGER = 'MANAGER',
   CASHIER = 'CASHIER',
   STOCK_CLERK = 'STOCK_CLERK',
+  USER = 'USER',
 }
 
 @Entity('users')
@@ -16,7 +25,13 @@ export class UserEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 150, nullable: false })
   email!: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: false, select: false })
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: false,
+    select: false,
+    name: 'password_hash',
+  })
   passwordHash!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: false, name: 'first_name' })
@@ -28,7 +43,7 @@ export class UserEntity extends BaseAuditEntity {
   @Column({
     type: 'enum',
     enum: UserRole,
-    default: UserRole.CASHIER,
+    default: UserRole.USER,
   })
   role!: UserRole;
 
@@ -37,12 +52,22 @@ export class UserEntity extends BaseAuditEntity {
 
   @Column({
     type: 'varchar',
-    length: 255,
+    length: 500,
+    name: 'current_hashed_refresh_token',
     nullable: true,
     select: false,
-    name: 'current_hashed_refresh_token',
   })
   currentHashedRefreshToken?: string;
+
+  @Column({ type: 'uuid', nullable: true, name: 'branch_id' })
+  branchId?: string;
+
+  @ManyToOne(() => BranchEntity, (branch) => branch.users, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'branch_id' })
+  branch?: BranchEntity;
 
   @OneToMany(() => SessionEntity, (session) => session.user)
   sessions!: SessionEntity[];

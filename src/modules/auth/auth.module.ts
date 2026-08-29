@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { StringValue } from 'ms';
 import { UserEntity } from '../users/entities/user.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -30,7 +31,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         return {
           secret,
           signOptions: {
-            expiresIn: expiresIn as any, // Soluciona la incompatibilidad entre string y StringValue
+            expiresIn: expiresIn as StringValue,
           },
         };
       },
@@ -43,7 +44,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 export class AuthModule implements OnModuleInit {
   private readonly logger = new Logger(AuthModule.name);
 
-  constructor(private readonly jwtStrategy: JwtStrategy) { }
+  constructor(private readonly jwtStrategy: JwtStrategy) {}
 
   onModuleInit() {
     this.logger.log(
