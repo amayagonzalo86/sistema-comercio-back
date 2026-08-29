@@ -14,6 +14,7 @@ export enum UserRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
   ADMIN = 'ADMIN',
   MANAGER = 'MANAGER',
+  SELLER = 'SELLER',
   CASHIER = 'CASHIER',
   STOCK_CLERK = 'STOCK_CLERK',
   USER = 'USER',

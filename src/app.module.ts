@@ -3,11 +3,12 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { UserModule } from './modules/users/user.module';
-import { AuthModule } from './modules/auth/auth.module';
-import { ProductModule } from './modules/inventory/product/product.module';
 import { SeederModule } from './database/seeders/seeder.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { BranchesModule } from './modules/branches/branches.module';
+import { ProductModule } from './modules/inventory/product/product.module';
+import { ProductPriceListModule } from './modules/sales/price-list/product-price-list.module';
+import { UserModule } from './modules/users/user.module';
 
 @Module({
   imports: [
@@ -33,8 +34,9 @@ import { BranchesModule } from './modules/branches/branches.module';
     ProductModule,
     SeederModule,
     BranchesModule,
+    ProductPriceListModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
