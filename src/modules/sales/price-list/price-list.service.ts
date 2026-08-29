@@ -92,11 +92,15 @@ export class PriceListService {
         where: { id: savedPriceList.id, tenantId },
         relations: { productOverrides: true },
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
+
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+
       this.logger.error(
-        `Error al guardar la lista de precios para el tenant ${tenantId}: ${error.message}`,
-        error.stack,
+        `Error al guardar la lista de precios para el tenant ${tenantId}: ${errorMessage}`,
+        errorStack,
       );
 
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
