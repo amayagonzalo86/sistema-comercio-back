@@ -53,8 +53,10 @@ export class UsersService {
       this.logger.log(`Usuario creado exitosamente con ID: ${savedUser.id} en Tenant: ${tenantId}`);
 
       // 4. Limpieza de campos sensibles en la respuesta
-      const { passwordHash: _, currentHashedRefreshToken: __, ...userResult } = savedUser;
-      return userResult as Omit<UserEntity, 'passwordHash'>;
+      const userResult = { ...savedUser } as Partial<UserEntity>;
+      delete userResult.passwordHash;
+      delete userResult.currentHashedRefreshToken;
+      return userResult as Omit<UserEntity, 'passwordHash' | 'currentHashedRefreshToken'>;
     } catch (error) {
       this.logger.error(
         'Error al insertar el usuario en la base de datos MySQL',
