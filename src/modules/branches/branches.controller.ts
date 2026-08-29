@@ -1,11 +1,25 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserRole } from '../users/entities/user.entity';
 import { BranchesService } from './branches.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { BranchEntity } from './entities/branch.entity';
 
 @Controller('branches')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -15,9 +29,11 @@ export class BranchesController {
   @Post()
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() createBranchDto: CreateBranchDto, @Req() req: any) {
-    const tenantId = req.user.tenantId;
-    return this.branchesService.create(createBranchDto, tenantId);
+  async create(
+    @Body() createBranchDto: CreateBranchDto,
+    @GetUser('tenantId') tenantId: string,
+  ): Promise<BranchEntity> {
+    return await this.branchesService.create(createBranchDto, tenantId);
   }
 
   @Get()
@@ -28,9 +44,11 @@ export class BranchesController {
     UserRole.CASHIER,
     UserRole.STOCK_CLERK,
   )
-  findAll(@Req() req: any) {
-    const { tenantId, role } = req.user;
-    return this.branchesService.findAllByTenant(tenantId, role);
+  async findAll(
+    @GetUser('tenantId') tenantId: string,
+    @GetUser('role') role: UserRole,
+  ): Promise<BranchEntity[]> {
+    return await this.branchesService.findAllByTenant(tenantId, role);
   }
 
   @Get(':id')
@@ -41,26 +59,30 @@ export class BranchesController {
     UserRole.CASHIER,
     UserRole.STOCK_CLERK,
   )
-  findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
-    const { tenantId, role } = req.user;
-    return this.branchesService.findOneByTenant(id, tenantId, role);
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser('tenantId') tenantId: string,
+    @GetUser('role') role: UserRole,
+  ): Promise<BranchEntity> {
+    return await this.branchesService.findOneByTenant(id, tenantId, role);
   }
 
   @Patch(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  update(
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateBranchDto: UpdateBranchDto,
-    @Req() req: any,
-  ) {
-    const tenantId = req.user.tenantId;
-    return this.branchesService.update(id, updateBranchDto, tenantId);
+    @GetUser('tenantId') tenantId: string,
+  ): Promise<BranchEntity> {
+    return await this.branchesService.update(id, updateBranchDto, tenantId);
   }
 
   @Delete(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
-    const tenantId = req.user.tenantId;
-    return this.branchesService.remove(id, tenantId);
+  async remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser('tenantId') tenantId: string,
+  ): Promise<{ message: string }> {
+    return await this.branchesService.remove(id, tenantId);
   }
 }

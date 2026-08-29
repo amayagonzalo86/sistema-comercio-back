@@ -3,30 +3,31 @@ import {
     IsNotEmpty,
     IsOptional,
     IsString,
-    MaxLength,
-    MinLength,
+    Length,
+    Matches
 } from 'class-validator';
 
 export class CreateBranchDto {
-    @IsString({ message: 'El código de la sucursal debe ser un texto' })
+    @IsString({ message: 'El código debe ser una cadena de texto' })
     @IsNotEmpty({ message: 'El código de la sucursal es obligatorio' })
-    @MinLength(2, { message: 'El código debe tener al menos 2 caracteres' })
-    @MaxLength(20, { message: 'El código no puede exceder los 20 caracteres' })
+    @Length(3, 10, { message: 'El código debe tener entre 3 y 10 caracteres' })
+    @Matches(/^[A-Z0-9-]+$/, {
+        message: 'El código solo puede contener letras mayúsculas, números y guiones',
+    })
     readonly code!: string;
 
-    @IsString({ message: 'El nombre debe ser un texto' })
+    @IsString({ message: 'El nombre debe ser una cadena de texto' })
     @IsNotEmpty({ message: 'El nombre de la sucursal es obligatorio' })
-    @MaxLength(150, { message: 'El nombre no puede exceder los 150 caracteres' })
+    @Length(3, 100, { message: 'El nombre debe tener entre 3 y 100 caracteres' })
     readonly name!: string;
 
-    @IsString({ message: 'La dirección debe ser un texto' })
+    @IsString({ message: 'La dirección debe ser una cadena de texto' })
     @IsOptional()
-    @MaxLength(255, { message: 'La dirección no puede exceder los 255 caracteres' })
+    @Length(5, 255, { message: 'La dirección debe tener entre 5 y 255 caracteres' })
     readonly address?: string;
 
-    @IsString({ message: 'El teléfono debe ser un texto' })
+    @IsString({ message: 'El teléfono debe ser una cadena de texto' })
     @IsOptional()
-    @MaxLength(50, { message: 'El teléfono no puede exceder los 50 caracteres' })
     readonly phone?: string;
 
     @IsBoolean({ message: 'El estado debe ser un valor booleano' })

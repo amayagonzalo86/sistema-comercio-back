@@ -1,10 +1,10 @@
 import {
-  Entity,
   Column,
+  Entity,
   Index,
+  JoinColumn,
   ManyToOne,
   OneToMany,
-  JoinColumn,
 } from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { SessionEntity } from '../../auth/entities/session.entity';
@@ -62,10 +62,7 @@ export class UserEntity extends BaseAuditEntity {
   @Column({ type: 'uuid', nullable: true, name: 'branch_id' })
   branchId?: string;
 
-  @ManyToOne(() => BranchEntity, (branch) => branch.users, {
-    onDelete: 'SET NULL',
-    nullable: true,
-  })
+  @ManyToOne(() => BranchEntity, (branch) => branch.users, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'branch_id' })
   branch?: BranchEntity;
 
