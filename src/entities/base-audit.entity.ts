@@ -43,3 +43,5 @@ export abstract class BaseAuditEntity {
     }
   }
 }
+
+// comentario Prueba de comentario
