@@ -17,14 +17,11 @@ const columnNumericTransformer = {
 };
 
 @Entity('product_branches')
-@Index(['tenantId', 'productId', 'branchId'], { unique: true })
-@Index(['tenantId', 'branchId'])
+@Index(['productId', 'branchId'], { unique: true })
+@Index(['branchId'])
 export class ProductBranchEntity {
     @PrimaryGeneratedColumn('uuid')
     id!: string;
-
-    @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
-    tenantId!: string;
 
     @Column({ name: 'product_id', type: 'varchar', length: 36 })
     productId!: string;
@@ -42,34 +39,13 @@ export class ProductBranchEntity {
     @JoinColumn({ name: 'branch_id' })
     branch!: BranchEntity;
 
-    @Column({
-        name: 'cost_price',
-        type: 'decimal',
-        precision: 12,
-        scale: 2,
-        default: 0.0,
-        transformer: columnNumericTransformer,
-    })
+    @Column({ name: 'cost_price', type: 'decimal', precision: 12, scale: 2, default: 0.0, transformer: columnNumericTransformer })
     costPrice!: number;
 
-    @Column({
-        name: 'profit_margin',
-        type: 'decimal',
-        precision: 5,
-        scale: 2,
-        default: 30.0,
-        transformer: columnNumericTransformer,
-    })
+    @Column({ name: 'profit_margin', type: 'decimal', precision: 5, scale: 2, default: 30.0, transformer: columnNumericTransformer })
     profitMargin!: number;
 
-    @Column({
-        name: 'selling_price',
-        type: 'decimal',
-        precision: 12,
-        scale: 2,
-        default: 0.0,
-        transformer: columnNumericTransformer,
-    })
+    @Column({ name: 'selling_price', type: 'decimal', precision: 12, scale: 2, default: 0.0, transformer: columnNumericTransformer })
     sellingPrice!: number;
 
     @Column({

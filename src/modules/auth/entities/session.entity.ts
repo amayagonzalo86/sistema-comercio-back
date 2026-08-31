@@ -6,10 +6,6 @@ import { UserEntity } from '../../users/entities/user.entity';
 export class SessionEntity extends BaseAuditEntity {
   // Uso de 'declare' para notificar al compilador que la propiedad viene de BaseAuditEntity
   @Index()
-  @Column({ type: 'varchar', length: 36, nullable: false, name: 'tenant_id' })
-  declare tenantId: string;
-
-  @Index()
   @Column({ type: 'varchar', length: 36, nullable: false, name: 'user_id' })
   userId!: string;
 
@@ -19,12 +15,7 @@ export class SessionEntity extends BaseAuditEntity {
   @JoinColumn({ name: 'user_id' })
   user!: UserEntity;
 
-  @Column({
-    type: 'varchar',
-    length: 500,
-    nullable: false,
-    name: 'refresh_token_hash',
-  })
+  @Column({  type: 'varchar', length: 500, nullable: false, name: 'refresh_token_hash' })
   refreshTokenHash!: string;
 
   @Column({ type: 'varchar', length: 45, nullable: true, name: 'ip_address' })

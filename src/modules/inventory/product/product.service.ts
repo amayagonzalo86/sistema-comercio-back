@@ -20,28 +20,19 @@ export class ProductsService {
     private readonly dataSource: DataSource,
   ) { }
 
-  /**
-   * Registra un producto y su matriz de precios/stock inicial por sucursal en una transacción atómica.
-   */
-  async create(createProductDto: CreateProductDto, tenantId: string): Promise<ProductEntity> {
+  
+  //Registra un producto y su matriz de precios/stock inicial por sucursal en una transacción atómica.
+  async create(createProductDto: CreateProductDto): Promise<ProductEntity> {
     const { sku, barcode, branchSettings, ...productData } = createProductDto;
 
-    // 1. Validar duplicados dentro del tenant
-    const existingSku = await this.productRepository.findOne({
-      where: { tenantId, sku },
-    });
+    // 1. Validar duplicados dentro de la empresa para SKU y código de barras
+    const existingSku = await this.productRepository.findOne({ where: { sku } });
 
-    if (existingSku) {
-      throw new ConflictException(`El SKU '${sku}' ya está registrado en su catálogo`);
-    }
+    if (existingSku) { throw new ConflictException(`El SKU '${sku}' ya está registrado en su catálogo`); }
 
     if (barcode) {
-      const existingBarcode = await this.productRepository.findOne({
-        where: { tenantId, barcode },
-      });
-      if (existingBarcode) {
-        throw new ConflictException(`El código de barras '${barcode}' ya está asignado a otro producto`);
-      }
+      const existingBarcode = await this.productRepository.findOne({ where: { barcode } });
+      if (existingBarcode) { throw new ConflictException(`El código de barras '${barcode}' ya está asignado a otro producto`) }
     }
 
     // 2. Transacción de creación atómica (Producto + Precios en Sucursales)
@@ -55,7 +46,6 @@ export class ProductsService {
         ...productData,
         sku: sku.trim().toUpperCase(),
         barcode: barcode?.trim() || null,
-        tenantId,
       });
 
       const savedProduct = await queryRunner.manager.save(newProduct);
@@ -65,15 +55,12 @@ export class ProductsService {
 
       for (const bSetting of branchSettings) {
         const branch = await queryRunner.manager.findOne(BranchEntity, {
-          where: { id: bSetting.branchId, tenantId },
+          where: { id: bSetting.branchId },
         });
 
-        if (!branch) {
-          throw new NotFoundException(`La sucursal ID '${bSetting.branchId}' no pertenece a su empresa`);
-        }
+        if (!branch) { throw new NotFoundException(`La sucursal ID '${bSetting.branchId}' no pertenece a su empresa`) }
 
         const pbEntry = queryRunner.manager.create(ProductBranchEntity, {
-          tenantId,
           productId: savedProduct.id,
           branchId: bSetting.branchId,
           costPrice: bSetting.costPrice,
@@ -81,7 +68,7 @@ export class ProductsService {
           sellingPrice: bSetting.sellingPrice,
           stock: bSetting.stock,
           minStock: bSetting.minStock,
-          isActive: bSetting.isActive ?? true,
+          isActive: true,
         });
 
         branchEntitiesToSave.push(pbEntry);
@@ -91,7 +78,7 @@ export class ProductsService {
       await queryRunner.commitTransaction();
 
       this.logger.log(`Producto '${savedProduct.name}' (SKU: ${savedProduct.sku}) creado exitosamente.`);
-      return this.findOne(savedProduct.id, tenantId);
+      return this.findOne(savedProduct.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error('Error al ejecutar la transacción de creación de producto', error);
@@ -104,30 +91,26 @@ export class ProductsService {
     }
   }
 
-  /**
-   * Busca productos por filtro de sucursal (para el POS o gestión de stock local).
-   */
-  async findByBranch(tenantId: string, branchId: string): Promise<ProductBranchEntity[]> {
-    return await this.productBranchRepository.find({
-      where: { tenantId, branchId, isActive: true },
-      relations: { product: true },
-      order: { product: { name: 'ASC' } },
-    });
-  }
-
-  /**
-   * Obtiene la ficha completa de un producto con la matriz de todas sus sucursales.
-   */
-  async findOne(id: string, tenantId: string): Promise<ProductEntity> {
-    const product = await this.productRepository.findOne({
-      where: { id, tenantId },
-      relations: { branchSettings: { branch: true } },
-    });
-
-    if (!product) {
-      throw new NotFoundException(`El producto con ID '${id}' no existe en su catálogo`);
+  //Busca productos por filtro de sucursal (para el POS o gestión de stock local). 
+  async findByBranch( branchId: string): Promise<ProductBranchEntity[]> {
+    try{
+      return await this.productBranchRepository.find({ where: { branchId, isActive: true }, relations: { product: true }, order: { product: { name: 'ASC' } } });
+    } catch (error) {
+      this.logger.error(`Error al buscar productos para la sucursal ID '${branchId}'`, error);
+      throw new InternalServerErrorException('Error al consultar productos por sucursal');
     }
+  };
 
-    return product;
-  }
+  //Obtiene la ficha completa de un producto con la matriz de todas sus sucursales.
+  async findOne(id: string): Promise<ProductEntity> {
+    try{
+      const product = await this.productRepository.findOne({ where: { id }, relations: { branchSettings: { branch: true } } });
+  
+      if (!product) { throw new NotFoundException(`El producto con ID '${id}' no existe en su catálogo`) }
+      return product;
+    } catch (error) {
+      this.logger.error(`Error al buscar el producto ID '${id}'`, error);
+      throw new InternalServerErrorException('Error al consultar el producto');
+    }
+  };
 }

@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  HttpStatus,
-  Post,
-  Req,
-  Res,
-  UnauthorizedException
-} from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -29,23 +20,17 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(
-    @Req() request: Request,
-    @Body() body: RefreshTokenDto,
-    @Res({ passthrough: true }) response: Response,
-  ) {
+  async refresh(@Req() request: Request, @Body() body: RefreshTokenDto, @Res({ passthrough: true }) response: Response ) {
     // Extraer token desde la cookie HTTP-Only o del body como fallback
-    const tokenFromCookie = request.cookies?.['refreshToken'];
-    const refreshToken = tokenFromCookie || body.refreshToken;
+    const tokenFromCookie = request.cookies?.['refreshToken'] as string | undefined;
+    const refreshToken: string | undefined = tokenFromCookie ?? (typeof body.refreshToken === 'string' ? body.refreshToken : undefined);
 
-    if (!refreshToken) {
-      throw new UnauthorizedException('Token de refresco no proporcionado');
-    }
+    if (!refreshToken) { throw new UnauthorizedException('Token de refresco no proporcionado') }
 
     // El ID del usuario se extrae del payload codificado del token recibido
     const decodedToken = JSON.parse(
       Buffer.from(refreshToken.split('.')[1], 'base64').toString(),
-    );
+    ) as { sub: string };
 
     const tokens = await this.authService.refreshTokens(
       decodedToken.sub,
@@ -71,13 +56,13 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const refreshToken = request.cookies?.['refreshToken'];
+    const refreshToken = request.cookies?.['refreshToken'] as string | undefined;
 
     if (refreshToken) {
       try {
         const decodedToken = JSON.parse(
           Buffer.from(refreshToken.split('.')[1], 'base64').toString(),
-        );
+        ) as { sub: string };
         // Anular el hash guardado en la base de datos
         await this.authService['userRepository'].update(decodedToken.sub, {
           currentHashedRefreshToken: undefined,

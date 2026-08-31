@@ -10,7 +10,6 @@ import { ROLES_KEY } from '../decorators/roles.decorator';
 
 interface AuthenticatedUserPayload {
   id: string;
-  tenantId: string;
   role?: UserRole | string;
   roles?: (UserRole | string)[];
 }

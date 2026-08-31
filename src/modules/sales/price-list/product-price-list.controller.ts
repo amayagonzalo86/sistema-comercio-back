@@ -14,7 +14,6 @@ import { PriceListService } from './price-list.service';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { GetTenantId } from '../../../common/decorators/get-tenant.decorator';
 import { UserRole } from '../../users/entities/user.entity';
 
 @Controller('price-lists')
@@ -26,10 +25,9 @@ export class ProductPriceListController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @HttpCode(HttpStatus.CREATED)
   create(
-    @Body() createPriceListDto: CreatePriceListDto,
-    @GetTenantId() tenantId: string,
+    @Body() createPriceListDto: CreatePriceListDto
   ) {
-    return this.priceListService.create(createPriceListDto, tenantId);
+    return this.priceListService.create(createPriceListDto);
   }
 
   @Get(':priceListId/products/:productId/branches/:branchId/calculated-price')
@@ -38,13 +36,11 @@ export class ProductPriceListController {
     @Param('priceListId', ParseUUIDPipe) priceListId: string,
     @Param('productId', ParseUUIDPipe) productId: string,
     @Param('branchId', ParseUUIDPipe) branchId: string,
-    @GetTenantId() tenantId: string,
   ) {
     return this.priceListService.getCalculatedProductPrice(
       productId,
       branchId,
-      priceListId,
-      tenantId,
+      priceListId
     );
   }
 }

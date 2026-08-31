@@ -1,23 +1,16 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
-import { UserRole } from '../entities/user.entity';
+import { PartialType, OmitType } from '@nestjs/mapped-types';
 import { CreateUserDto } from './create-user.dto';
+import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
 
-export class UpdateUserDto extends PartialType(CreateUserDto) {
-    @IsOptional()
-    @IsString()
-    firstName?: string;
+export class UpdateUserDto extends PartialType(
+  OmitType(CreateUserDto, ['personId'] as const),
+) {
+  @IsString()
+  @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
+  @IsOptional()
+  readonly password?: string;
 
-    @IsOptional()
-    @IsString()
-    lastName?: string;
-
-    @IsOptional()
-    @IsEnum(UserRole)
-    role?: UserRole;
-
-    @IsOptional()
-    @IsString()
-    @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
-    password?: string;
+  @IsBoolean({ message: 'El estado isActive debe ser un valor booleano' })
+  @IsOptional()
+  readonly isActive?: boolean;
 }

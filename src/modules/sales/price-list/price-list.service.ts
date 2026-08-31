@@ -37,27 +37,19 @@ export class PriceListService {
     private readonly productBranchRepo: Repository<ProductBranchEntity>,
   ) { }
 
-  async create(createPriceListDto: CreatePriceListDto, tenantId: string): Promise<PriceListEntity> {
+  async create(createPriceListDto: CreatePriceListDto): Promise<PriceListEntity> {
     const { productOverrides = [], ...priceListData } = createPriceListDto;
 
     if (productOverrides.length > 0) {
       const productIds = productOverrides.map((item) => item.productId);
 
-      const existingProducts = await this.productRepo.find({
-        where: {
-          id: In(productIds),
-          tenantId: tenantId,
-        },
-        select: { id: true },
-      });
+      const existingProducts = await this.productRepo.find({ where: { id: In(productIds) }, select: { id: true } });
 
       const existingIds = new Set(existingProducts.map((p) => p.id));
       const invalidIds = productIds.filter((id) => !existingIds.has(id));
 
       if (invalidIds.length > 0) {
-        throw new BadRequestException(
-          `Los siguientes productos no existen o no pertenecen a la empresa actual: [${invalidIds.join(', ')}]`,
-        );
+        throw new BadRequestException(`Los siguientes productos no existen o no pertenecen a la empresa actual: [${invalidIds.join(', ')}]`);
       }
     }
 
@@ -68,7 +60,6 @@ export class PriceListService {
     try {
       const newPriceList = queryRunner.manager.create(PriceListEntity, {
         ...priceListData,
-        tenantId,
       });
 
       const savedPriceList = await queryRunner.manager.save(PriceListEntity, newPriceList);
@@ -76,7 +67,6 @@ export class PriceListService {
       if (productOverrides.length > 0) {
         const details = productOverrides.map((override) =>
           queryRunner.manager.create(ProductPriceListEntity, {
-            tenantId,
             priceListId: savedPriceList.id,
             productId: override.productId,
             appliedPercentage: override.appliedPercentage,
@@ -89,7 +79,7 @@ export class PriceListService {
       await queryRunner.commitTransaction();
 
       return await this.priceListRepo.findOneOrFail({
-        where: { id: savedPriceList.id, tenantId },
+        where: { id: savedPriceList.id },
         relations: { productOverrides: true },
       });
     } catch (error: unknown) {
@@ -98,75 +88,61 @@ export class PriceListService {
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       const errorStack = error instanceof Error ? error.stack : undefined;
 
-      this.logger.error(
-        `Error al guardar la lista de precios para el tenant ${tenantId}: ${errorMessage}`,
-        errorStack,
-      );
+      this.logger.error(`Error al guardar la lista de precios: ${errorMessage}`, errorStack);
 
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
-        throw error;
-      }
+      if (error instanceof BadRequestException || error instanceof NotFoundException) { throw error }
 
-      throw new InternalServerErrorException(
-        'Error crítico al persistir la lista de precios en la base de datos.',
-      );
+      throw new InternalServerErrorException('Error crítico al persistir la lista de precios en la base de datos.');
     } finally {
       await queryRunner.release();
     }
   }
 
-  /**
-   * Obtiene el precio calculado considerando la sucursal (sellingPrice) y las reglas de sobreescritura
-   */
-  async getCalculatedProductPrice(
-    productId: string,
-    branchId: string,
-    priceListId: string,
-    tenantId: string,
-  ): Promise<CalculatedPriceResponse> {
-    const priceList = await this.priceListRepo.findOne({
-      where: { id: priceListId, tenantId, isActive: true },
-      relations: { productOverrides: true },
-    });
+  
+  //Obtiene el precio calculado considerando la sucursal (sellingPrice) y las reglas de sobreescritura
+  async getCalculatedProductPrice(productId: string, branchId: string, priceListId: string): Promise<CalculatedPriceResponse> {
+    try{
+      const priceList = await this.priceListRepo.findOne({ where: { id: priceListId, isActive: true }, relations: { productOverrides: true } });
 
-    if (!priceList) {
-      throw new NotFoundException(`La lista de precios con ID '${priceListId}' no existe o está inactiva.`);
+      if (!priceList) { throw new NotFoundException(`La lista de precios con ID '${priceListId}' no existe o está inactiva.`) }
+
+      const productBranch = await this.productBranchRepo.findOne({ where: { productId, branchId }, relations: { product: true } });
+
+      if (!productBranch) {
+        throw new NotFoundException(`El producto '${productId}' no está asignado o habilitado en la sucursal '${branchId}'.`);
+      }
+
+      const basePrice = Number(productBranch.sellingPrice ?? 0);
+
+      const override = priceList.productOverrides?.find((item) => item.productId === productId);
+
+      let appliedPercentage = Number(priceList.percentage);
+      let isCustomOverride = false;
+
+      if (override) {
+        appliedPercentage = Number(override.appliedPercentage);
+        isCustomOverride = true;
+      }
+
+      const marginAmount = basePrice * (appliedPercentage / 100);
+      const finalPrice = Number((basePrice + marginAmount).toFixed(2));
+
+      return {
+        productId,
+        branchId,
+        priceListId,
+        basePrice,
+        appliedPercentage,
+        finalPrice,
+        isCustomOverride,
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Error al calcular el precio del producto '${productId}' para la sucursal '${branchId}' en la lista '${priceListId}': ${errorMessage}`, errorStack);
+      if (error instanceof NotFoundException || error instanceof BadRequestException) { throw error }
+      throw new InternalServerErrorException('Error al calcular el precio del producto.');
     }
+  };
 
-    const productBranch = await this.productBranchRepo.findOne({
-      where: { productId, branchId, tenantId },
-      relations: { product: true },
-    });
-
-    if (!productBranch) {
-      throw new NotFoundException(
-        `El producto '${productId}' no está asignado o habilitado en la sucursal '${branchId}'.`,
-      );
-    }
-
-    const basePrice = Number(productBranch.sellingPrice ?? 0);
-
-    const override = priceList.productOverrides?.find((item) => item.productId === productId);
-
-    let appliedPercentage = Number(priceList.percentage);
-    let isCustomOverride = false;
-
-    if (override) {
-      appliedPercentage = Number(override.appliedPercentage);
-      isCustomOverride = true;
-    }
-
-    const marginAmount = basePrice * (appliedPercentage / 100);
-    const finalPrice = Number((basePrice + marginAmount).toFixed(2));
-
-    return {
-      productId,
-      branchId,
-      priceListId,
-      basePrice,
-      appliedPercentage,
-      finalPrice,
-      isCustomOverride,
-    };
-  }
 }

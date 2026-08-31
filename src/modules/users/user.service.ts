@@ -1,284 +1,231 @@
-import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
-import { UserEntity, UserRole } from './entities/user.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { BranchEntity } from '../branches/entities/branch.entity';
 import { AssignBranchDto } from './dto/assign-branch.dto';
+import { UserEntity } from './entities/user.entity';
+import { PersonEntity } from '../persons/entities/person.entity';
+import { BranchEntity } from '../branches/entities/branch.entity';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
-
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(PersonEntity)
+    private readonly personRepository: Repository<PersonEntity>,
     @InjectRepository(BranchEntity)
     private readonly branchRepository: Repository<BranchEntity>,
-  ) { }
+  ) {}
 
-  async create(createUserDto: CreateUserDto, tenantId: string): Promise<Omit<UserEntity, 'passwordHash'>> {
-    const normalizedEmail = createUserDto.email.toLowerCase().trim();
-
-    // 1. Verificar existencia del usuario dentro del Tenant
-    const existingUser = await this.userRepository.findOne({
-      where: {
-        tenantId,
-        email: normalizedEmail,
-      },
-    });
-
-    if (existingUser) {
-      throw new ConflictException(`El correo '${createUserDto.email}' ya está registrado en su organización`);
-    }
-
+  async create( createUserDto: CreateUserDto ): Promise<Omit<UserEntity, 'passwordHash' | 'currentHashedRefreshToken'>> {
     try {
-      // 2. Hashear la contraseña con Argon2
-      const passwordHash = await argon2.hash(createUserDto.password);
-
-      // 3. Crear e instanciar entidad de manera atómica
-      const newUser = this.userRepository.create({
-        tenantId,
-        email: normalizedEmail,
-        passwordHash,
-        firstName: createUserDto.firstName,
-        lastName: createUserDto.lastName,
-        role: createUserDto.role ?? UserRole.CASHIER,
-        status: true,
-      });
-
-      const savedUser = await this.userRepository.save(newUser);
-      this.logger.log(`Usuario creado exitosamente con ID: ${savedUser.id} en Tenant: ${tenantId}`);
-
-      // 4. Limpieza de campos sensibles en la respuesta
-      const userResult = { ...savedUser } as Partial<UserEntity>;
-      delete userResult.passwordHash;
-      delete userResult.currentHashedRefreshToken;
-      return userResult as Omit<UserEntity, 'passwordHash' | 'currentHashedRefreshToken'>;
-    } catch (error) {
-      this.logger.error(
-        'Error al insertar el usuario en la base de datos MySQL',
-        error
-      );
-      throw new InternalServerErrorException(
-        'Error al registrar el nuevo usuario'
-      );
-    }
-  }
-
-  async findAllByTenant(tenantId: string): Promise<UserEntity[]> {
-    return await this.userRepository.find({
-      where: { tenantId },
-      select: {
-        id: true,
-        tenantId: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        status: true,
-        createdAt: true,
-      },
-      order: { createdAt: 'DESC' },
-    });
-  }
-
-  async findOne(id: string, tenantId: string): Promise<UserEntity> {
-    const user = await this.userRepository.findOne({
-      where: { id, tenantId },
-      relations: { branch: true },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`El usuario con ID ${id} no fue encontrado`);
-    }
-
-    return user;
-  }
-
-  async update(
-    id: string,
-    tenantId: string,
-    updateUserDto: UpdateUserDto,
-  ): Promise<UserEntity> {
-    const user = await this.findOne(id, tenantId);
-
-    if (updateUserDto.email && updateUserDto.email !== user.email) {
-      const emailExists = await this.userRepository.findOne({
-        where: { email: updateUserDto.email, tenantId },
-        withDeleted: true,
-      });
-
-      if (emailExists) {
-        throw new ConflictException(
-          'El correo electrónico ya está registrado en este tenant',
-        );
+      const { username, password, role, personId, branchId } = createUserDto;
+        
+      // 1. Verificar si el username ya está registrado
+      const existingUserByUsername = await this.userRepository.findOne({ where: { username } });
+      if (existingUserByUsername) { throw new ConflictException(`El nombre de usuario '${username}' ya está registrado en el sistema`) }
+        
+      // 2. Validar existencia previa e independiente de la persona
+      const person = await this.personRepository.findOne({ where: { id: personId } });
+      if (!person) { throw new NotFoundException(`No existe una persona registrada con el ID ${personId}. Debe crear la persona previamente.`) }
+        
+      // 3. Verificar que la persona no posea ya un usuario asociado
+      const existingUserByPerson = await this.userRepository.findOne({ where: { person: { id: personId } } });
+      if (existingUserByPerson) { throw new ConflictException(`La persona especificada ya tiene un usuario asignado ('${existingUserByPerson.username}')`) }
+        
+      // 4. Validar sucursal opcional
+      let branch: BranchEntity | null = null;
+      if (branchId) {
+        branch = await this.branchRepository.findOne({ where: { id: branchId } });
+        if (!branch) { throw new NotFoundException(`Sucursal con ID ${branchId} no encontrada`) }
       }
+        
+      // 5. Cifrar la contraseña con Argon2
+      const passwordHash = await argon2.hash(password);
+      
+      // 6. Instanciar y guardar la entidad
+      const newUser = this.userRepository.create({
+        username,
+        passwordHash,
+        role,
+        person,
+        branch: branch || undefined,
+        isActive: true,
+      });
+        
+      const savedUser = await this.userRepository.save(newUser);
+        
+      // 7. Omitir credenciales en la respuesta
+      delete (savedUser as Partial<UserEntity>).passwordHash;
+      delete (savedUser as Partial<UserEntity>).currentHashedRefreshToken;
+      return savedUser;
+    } catch (error) {
+      if ( error instanceof NotFoundException || error instanceof ConflictException || error instanceof BadRequestException ) {
+        throw error;
+      }
+      this.logger.error(`Error al crear el usuario: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined );
+      throw new InternalServerErrorException('No se pudo crear el usuario');
+    }
+  }
+  
+  async findAll(): Promise<UserEntity[]> {
+    try{
+      return await this.userRepository.find({ relations: { person: true, branch: true },
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error){
+      this.logger.error(`Error al obtener usuarios: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+      throw new InternalServerErrorException('No se pudieron obtener los usuarios');
+    }
+  };
+
+  async findOne(id: string): Promise<UserEntity> {
+    try {
+      const user = await this.userRepository.findOne({ where: { id },  relations: { person: true, branch: true } });
+      if (!user) { throw new NotFoundException(`Usuario con ID ${id} no encontrado`) }
+      return user;
+    } catch (error) {
+      if (error instanceof NotFoundException) { throw error }
+      this.logger.error(`Error al obtener el usuario con ID ${id}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+      throw new InternalServerErrorException('No se pudo obtener el usuario');
+    }
+  };
+
+  async findByUsername(username: string): Promise<UserEntity> {
+    try {
+      const user = await this.userRepository.findOne({ where: { username }, relations: { person: true, branch: true } });
+      if (!user) { throw new NotFoundException(`Usuario con el nombre '${username}' no encontrado`) }
+      return user;
+    } catch (error) {
+      if (error instanceof NotFoundException) { throw error }
+      this.logger.error(`Error al obtener el usuario con nombre '${username}': ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+      throw new InternalServerErrorException('No se pudo obtener el usuario');
+    }
+  }
+
+  async update(id: string, updateUserDto: UpdateUserDto): Promise<UserEntity> {
+    const user = await this.findOne(id);
+
+    if (updateUserDto.username && updateUserDto.username !== user.username) {
+      const existingUsername = await this.userRepository.findOne({ where: { username: updateUserDto.username } });
+      if (existingUsername) { throw new ConflictException(`El nombre de usuario '${updateUserDto.username}' ya está en uso`) }
+      user.username = updateUserDto.username;
     }
 
     if (updateUserDto.password) {
-      user.passwordHash = await argon2.hash(updateUserDto.password, {
-        type: argon2.argon2id,
-        memoryCost: 2 ** 16,
-        timeCost: 3,
-        parallelism: 1,
-      });
-      delete updateUserDto.password;
+      user.passwordHash = await argon2.hash(updateUserDto.password);
     }
 
-    Object.assign(user, updateUserDto);
+    if (updateUserDto.role) {
+      user.role = updateUserDto.role;
+    }
+
+    if (updateUserDto.branchId !== undefined) {
+      if (updateUserDto.branchId === null) {
+        user.branch = null;
+        user.branchId = null;
+      } else {
+        const branch = await this.branchRepository.findOne({
+          where: { id: updateUserDto.branchId },
+        });
+        if (!branch) {
+          throw new NotFoundException(
+            `Sucursal con ID ${updateUserDto.branchId} no encontrada`,
+          );
+        }
+        user.branch = branch;
+        user.branchId = branch.id;
+      }
+    }
+
+    if (updateUserDto.isActive !== undefined) {
+      user.isActive = updateUserDto.isActive;
+    }
+
     return await this.userRepository.save(user);
   }
 
-  async disable(id: string, tenantId: string): Promise<{ message: string }> {
-    const user = await this.findOne(id, tenantId);
+  async assignBranch( assignBranchDto: AssignBranchDto): Promise<UserEntity> {
+    const { branchId , userId } = assignBranchDto;
+    const user = await this.findOne(userId);
+    const branchFind = await this.branchRepository.findOne({ where: { id: branchId } });
+    if (!branchFind) { throw new NotFoundException(`Sucursal con ID ${assignBranchDto.branchId} no encontrada`) }
+    user.branch = branchFind;
+    user.branchId = branchFind.id;
+    return await this.userRepository.save(user);
+  };
 
-    user.status = false;
+  async unassignBranch(userId: string): Promise<{ message: string }> {
+    try {
+      const user = await this.findOne(userId);
+      if (!user.branch) { throw new BadRequestException('El usuario no tiene una sucursal asignada') }
+      user.branch = null;
+      user.branchId = null;
+      await this.userRepository.save(user);
+
+      return { message: 'Sucursal desasignada correctamente del usuario' };
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) { throw error }
+      this.logger.error(`Error al desasignar la sucursal del usuario con ID ${userId}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+      throw new InternalServerErrorException('No se pudo desasignar la sucursal del usuario');
+    }
+  };
+
+  async findUsersByBranch(branchId: string): Promise<UserEntity[]> {
+    try {
+      const branch = await this.branchRepository.findOne({ where: { id: branchId } });
+      if (!branch) { throw new NotFoundException(`Sucursal con ID ${branchId} no encontrada`) }
+
+      return await this.userRepository.find({ where: { branch: { id: branchId } }, relations: { person: true },
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          isActive: true,
+        },
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) { throw error; }
+      this.logger.error( `Error al obtener usuarios de la sucursal con ID ${branchId}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+      throw new InternalServerErrorException('No se pudieron obtener los usuarios de la sucursal');
+    }
+  };
+
+  async disable(id: string): Promise<{ message: string }> {
+    try {
+      const user = await this.findOne(id);
+      user.isActive = false;
+      await this.userRepository.save(user);
+      return { message: `El usuario '${user.username}' ha sido desactivado` };
+    } catch (error) {
+      if (error instanceof NotFoundException) { throw error }
+      this.logger.error( `Error al desactivar el usuario con ID ${id}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+      throw new InternalServerErrorException('No se pudo desactivar el usuario');
+    }
+  };
+
+  async enable(id: string): Promise<{ message: string }> {
+    const user = await this.findOne(id);
+    user.isActive = true;
     await this.userRepository.save(user);
-    await this.userRepository.softDelete({ id: user.id, tenantId });
-
-    return {
-      message: `Usuario ${user.email} deshabilitado con éxito`,
-    };
-  }
-
-  async enable(id: string, tenantId: string): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({
-      where: { id, tenantId },
-      withDeleted: true,
-    });
-
-    if (!user) {
-      throw new NotFoundException(`Usuario con ID ${id} no existe`);
-    }
-
-    if (!user.deletedAt && user.status) {
-      throw new BadRequestException('El usuario ya está activo');
-    }
-
-    await this.userRepository.restore({ id, tenantId });
-    user.status = true;
-    await this.userRepository.save(user);
-
-    return {
-      message: `Usuario ${user.email} habilitado con éxito`,
-    };
-  }
-
-  /**
-   * Asigna o actualiza la sucursal activa de un usuario dentro del mismo tenant.
-   */
-  async assignBranch(
-    userId: string,
-    assignBranchDto: AssignBranchDto,
-    tenantId: string,
-    adminId: string,
-  ): Promise<UserEntity> {
-    const { branchId } = assignBranchDto;
-
-    // 1. Validar que el usuario exista en el mismo tenant
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`El usuario con ID '${userId}' no existe en su organización`);
-    }
-
-    // 2. Validar que la sucursal exista, pertenezca al tenant y esté activa
-    const branch = await this.branchRepository.findOne({
-      where: { id: branchId, tenantId },
-    });
-
-    if (!branch) {
-      throw new NotFoundException(
-        `La sucursal con ID '${branchId}' no fue encontrada en su organización`,
-      );
-    }
-
-    if (!branch.status) {
-      throw new BadRequestException(
-        `No se puede asignar la sucursal '${branch.name}' porque se encuentra deshabilitada`,
-      );
-    }
-
-    // 3. Verificar si ya está asignado a esa misma sucursal
-    if (user.branchId === branchId) {
-      throw new ConflictException(
-        `El usuario '${user.email}' ya se encuentra asignado a la sucursal '${branch.name}'`,
-      );
-    }
-
-    const previousBranchId = user.branchId;
-    user.branchId = branchId;
-    user.branch = branch;
-
-    const updatedUser = await this.userRepository.save(user);
-
-    this.logger.log(
-      `[AUDITORÍA] Admin ID '${adminId}' reasignó al Usuario ID '${userId}' de Sucursal '${previousBranchId || 'NINGUNA'}' a Sucursal '${branch.id}' (${branch.name})`,
-    );
-
-    return updatedUser;
-  }
-
-  /**
-   * Remueve la asignación de sucursal de un usuario (deja el campo branchId en null).
-   */
-  async unassignBranch(
-    userId: string,
-    tenantId: string,
-    adminId: string,
-  ): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId },
-      relations: { branch: true },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`El usuario con ID '${userId}' no existe en su organización`);
-    }
-
-    if (!user.branchId) {
-      throw new BadRequestException(`El usuario '${user.email}' no tiene ninguna sucursal asignada`);
-    }
-
-    const previousBranchName = user.branch?.name || user.branchId;
-
-    user.branchId = null;
-    user.branch = null;
-
-    await this.userRepository.save(user);
-
-    this.logger.log(
-      `[AUDITORÍA] Admin ID '${adminId}' desvinculó al Usuario ID '${userId}' de la Sucursal '${previousBranchName}'`,
-    );
-
-    return {
-      message: `El usuario '${user.email}' fue desvinculado de la sucursal '${previousBranchName}' correctamente`,
-    };
-  }
-
-  /**
-   * Obtiene todos los usuarios asignados a una sucursal específica.
-   */
-  async findUsersByBranch(
-    branchId: string,
-    tenantId: string,
-  ): Promise<UserEntity[]> {
-    const branch = await this.branchRepository.findOne({
-      where: { id: branchId, tenantId },
-    });
-
-    if (!branch) {
-      throw new NotFoundException(`La sucursal especificada no existe en su organización`);
-    }
-
-    return await this.userRepository.find({
-      where: { branchId, tenantId },
-      order: { email: 'ASC' },
-    });
+    return { message: `El usuario '${user.username}' ha sido activado` };
   }
 }

@@ -1,9 +1,8 @@
-import { Column, Entity, Index, OneToMany } from 'typeorm';
+import { Column, Entity, OneToMany } from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { UserEntity } from '../../users/entities/user.entity';
 
 @Entity('branches')
-@Index('idx_branches_tenant_code', ['tenantId', 'code'], { unique: true })
 export class BranchEntity extends BaseAuditEntity {
     @Column({ type: 'varchar', length: 20, nullable: false, name: 'code' })
     code!: string;

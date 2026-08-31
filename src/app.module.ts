@@ -9,6 +9,7 @@ import { BranchesModule } from './modules/branches/branches.module';
 import { ProductModule } from './modules/inventory/product/product.module';
 import { ProductPriceListModule } from './modules/sales/price-list/product-price-list.module';
 import { UserModule } from './modules/users/user.module';
+import { PersonsModule } from './modules/persons/persons.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { UserModule } from './modules/users/user.module';
     SeederModule,
     BranchesModule,
     ProductPriceListModule,
+    PersonsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

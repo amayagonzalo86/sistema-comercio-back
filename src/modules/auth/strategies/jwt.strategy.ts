@@ -5,7 +5,6 @@ import { UserRole } from '../../users/entities/user.entity';
 
 export interface JwtCustomPayload {
     sub: string;
-    tenantId: string;
     email: string;
     role?: UserRole | string;
     roles?: (UserRole | string)[];
@@ -21,10 +20,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         });
     }
 
-    async validate(payload: JwtCustomPayload) {
-        if (!payload || !payload.sub || !payload.tenantId) {
-            throw new UnauthorizedException('Payload de autenticación inválido.');
-        }
+    validate(payload: JwtCustomPayload) {
+        if (!payload || !payload.sub) { throw new UnauthorizedException('Payload de autenticación inválido.') }
 
         // Retorna el usuario inyectando de forma explícita tanto 'role' como 'roles'
         const primaryRole = payload.role || (payload.roles && payload.roles[0]) || UserRole.USER;
@@ -32,7 +29,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
         return {
             id: payload.sub,
-            tenantId: payload.tenantId,
             email: payload.email,
             role: primaryRole,
             roles: allRoles,

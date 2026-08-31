@@ -11,14 +11,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return super.canActivate(context);
   }
 
-  handleRequest<TUser = any>(err: any, user: any, info: any): TUser {
+  handleRequest<TUser = unknown>( err: any, user: TUser | null | undefined): TUser {
     if (err || !user) {
-      throw (
-        err ||
-        new UnauthorizedException(
-          'Acceso no autorizado: El token de sesión es inválido o ha expirado.',
-        )
-      );
+      throw ( err || new UnauthorizedException('Acceso no autorizado: El token de sesión es inválido o ha expirado.') );
     }
     return user;
   }

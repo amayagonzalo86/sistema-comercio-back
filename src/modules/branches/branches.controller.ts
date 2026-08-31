@@ -14,7 +14,6 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserRole } from '../users/entities/user.entity';
 import { BranchesService } from './branches.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
@@ -29,60 +28,33 @@ export class BranchesController {
   @Post()
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  async create(
-    @Body() createBranchDto: CreateBranchDto,
-    @GetUser('tenantId') tenantId: string,
-  ): Promise<BranchEntity> {
-    return await this.branchesService.create(createBranchDto, tenantId);
+  async create(@Body() createBranchDto: CreateBranchDto): Promise<BranchEntity> {
+    return await this.branchesService.create(createBranchDto);
   }
 
   @Get()
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.ADMIN,
-    UserRole.MANAGER,
-    UserRole.CASHIER,
-    UserRole.STOCK_CLERK,
-  )
-  async findAll(
-    @GetUser('tenantId') tenantId: string,
-    @GetUser('role') role: UserRole,
-  ): Promise<BranchEntity[]> {
-    return await this.branchesService.findAllByTenant(tenantId, role);
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER, UserRole.STOCK_CLERK )
+  async findAll(): Promise<BranchEntity[]> {
+    return await this.branchesService.findAll();
   }
 
   @Get(':id')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.ADMIN,
-    UserRole.MANAGER,
-    UserRole.CASHIER,
-    UserRole.STOCK_CLERK,
-  )
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER, UserRole.STOCK_CLERK )
   async findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-    @GetUser('tenantId') tenantId: string,
-    @GetUser('role') role: UserRole,
-  ): Promise<BranchEntity> {
-    return await this.branchesService.findOneByTenant(id, tenantId, role);
+    @Param('id', ParseUUIDPipe) id: string ): Promise<BranchEntity> {
+    return await this.branchesService.findOne(id);
   }
 
   @Patch(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  async update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateBranchDto: UpdateBranchDto,
-    @GetUser('tenantId') tenantId: string,
+  async update( @Param('id', ParseUUIDPipe) id: string, @Body() updateBranchDto: UpdateBranchDto,
   ): Promise<BranchEntity> {
-    return await this.branchesService.update(id, updateBranchDto, tenantId);
+    return await this.branchesService.update(id, updateBranchDto);
   }
 
   @Delete(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  async remove(
-    @Param('id', ParseUUIDPipe) id: string,
-    @GetUser('tenantId') tenantId: string,
-  ): Promise<{ message: string }> {
-    return await this.branchesService.remove(id, tenantId);
+  async remove( @Param('id', ParseUUIDPipe) id: string ): Promise<{ message: string }> {
+    return await this.branchesService.remove(id);
   }
 }

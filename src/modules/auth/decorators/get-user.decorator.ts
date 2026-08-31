@@ -3,8 +3,7 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 export interface UserTokenPayload {
     id: string;
     sub?: string;
-    email: string;
-    tenantId: string;
+    username: string;
     role: string;
 }
 

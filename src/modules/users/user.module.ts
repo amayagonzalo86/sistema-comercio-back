@@ -4,9 +4,10 @@ import { UsersController } from './user.controller';
 import { UsersService } from '../users/user.service';
 import { UserEntity } from './entities/user.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
+import { PersonEntity } from '../persons/entities/person.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([UserEntity, BranchEntity])],
+  imports: [TypeOrmModule.forFeature([UserEntity, BranchEntity, PersonEntity])],
   controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService, TypeOrmModule],

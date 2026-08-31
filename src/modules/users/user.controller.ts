@@ -31,76 +31,61 @@ export class UsersController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() createUserDto: CreateUserDto,
-    @GetUser('tenantId') tenantId: string,
-  ): Promise<Omit<UserEntity, 'passwordHash'>> {
-    return await this.usersService.create(createUserDto, tenantId);
+  ): Promise<Omit<UserEntity, 'passwordHash' | 'currentHashedRefreshToken'>> {
+    return await this.usersService.create(createUserDto);
   }
 
   @Get()
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  async findAll(
-    @GetUser('tenantId') tenantId: string,
-  ): Promise<UserEntity[]> {
-    return await this.usersService.findAllByTenant(tenantId);
+  async findAll(): Promise<UserEntity[]> {
+    return await this.usersService.findAll();
   }
 
-  @Patch(':id/assign-branch')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async assignBranch(
-    @Param('id', ParseUUIDPipe) userId: string,
-    @Body() assignBranchDto: AssignBranchDto,
-    @GetUser('tenantId') tenantId: string,
-    @GetUser('id') adminId: string,
+  @Get(':id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
   ): Promise<UserEntity> {
-    return await this.usersService.assignBranch(userId, assignBranchDto, tenantId, adminId);
+    return await this.usersService.findOne(id);
   }
 
-  @Delete(':id/unassign-branch')
+  @Patch('assign-branch')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
-  async unassignBranch(
-    @Param('id', ParseUUIDPipe) userId: string,
-    @GetUser('tenantId') tenantId: string,
-    @GetUser('id') adminId: string,
-  ): Promise<{ message: string }> {
-    return await this.usersService.unassignBranch(userId, tenantId, adminId);
+  async assignBranch(@Body() assignBranchDto: AssignBranchDto): Promise<UserEntity> {
+    return await this.usersService.assignBranch( assignBranchDto );
+  };
+
+  @Delete('unassign-branch')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async unassignBranch(@Param('id', ParseUUIDPipe) userId: string): Promise<{ message: string }> {
+    return await this.usersService.unassignBranch(userId);
   }
 
   @Get('by-branch/:branchId')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
   async findUsersByBranch(
     @Param('branchId', ParseUUIDPipe) branchId: string,
-    @GetUser('tenantId') tenantId: string,
   ): Promise<UserEntity[]> {
-    return await this.usersService.findUsersByBranch(branchId, tenantId);
+    return await this.usersService.findUsersByBranch(branchId);
   }
 
   @Patch(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  async update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @GetUser('tenantId') tenantId: string,
-    @Body() updateUserDto: UpdateUserDto,
-  ): Promise<UserEntity> {
-    return await this.usersService.update(id, tenantId, updateUserDto);
-  }
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() updateUserDto: UpdateUserDto): Promise<UserEntity> {
+    return await this.usersService.update(id, updateUserDto);
+  };
 
   @Delete(':id/disable')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  async disable(
-    @Param('id', ParseUUIDPipe) id: string,
-    @GetUser('tenantId') tenantId: string,
-  ): Promise<{ message: string }> {
-    return await this.usersService.disable(id, tenantId);
-  }
+  async disable(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
+    return await this.usersService.disable(id);
+  };
 
   @Patch(':id/enable')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  async enable(
-    @Param('id', ParseUUIDPipe) id: string,
-    @GetUser('tenantId') tenantId: string,
-  ): Promise<{ message: string }> {
-    return await this.usersService.enable(id, tenantId);
-  }
+  async enable(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
+    return await this.usersService.enable(id);
+  };
 }

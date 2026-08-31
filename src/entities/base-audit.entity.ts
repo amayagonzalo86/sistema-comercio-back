@@ -1,8 +1,6 @@
 import {
-  Column,
   CreateDateColumn,
   DeleteDateColumn,
-  Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -10,10 +8,6 @@ import {
 export abstract class BaseAuditEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
-
-  @Column({ type: 'varchar', length: 36, name: 'tenant_id', nullable: false })
-  @Index()
-  tenantId!: string;
 
   @CreateDateColumn({
     type: 'timestamp',

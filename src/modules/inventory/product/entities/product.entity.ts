@@ -26,14 +26,11 @@ const columnNumericTransformer = {
 };
 
 @Entity('products')
-@Index(['tenantId', 'sku'], { unique: true })
-@Index(['tenantId', 'barcode'])
+@Index(['sku'], { unique: true })
+@Index(['barcode'])
 export class ProductEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
-
-  @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
-  tenantId!: string;
 
   @Column({ type: 'varchar', length: 50 })
   sku!: string;
@@ -53,22 +50,10 @@ export class ProductEntity {
   @Column({ type: 'varchar', length: 80, nullable: true })
   brand?: string | null;
 
-  @Column({
-    name: 'unit_of_measure',
-    type: 'enum',
-    enum: UnitOfMeasure,
-    default: UnitOfMeasure.UNIT,
-  })
+  @Column({ name: 'unit_of_measure', type: 'enum', enum: UnitOfMeasure, default: UnitOfMeasure.UNIT })
   unitOfMeasure!: UnitOfMeasure;
 
-  @Column({
-    name: 'tax_rate',
-    type: 'decimal',
-    precision: 5,
-    scale: 2,
-    default: 21.0,
-    transformer: columnNumericTransformer,
-  })
+  @Column({ name: 'tax_rate', type: 'decimal', precision: 5, scale: 2, default: 21.0, transformer: columnNumericTransformer })
   taxRate!: number;
 
   @Column({ type: 'boolean', default: true })
