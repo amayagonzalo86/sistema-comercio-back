@@ -1,26 +1,19 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-  OneToOne,
-} from 'typeorm';
+import { Column, Entity, Index, JoinColumn, JoinTable, ManyToMany, ManyToOne, OneToMany, OneToOne } from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { SessionEntity } from '../../auth/entities/session.entity';
 import { BranchEntity } from '../../branches/entities/branch.entity';
 import { PersonEntity } from '../../persons/entities/person.entity';
+import { RoleEntity, UserRoleEnum } from '../../roles/entities/role.entity';
 
-export enum UserRole {
-  SUPER_ADMIN = 'SUPER_ADMIN',
-  ADMIN = 'ADMIN',
-  MANAGER = 'MANAGER',
-  SELLER = 'SELLER',
-  CASHIER = 'CASHIER',
-  STOCK_CLERK = 'STOCK_CLERK',
-  USER = 'USER',
-}
+// export enum UserRole {
+//   SUPER_ADMIN = 'SUPER_ADMIN',
+//   ADMIN = 'ADMIN',
+//   MANAGER = 'MANAGER',
+//   SELLER = 'SELLER',
+//   CASHIER = 'CASHIER',
+//   STOCK_CLERK = 'STOCK_CLERK',
+//   USER = 'USER',
+// }
 
 @Entity('users')
 export class UserEntity extends BaseAuditEntity {
@@ -31,8 +24,14 @@ export class UserEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 255, nullable: false, select: false, name: 'password_hash' })
   passwordHash!: string;
 
-  @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
-  role!: UserRole;
+  // --- Relación Muchos-a-Muchos con Roles ---
+  @ManyToMany(() => RoleEntity, { eager: true })
+  @JoinTable({
+    name: 'users_roles',
+    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
+  })
+  roles!: RoleEntity[];
 
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
@@ -67,22 +66,17 @@ export class UserEntity extends BaseAuditEntity {
     }
   }
 
-  // Getter de dominio delegado a PersonEntity para evitar romper referencias existentes
+
+  // --- Getters de Compatibilidad ---
   get fullName(): string {
     return this.person ? this.person.fullName : this.username;
   }
 
-  // Helper de compatibilidad para evitar breaking changes si la App consumía firstName/lastName
   get firstName(): string {
     return this.person?.firstName ?? '';
   }
 
   get lastName(): string {
     return this.person?.lastName ?? '';
-  }
-
-  // Getter de dominio para permisos de administración
-  get isAdmin(): boolean {
-    return this.role === UserRole.SUPER_ADMIN || this.role === UserRole.ADMIN;
   }
 }

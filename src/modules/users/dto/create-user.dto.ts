@@ -1,5 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MinLength } from 'class-validator';
-import { UserRole } from '../entities/user.entity';
+import { ArrayMinSize, IsArray,  IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MinLength } from 'class-validator';
 
 export class CreateUserDto {
   @IsString()
@@ -16,9 +15,13 @@ export class CreateUserDto {
   @IsNotEmpty({ message: 'La contraseña es obligatoria' })
   readonly password!: string;
 
-  @IsEnum(UserRole, { message: 'El rol especificado no es válido' })
-  @IsNotEmpty({ message: 'El rol es obligatorio' })
-  readonly role!: UserRole;
+  @IsArray({ message: 'Los IDs de roles deben enviarse en un arreglo' })
+  @ArrayMinSize(1, { message: 'Debe asignar al menos un rol al usuario' })
+  @IsUUID('4', {
+    each: true,
+    message: 'Cada ID de rol debe ser un UUID v4 válido',
+  })
+  readonly roleIds!: string[];
 
   @IsUUID('4', { message: 'El ID de la persona debe ser un UUID v4 válido' })
   @IsNotEmpty({ message: 'El ID de la persona es obligatorio' })

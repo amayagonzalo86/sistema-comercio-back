@@ -8,18 +8,21 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignBranchDto } from './dto/assign-branch.dto';
 import { UserEntity } from './entities/user.entity';
 import { PersonEntity } from '../persons/entities/person.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
+import { RoleEntity } from '../roles/entities/role.entity';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
   constructor(
+    @InjectRepository(RoleEntity)
+    private readonly roleRepository: Repository<RoleEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(PersonEntity)
@@ -30,7 +33,7 @@ export class UsersService {
 
   async create( createUserDto: CreateUserDto ): Promise<Omit<UserEntity, 'passwordHash' | 'currentHashedRefreshToken'>> {
     try {
-      const { username, password, role, personId, branchId } = createUserDto;
+      const { username, password, roleIds, personId, branchId } = createUserDto;
         
       // 1. Verificar si el username ya está registrado
       const existingUserByUsername = await this.userRepository.findOne({ where: { username } });
@@ -44,6 +47,12 @@ export class UsersService {
       const existingUserByPerson = await this.userRepository.findOne({ where: { person: { id: personId } } });
       if (existingUserByPerson) { throw new ConflictException(`La persona especificada ya tiene un usuario asignado ('${existingUserByPerson.username}')`) }
         
+
+      const roles = await this.roleRepository.findBy({ id: In(roleIds) });
+      if (roles.length !== roleIds.length) {
+        throw new NotFoundException('Uno o más roles especificados no existen en el sistema');
+      }
+
       // 4. Validar sucursal opcional
       let branch: BranchEntity | null = null;
       if (branchId) {
@@ -58,7 +67,7 @@ export class UsersService {
       const newUser = this.userRepository.create({
         username,
         passwordHash,
-        role,
+        roles,
         person,
         branch: branch || undefined,
         isActive: true,
@@ -81,11 +90,11 @@ export class UsersService {
   
   async findAll(): Promise<UserEntity[]> {
     try{
-      return await this.userRepository.find({ relations: { person: true, branch: true },
+      return await this.userRepository.find({ relations: { person: true, branch: true, roles: true },
         select: {
           id: true,
           username: true,
-          role: true,
+          roles: true,
           isActive: true,
           createdAt: true,
           updatedAt: true,
@@ -99,7 +108,7 @@ export class UsersService {
 
   async findOne(id: string): Promise<UserEntity> {
     try {
-      const user = await this.userRepository.findOne({ where: { id },  relations: { person: true, branch: true } });
+      const user = await this.userRepository.findOne({ where: { id },  relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con ID ${id} no encontrado`) }
       return user;
     } catch (error) {
@@ -111,7 +120,7 @@ export class UsersService {
 
   async findByUsername(username: string): Promise<UserEntity> {
     try {
-      const user = await this.userRepository.findOne({ where: { username }, relations: { person: true, branch: true } });
+      const user = await this.userRepository.findOne({ where: { username }, relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con el nombre '${username}' no encontrado`) }
       return user;
     } catch (error) {
@@ -134,8 +143,16 @@ export class UsersService {
       user.passwordHash = await argon2.hash(updateUserDto.password);
     }
 
-    if (updateUserDto.role) {
-      user.role = updateUserDto.role;
+    if (updateUserDto.roleIds) {
+      const roles = await this.roleRepository.findBy({
+        id: In(updateUserDto.roleIds),
+      });
+      if (roles.length !== updateUserDto.roleIds.length) {
+        throw new NotFoundException(
+          'Uno o más roles especificados no existen en el sistema',
+        );
+      }
+      user.roles = roles;
     }
 
     if (updateUserDto.branchId !== undefined) {
@@ -198,7 +215,7 @@ export class UsersService {
         select: {
           id: true,
           username: true,
-          role: true,
+          roles: true,
           isActive: true,
         },
       });

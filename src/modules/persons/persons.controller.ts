@@ -1,12 +1,11 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, HttpCode, UseGuards } from '@nestjs/common';
 import { PersonsService } from './persons.service';
 import { CreatePersonDto } from './dto/create-person.dto';
-import { UpdatePersonDto } from './dto/update-person.dto';
-import { UserRole } from '../users/entities/user.entity';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PersonEntity } from './entities/person.entity';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRoleEnum } from '../roles/entities/role.entity';
 
 @Controller('persons')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -14,7 +13,7 @@ export class PersonsController {
   constructor(private readonly personsService: PersonsService) {}
 
   @Post()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.CASHIER, UserRole.SELLER)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.CASHIER, UserRoleEnum.SELLER)
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() createPersonDto: CreatePersonDto): Promise<PersonEntity> {
     return await this.personsService.create(createPersonDto);

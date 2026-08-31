@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 
 export class CreatePersonDto {
 

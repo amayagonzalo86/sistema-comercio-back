@@ -10,6 +10,7 @@ import { ProductModule } from './modules/inventory/product/product.module';
 import { ProductPriceListModule } from './modules/sales/price-list/product-price-list.module';
 import { UserModule } from './modules/users/user.module';
 import { PersonsModule } from './modules/persons/persons.module';
+import { RolesModule } from './modules/roles/roles.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { PersonsModule } from './modules/persons/persons.module';
     BranchesModule,
     ProductPriceListModule,
     PersonsModule,
+    RolesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

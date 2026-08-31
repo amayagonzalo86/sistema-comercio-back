@@ -14,12 +14,12 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { GetUser } from '../auth/decorators/get-user.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { UserEntity, UserRole } from './entities/user.entity';
+import { UserEntity } from './entities/user.entity';
 import { UsersService } from './user.service';
 import { AssignBranchDto } from './dto/assign-branch.dto';
+import { UserRoleEnum } from '../roles/entities/role.entity';
 
 @Controller('users')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -27,7 +27,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() createUserDto: CreateUserDto,
@@ -36,13 +36,13 @@ export class UsersController {
   }
 
   @Get()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   async findAll(): Promise<UserEntity[]> {
     return await this.usersService.findAll();
   }
 
   @Get(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<UserEntity> {
@@ -50,21 +50,21 @@ export class UsersController {
   }
 
   @Patch('assign-branch')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   @HttpCode(HttpStatus.OK)
   async assignBranch(@Body() assignBranchDto: AssignBranchDto): Promise<UserEntity> {
     return await this.usersService.assignBranch( assignBranchDto );
   };
 
   @Delete('unassign-branch')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   @HttpCode(HttpStatus.OK)
   async unassignBranch(@Param('id', ParseUUIDPipe) userId: string): Promise<{ message: string }> {
     return await this.usersService.unassignBranch(userId);
   }
 
   @Get('by-branch/:branchId')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
   async findUsersByBranch(
     @Param('branchId', ParseUUIDPipe) branchId: string,
   ): Promise<UserEntity[]> {
@@ -72,19 +72,19 @@ export class UsersController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() updateUserDto: UpdateUserDto): Promise<UserEntity> {
     return await this.usersService.update(id, updateUserDto);
   };
 
   @Delete(':id/disable')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   async disable(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
     return await this.usersService.disable(id);
   };
 
   @Patch(':id/enable')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   async enable(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
     return await this.usersService.enable(id);
   };

@@ -2,8 +2,9 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { Repository } from 'typeorm';
-import { UserEntity, UserRole } from '../../modules/users/entities/user.entity';
+import { UserEntity } from '../../modules/users/entities/user.entity';
 import { PersonEntity } from '../../modules/persons/entities/person.entity';
+import { UserRoleEnum } from '../../modules/roles/entities/role.entity';
 
 @Injectable()
 export class AdminSeederService implements OnApplicationBootstrap {
@@ -58,7 +59,7 @@ export class AdminSeederService implements OnApplicationBootstrap {
         id: '3b33cd9a-55ca-40d8-96ea-4d466f2106ab',
         username: this.ADMIN_USERNAME,
         passwordHash,
-        role: UserRole.SUPER_ADMIN,
+        roles: [ UserRoleEnum.SUPER_ADMIN as any],
         isActive: true,
         personId: savedPerson.id,
         person: savedPerson,

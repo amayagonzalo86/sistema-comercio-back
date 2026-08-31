@@ -14,7 +14,7 @@ import { PriceListService } from './price-list.service';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { UserRole } from '../../users/entities/user.entity';
+import { UserRoleEnum } from '../../roles/entities/role.entity';
 
 @Controller('price-lists')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -22,7 +22,7 @@ export class ProductPriceListController {
   constructor(private readonly priceListService: PriceListService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.SUPER_ADMIN)
   @HttpCode(HttpStatus.CREATED)
   create(
     @Body() createPriceListDto: CreatePriceListDto
@@ -31,7 +31,7 @@ export class ProductPriceListController {
   }
 
   @Get(':priceListId/products/:productId/branches/:branchId/calculated-price')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.SELLER)
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.SELLER)
   getCalculatedPrice(
     @Param('priceListId', ParseUUIDPipe) priceListId: string,
     @Param('productId', ParseUUIDPipe) productId: string,

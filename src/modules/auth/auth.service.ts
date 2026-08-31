@@ -11,11 +11,13 @@ import { DataSource, Repository } from 'typeorm';
 import { UserEntity } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { SessionEntity } from './entities/session.entity';
+import { UserRoleEnum } from '../roles/entities/role.entity';
+
 
 export interface JwtPayload {
   sub: string;
   username: string;
-  role: string;
+  roles: UserRoleEnum[];
 }
 
 export interface AuthTokens {
@@ -50,7 +52,7 @@ export class AuthService {
         id: true,
         username: true,
         passwordHash: true, // Forzar selección de columna declarada con select: false
-        role: true,
+        roles: true,
         isActive: true,
         personId: true,
         branchId: true,
@@ -88,11 +90,14 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    // Extraer únicamente los nombres de los roles para el JWT Payload
+    const roleNames: UserRoleEnum[] = user.roles ? user.roles.map((r) => r.name) : [];
+
     // 5. Generar Tokens JWT
     const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
-      role: user.role,
+      roles: roleNames,
     };
 
     const accessToken = this.jwtService.sign(payload, {
@@ -162,7 +167,7 @@ export class AuthService {
       select: {
         id: true,
         username: true,
-        role: true,
+        roles: true,
         isActive: true,
         currentHashedRefreshToken: true,
       },
@@ -181,10 +186,14 @@ export class AuthService {
       throw new UnauthorizedException('Token de refresco inválido o revocado');
     }
 
+    // Extraer únicamente los nombres de los roles para el JWT Payload
+    const roleNames: UserRoleEnum[] = user.roles ? user.roles.map((r) => r.name) : [];
+
+    // 5. Generar Tokens JWT
     const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
-      role: user.role,
+      roles: roleNames,
     };
 
     const accessToken = this.jwtService.sign(payload, {

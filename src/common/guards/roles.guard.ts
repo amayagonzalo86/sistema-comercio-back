@@ -5,13 +5,11 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { UserRole } from '../../modules/users/entities/user.entity';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { UserRoleEnum } from '../../modules/roles/entities/role.entity';
 
-interface AuthenticatedUserPayload {
-  id: string;
-  role?: UserRole | string;
-  roles?: (UserRole | string)[];
+interface RequestUserPayload {
+  roles?: (UserRoleEnum | { name: UserRoleEnum })[];
 }
 
 @Injectable()
@@ -19,44 +17,40 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const requiredRoles = this.reflector.getAllAndOverride<UserRoleEnum[]>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     if (!requiredRoles || requiredRoles.length === 0) {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user as AuthenticatedUserPayload | undefined;
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user?: RequestUserPayload }>();
+    const user = request.user;
 
-    if (!user) {
-      throw new ForbiddenException('Acceso denegado: Sesión de usuario no encontrada.');
+    if (!user || !Array.isArray(user.roles)) {
+      throw new ForbiddenException(
+        'Acceso denegado: El usuario no posee roles asignados',
+      );
     }
 
-    // Normalización ultra-segura de roles del usuario a un array de strings en mayúsculas
-    const extractedRoles: string[] = [];
-
-    if (user.roles && Array.isArray(user.roles)) {
-      extractedRoles.push(...user.roles.map((r) => String(r).trim().toUpperCase()));
-    }
-
-    if (user.role) {
-      extractedRoles.push(String(user.role).trim().toUpperCase());
-    }
-
-    // Normalizar los roles requeridos por el decorador
-    const normalizedRequiredRoles = requiredRoles.map((r) => String(r).trim().toUpperCase());
-
-    // Verificar si al menos uno de los roles del usuario coincide con los requeridos
-    const hasRole = normalizedRequiredRoles.some((reqRole) =>
-      extractedRoles.includes(reqRole),
+    // Aplanar los roles ya sea que vengan como array de strings/enums o como Objetos de Entidad
+    const userRoleNames: UserRoleEnum[] = user.roles.map((role) =>
+      typeof role === 'object' && role !== null && 'name' in role
+        ? role.name
+        : role,
     );
 
-    if (!hasRole) {
+    const hasPermission = requiredRoles.some((requiredRole) =>
+      userRoleNames.includes(requiredRole),
+    );
+
+    if (!hasPermission) {
       throw new ForbiddenException(
-        `Acceso restringido: Se requiere uno de los siguientes roles [${requiredRoles.join(', ')}] para realizar esta operación.`,
+        `Acceso denegado: Se requiere uno de los siguientes roles: [${requiredRoles.join(', ')}]`,
       );
     }
 
