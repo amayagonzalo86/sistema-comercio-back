@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -34,8 +35,14 @@ export class RoleEntity {
   description?: string;
 
   @CreateDateColumn({ type: 'timestamp' })
-  createdAt!: Date;
+  created_at!: Date;
 
   @UpdateDateColumn({ type: 'timestamp' })
-  updatedAt!: Date;
+  updated_at!: Date;
+
+  @DeleteDateColumn({ type: 'timestamp' })
+  deleted_at!: Date;
+
+  @Column({ type: 'boolean', nullable: false, default: true })
+  is_active!: boolean;
 }
