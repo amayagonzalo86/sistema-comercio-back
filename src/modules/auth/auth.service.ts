@@ -101,12 +101,12 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || 'SecretSuperSecureKey2026',
+      secret: process.env.JWT_ACCESS_SECRET!,
       expiresIn: '15m',
     });
 
     const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET || 'RefreshSecretSuperSecureKey2026',
+      secret: process.env.JWT_REFRESH_SECRET!,
       expiresIn: '7d',
     });
 
