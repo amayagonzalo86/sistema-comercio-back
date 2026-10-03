@@ -19,12 +19,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('JWT_SECRET');
+        const secret = configService.get<string>('JWT_ACCESS_SECRET');
         const expiresIn = configService.get<string>('JWT_EXPIRES_IN', '45m');
 
         if (!secret) {
           throw new Error(
-            'CRÍTICO: JWT_SECRET no está definido en las variables de entorno',
+            'CRÍTICO: JWT_ACCESS_SECRET no está definido en las variables de entorno',
           );
         }
 
