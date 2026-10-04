@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Req, UseGuards, BadRequestException, Query } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -12,6 +12,7 @@ import { ProductsService } from '../../../modules/inventory/product/product.serv
 import { UserRoleEnum } from '../../roles/entities/role.entity';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { InventoryMovementEntity } from './entities/inventory-movement.entity';
+import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
 
 @Controller('products')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -42,6 +43,17 @@ export class ProductsController {
     }
     const actor = request.user as { id: string };
     return this.productsService.adjustStock(tenantId, actor.id, productId, branchId, idempotencyKey, dto);
+  }
+
+  @Get(':productId/branches/:branchId/stock-movements')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK)
+  async findStockMovements(
+    @GetTenantId() tenantId: string,
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: StockMovementQueryDto,
+  ): Promise<{ items: InventoryMovementEntity[]; nextCursor: string | null }> {
+    return this.productsService.findStockMovements(tenantId, productId, branchId, query);
   }
 
   @Get(':id')
