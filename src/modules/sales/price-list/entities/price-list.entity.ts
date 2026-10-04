@@ -5,6 +5,7 @@ import { TenantEntity } from '../../../platform/entities/tenant.entity';
 
 @Entity('price_lists')
 @Index('IDX_price_lists_tenant_active', ['tenantId', 'isActive'])
+@Index('UQ_price_lists_tenant_id', ['tenantId', 'id'], { unique: true })
 export class PriceListEntity {
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
   tenantId!: string;
