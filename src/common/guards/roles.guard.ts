@@ -10,6 +10,7 @@ import { UserRoleEnum } from '../../modules/roles/entities/role.entity';
 
 interface RequestUserPayload {
   roles?: (UserRoleEnum | { name: UserRoleEnum })[];
+  tenantRole?: string;
 }
 
 @Injectable()
@@ -37,8 +38,20 @@ export class RolesGuard implements CanActivate {
       );
     }
 
-    // Aplanar los roles ya sea que vengan como array de strings/enums o como Objetos de Entidad
-    const userRoleNames: UserRoleEnum[] = user.roles.map((role) =>
+    // Once tenant context is verified, authorize from the tenant-scoped role.
+    const tenantRoleMap: Record<string, UserRoleEnum[]> = {
+      OWNER: [UserRoleEnum.ADMIN],
+      ADMIN: [UserRoleEnum.ADMIN],
+      MANAGER: [UserRoleEnum.MANAGER],
+      ACCOUNTANT: [UserRoleEnum.USER],
+      CASHIER: [UserRoleEnum.CASHIER],
+      INVENTORY: [UserRoleEnum.WAREHOUSE, UserRoleEnum.STOCK_CLERK],
+      SELLER: [UserRoleEnum.SELLER],
+      VIEWER: [UserRoleEnum.USER],
+    };
+    const userRoleNames: UserRoleEnum[] = user.tenantRole
+      ? (tenantRoleMap[user.tenantRole] ?? [])
+      : user.roles.map((role) =>
       typeof role === 'object' && role !== null && 'name' in role
         ? role.name
         : role,
