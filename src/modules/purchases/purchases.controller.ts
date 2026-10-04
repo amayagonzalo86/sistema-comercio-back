@@ -18,7 +18,7 @@ import { GetTenantId } from '../../common/decorators/get-tenant.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
-import { requireBranchAccess } from '../../common/security/tenant-branch-access';
+import { requireAssignedBranch, requireBranchAccess } from '../../common/security/tenant-branch-access';
 import { UserRoleEnum } from '../roles/entities/role.entity';
 import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
 import { PurchasesService } from './purchases.service';
@@ -64,6 +64,7 @@ export class PurchasesController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<Record<string, unknown>> {
     const actor = request.user as { branchId?: string | null; tenantRole?: string };
-    return this.purchasesService.findOne(tenantId, id, actor.branchId ?? null);
+    const branchId = requireAssignedBranch(actor);
+    return this.purchasesService.findOne(tenantId, id, branchId);
   }
 }
