@@ -15,7 +15,8 @@ import { AssignBranchDto } from './dto/assign-branch.dto';
 import { UserEntity } from './entities/user.entity';
 import { PersonEntity } from '../persons/entities/person.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
-import { RoleEntity } from '../roles/entities/role.entity';
+import { RoleEntity, UserRoleEnum } from '../roles/entities/role.entity';
+import { MembershipStatus, TenantMembershipEntity, TenantRole } from '../platform/entities/tenant-membership.entity';
 
 @Injectable()
 export class UsersService {
@@ -29,11 +30,16 @@ export class UsersService {
     private readonly personRepository: Repository<PersonEntity>,
     @InjectRepository(BranchEntity)
     private readonly branchRepository: Repository<BranchEntity>,
+    @InjectRepository(TenantMembershipEntity)
+    private readonly membershipRepository: Repository<TenantMembershipEntity>,
   ) {}
 
-  async create( createUserDto: CreateUserDto ): Promise<Omit<UserEntity, 'passwordHash' | 'currentHashedRefreshToken'>> {
+  async create(tenantId: string, createUserDto: CreateUserDto): Promise<Omit<UserEntity, 'passwordHash' | 'currentHashedRefreshToken'>> {
     try {
       const { username, password, roleIds, personId, branchId } = createUserDto;
+      if (roleIds.length !== 1) {
+        throw new BadRequestException('Cada usuario debe tener un único rol por empresa.');
+      }
         
       // 1. Verificar si el username ya está registrado
       const existingUserByUsername = await this.userRepository.findOne({ where: { username } });
@@ -56,7 +62,7 @@ export class UsersService {
       // 4. Validar sucursal opcional
       let branch: BranchEntity | null = null;
       if (branchId) {
-        branch = await this.branchRepository.findOne({ where: { id: branchId } });
+        branch = await this.branchRepository.findOne({ where: { id: branchId, tenantId } });
         if (!branch) { throw new NotFoundException(`Sucursal con ID ${branchId} no encontrada`) }
       }
         
@@ -74,6 +80,13 @@ export class UsersService {
       });
         
       const savedUser = await this.userRepository.save(newUser);
+      await this.membershipRepository.save({
+        tenantId,
+        userId: savedUser.id,
+        role: this.toTenantRole(roles[0].name),
+        status: MembershipStatus.ACTIVE,
+        acceptedAt: new Date(),
+      });
         
       // 7. Omitir credenciales en la respuesta
       delete (savedUser as Partial<UserEntity>).passwordHash;
@@ -88,9 +101,9 @@ export class UsersService {
     }
   }
   
-  async findAll(): Promise<UserEntity[]> {
+  async findAll(tenantId: string): Promise<UserEntity[]> {
     try{
-      return await this.userRepository.find({ relations: { person: true, branch: true, roles: true },
+      return await this.userRepository.find({ where: { memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true },
         select: {
           id: true,
           username: true,
@@ -106,9 +119,9 @@ export class UsersService {
     }
   };
 
-  async findOne(id: string): Promise<UserEntity> {
+  async findOne(id: string, tenantId: string): Promise<UserEntity> {
     try {
-      const user = await this.userRepository.findOne({ where: { id },  relations: { person: true, branch: true, roles: true } });
+      const user = await this.userRepository.findOne({ where: { id, memberships: { tenantId, status: MembershipStatus.ACTIVE } },  relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con ID ${id} no encontrado`) }
       return user;
     } catch (error) {
@@ -118,9 +131,9 @@ export class UsersService {
     }
   };
 
-  async findByUsername(username: string): Promise<UserEntity> {
+  async findByUsername(username: string, tenantId: string): Promise<UserEntity> {
     try {
-      const user = await this.userRepository.findOne({ where: { username }, relations: { person: true, branch: true, roles: true } });
+      const user = await this.userRepository.findOne({ where: { username, memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con el nombre '${username}' no encontrado`) }
       return user;
     } catch (error) {
@@ -130,8 +143,8 @@ export class UsersService {
     }
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto): Promise<UserEntity> {
-    const user = await this.findOne(id);
+  async update(id: string, tenantId: string, updateUserDto: UpdateUserDto): Promise<UserEntity> {
+    const user = await this.findOne(id, tenantId);
 
     if (updateUserDto.username && updateUserDto.username !== user.username) {
       const existingUsername = await this.userRepository.findOne({ where: { username: updateUserDto.username } });
@@ -144,6 +157,9 @@ export class UsersService {
     }
 
     if (updateUserDto.roleIds) {
+      if (updateUserDto.roleIds.length !== 1) {
+        throw new BadRequestException('Cada usuario debe tener un único rol por empresa.');
+      }
       const roles = await this.roleRepository.findBy({
         id: In(updateUserDto.roleIds),
       });
@@ -153,6 +169,10 @@ export class UsersService {
         );
       }
       user.roles = roles;
+      await this.membershipRepository.update(
+        { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
+        { role: this.toTenantRole(roles[0].name) },
+      );
     }
 
     if (updateUserDto.branchId !== undefined) {
@@ -161,7 +181,7 @@ export class UsersService {
         user.branchId = null;
       } else {
         const branch = await this.branchRepository.findOne({
-          where: { id: updateUserDto.branchId },
+          where: { id: updateUserDto.branchId, tenantId },
         });
         if (!branch) {
           throw new NotFoundException(
@@ -180,19 +200,19 @@ export class UsersService {
     return await this.userRepository.save(user);
   }
 
-  async assignBranch( assignBranchDto: AssignBranchDto): Promise<UserEntity> {
+  async assignBranch(tenantId: string, assignBranchDto: AssignBranchDto): Promise<UserEntity> {
     const { branchId , userId } = assignBranchDto;
-    const user = await this.findOne(userId);
-    const branchFind = await this.branchRepository.findOne({ where: { id: branchId } });
+    const user = await this.findOne(userId, tenantId);
+    const branchFind = await this.branchRepository.findOne({ where: { id: branchId, tenantId } });
     if (!branchFind) { throw new NotFoundException(`Sucursal con ID ${assignBranchDto.branchId} no encontrada`) }
     user.branch = branchFind;
     user.branchId = branchFind.id;
     return await this.userRepository.save(user);
   };
 
-  async unassignBranch(userId: string): Promise<{ message: string }> {
+  async unassignBranch(userId: string, tenantId: string): Promise<{ message: string }> {
     try {
-      const user = await this.findOne(userId);
+      const user = await this.findOne(userId, tenantId);
       if (!user.branch) { throw new BadRequestException('El usuario no tiene una sucursal asignada') }
       user.branch = null;
       user.branchId = null;
@@ -206,12 +226,12 @@ export class UsersService {
     }
   };
 
-  async findUsersByBranch(branchId: string): Promise<UserEntity[]> {
+  async findUsersByBranch(branchId: string, tenantId: string): Promise<UserEntity[]> {
     try {
-      const branch = await this.branchRepository.findOne({ where: { id: branchId } });
+      const branch = await this.branchRepository.findOne({ where: { id: branchId, tenantId } });
       if (!branch) { throw new NotFoundException(`Sucursal con ID ${branchId} no encontrada`) }
 
-      return await this.userRepository.find({ where: { branch: { id: branchId } }, relations: { person: true },
+      return await this.userRepository.find({ where: { branch: { id: branchId }, memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true },
         select: {
           id: true,
           username: true,
@@ -226,12 +246,14 @@ export class UsersService {
     }
   };
 
-  async disable(id: string): Promise<{ message: string }> {
+  async disable(id: string, tenantId: string): Promise<{ message: string }> {
     try {
-      const user = await this.findOne(id);
-      user.isActive = false;
-      await this.userRepository.save(user);
-      return { message: `El usuario '${user.username}' ha sido desactivado` };
+      const user = await this.findOne(id, tenantId);
+      await this.membershipRepository.update(
+        { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
+        { status: MembershipStatus.SUSPENDED },
+      );
+      return { message: `El usuario '${user.username}' ha sido desactivado en esta empresa` };
     } catch (error) {
       if (error instanceof NotFoundException) { throw error }
       this.logger.error( `Error al desactivar el usuario con ID ${id}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
@@ -239,10 +261,26 @@ export class UsersService {
     }
   };
 
-  async enable(id: string): Promise<{ message: string }> {
-    const user = await this.findOne(id);
-    user.isActive = true;
-    await this.userRepository.save(user);
-    return { message: `El usuario '${user.username}' ha sido activado` };
+  async enable(id: string, tenantId: string): Promise<{ message: string }> {
+    const user = await this.findOne(id, tenantId);
+    await this.membershipRepository.update(
+      { userId: user.id, tenantId },
+      { status: MembershipStatus.ACTIVE, acceptedAt: new Date() },
+    );
+    return { message: `El usuario '${user.username}' ha sido activado en esta empresa` };
   }
+  private toTenantRole(role: UserRoleEnum): TenantRole {
+    const mapping: Record<UserRoleEnum, TenantRole> = {
+      [UserRoleEnum.SUPER_ADMIN]: TenantRole.OWNER,
+      [UserRoleEnum.ADMIN]: TenantRole.ADMIN,
+      [UserRoleEnum.MANAGER]: TenantRole.MANAGER,
+      [UserRoleEnum.CASHIER]: TenantRole.CASHIER,
+      [UserRoleEnum.WAREHOUSE]: TenantRole.INVENTORY,
+      [UserRoleEnum.USER]: TenantRole.VIEWER,
+      [UserRoleEnum.SELLER]: TenantRole.SELLER,
+      [UserRoleEnum.STOCK_CLERK]: TenantRole.INVENTORY,
+    };
+    return mapping[role];
+  }
+
 }
