@@ -14,7 +14,7 @@ const branchId = 'branch-1';
 const supplierId = 'supplier-1';
 const payableId = 'payable-1';
 
-function setup(paidAmount = '25.00') {
+function setup() {
   const branch = { id: branchId, tenantId, status: true } as BranchEntity;
   const supplier = {
     id: supplierId,
@@ -71,7 +71,6 @@ function setup(paidAmount = '25.00') {
         andWhere: jest.fn(() => builder),
         select: jest.fn(() => builder),
         getOne: jest.fn(async () => entity === SupplierPayableEntity ? payable : null),
-        getRawOne: jest.fn(async () => ({ paidAmount })),
       };
       return builder;
     }),
@@ -116,7 +115,7 @@ const dto: CreateSupplierPaymentDto = {
 
 describe('SupplierAccountsService', () => {
   it('permite un pago parcial y registra asignación y auditoría', async () => {
-    const h = setup('25.00');
+    const h = setup();
 
     const payment = await h.service.createPayment(tenantId, 'actor-1', 'pay-key-1', dto, branchId);
 
