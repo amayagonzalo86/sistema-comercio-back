@@ -10,6 +10,12 @@ import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { UserEntity } from '../../users/entities/user.entity';
 import { TenantEntity } from '../../platform/entities/tenant.entity';
 
+export enum PersonType {
+  CUSTOMER = 'CUSTOMER',
+  SUPPLIER = 'SUPPLIER',
+  BOTH = 'BOTH',
+}
+
 @Entity('persons')
 @Index('UQ_persons_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('UQ_persons_tenant_national_id', ['tenantId', 'nationalId'], { unique: true })
@@ -41,6 +47,9 @@ export class PersonEntity extends BaseAuditEntity {
 
   @OneToOne(() => UserEntity, (user) => user.person)
   user?: UserEntity | null;
+
+  @Column({ name: 'person_type', type: 'enum', enum: PersonType, default: PersonType.BOTH })
+  personType!: PersonType;
 
   @Column({ type: 'boolean', nullable: false, default: true})
   isActive!: boolean;
