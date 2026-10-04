@@ -7,8 +7,11 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
+import { requireBranchAccess } from '../../../common/security/tenant-branch-access';
 import { CreatePriceListDto } from './dto/price-list.dto';
 import { PriceListService } from './price-list.service';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -40,7 +43,10 @@ export class ProductPriceListController {
     @Param('productId', ParseUUIDPipe) productId: string,
     @Param('branchId', ParseUUIDPipe) branchId: string,
     @GetTenantId() tenantId: string,
+    @Req() request: Request,
   ) {
+    const actor = request.user as { branchId?: string | null; tenantRole?: string };
+    requireBranchAccess(actor, branchId);
     return this.priceListService.getCalculatedProductPrice(
       tenantId,
       productId,
