@@ -27,15 +27,7 @@ export class AuthController {
 
     if (!refreshToken) { throw new UnauthorizedException('Token de refresco no proporcionado') }
 
-    // El ID del usuario se extrae del payload codificado del token recibido
-    const decodedToken = JSON.parse(
-      Buffer.from(refreshToken.split('.')[1], 'base64').toString(),
-    ) as { sub: string };
-
-    const tokens = await this.authService.refreshTokens(
-      decodedToken.sub,
-      refreshToken,
-    );
+    const tokens = await this.authService.refreshTokens(refreshToken);
 
     response.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
@@ -58,18 +50,10 @@ export class AuthController {
   ) {
     const refreshToken = request.cookies?.['refreshToken'] as string | undefined;
 
-    if (refreshToken) {
-      try {
-        const decodedToken = JSON.parse(
-          Buffer.from(refreshToken.split('.')[1], 'base64').toString(),
-        ) as { sub: string };
-        // Anular el hash guardado en la base de datos
-        await this.authService['userRepository'].update(decodedToken.sub, {
-          currentHashedRefreshToken: undefined,
-        });
-      } catch {
-        // Ignorar errores de parseo si el token expiró o viene corrupto
-      }
+    try {
+      await this.authService.logoutWithRefreshToken(refreshToken);
+    } catch {
+      // Invalid or expired tokens still result in the cookie being cleared.
     }
 
     // Destruir cookie de refresco
