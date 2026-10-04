@@ -11,6 +11,7 @@ import { TenantEntity } from './tenant.entity';
 
 @Entity('audit_events')
 @Index('IDX_audit_tenant_time', ['tenantId', 'createdAt'])
+@Index('IDX_audit_tenant_id', ['tenantId', 'id'])
 @Index('IDX_audit_tenant_aggregate', ['tenantId', 'aggregateType', 'aggregateId', 'createdAt'])
 @Index('IDX_audit_request', ['requestId'])
 export class AuditEventEntity {
