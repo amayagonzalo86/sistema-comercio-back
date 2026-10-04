@@ -9,6 +9,7 @@ import { InventoryMovementEntity, InventoryMovementType } from './entities/inven
 import { AuditEventEntity } from '../../platform/entities/audit-event.entity';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
+import { InventoryAuditContext } from './inventory-audit-context';
 
 @Injectable()
 export class ProductsService {
@@ -26,7 +27,7 @@ export class ProductsService {
 
   
   //Registra un producto y su matriz de precios/stock inicial por sucursal en una transacción atómica.
-  async create(tenantId: string, actorUserId: string, createProductDto: CreateProductDto): Promise<ProductEntity> {
+  async create(tenantId: string, actorUserId: string, createProductDto: CreateProductDto, auditContext: InventoryAuditContext = {}): Promise<ProductEntity> {
     const { sku, barcode, branchSettings, ...productData } = createProductDto;
 
     // 1. Validar duplicados dentro de la empresa para SKU y código de barras
@@ -106,6 +107,9 @@ export class ProductsService {
         queryRunner.manager.create(AuditEventEntity, {
           tenantId,
           actorUserId,
+          requestId: auditContext.requestId,
+          ipAddress: auditContext.ipAddress,
+          userAgent: auditContext.userAgent,
           eventType: 'INVENTORY_OPENING_RECORDED',
           aggregateType: 'INVENTORY_MOVEMENT',
           aggregateId: movement.id,
@@ -141,6 +145,7 @@ export class ProductsService {
     branchId: string,
     idempotencyKey: string,
     dto: AdjustStockDto,
+    auditContext: InventoryAuditContext = {},
   ): Promise<InventoryMovementEntity> {
     const key = idempotencyKey.trim();
     if (!key || key.length > 100) {
@@ -219,6 +224,9 @@ export class ProductsService {
         queryRunner.manager.create(AuditEventEntity, {
           tenantId,
           actorUserId,
+          requestId: auditContext.requestId,
+          ipAddress: auditContext.ipAddress,
+          userAgent: auditContext.userAgent,
           eventType: 'INVENTORY_STOCK_ADJUSTED',
           aggregateType: 'INVENTORY_MOVEMENT',
           aggregateId: savedMovement.id,
