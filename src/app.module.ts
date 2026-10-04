@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { ProductModule } from './modules/inventory/product/product.module';
 import { ProductPriceListModule } from './modules/sales/price-list/product-price-list.module';
+import { SalesModule } from './modules/sales/sales.module';
 import { UserModule } from './modules/users/user.module';
 import { PersonsModule } from './modules/persons/persons.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -40,6 +41,7 @@ import { PlatformModule } from './modules/platform/platform.module';
     SeederModule,
     BranchesModule,
     ProductPriceListModule,
+    SalesModule,
     PersonsModule,
     RolesModule,
     PlatformModule,
