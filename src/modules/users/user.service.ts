@@ -75,7 +75,6 @@ export class UsersService {
         passwordHash,
         roles,
         person,
-        branch: branch || undefined,
         isActive: true,
       });
         
@@ -83,6 +82,7 @@ export class UsersService {
       await this.membershipRepository.save({
         tenantId,
         userId: savedUser.id,
+        branchId: branch?.id ?? null,
         role: this.toTenantRole(roles[0].name),
         status: MembershipStatus.ACTIVE,
         acceptedAt: new Date(),
@@ -113,7 +113,7 @@ export class UsersService {
           updatedAt: true,
         },
       });
-      return users.map((user) => this.hideForeignBranch(user, tenantId));
+      return this.attachTenantBranches(users, tenantId);
     } catch (error){
       this.logger.error(`Error al obtener usuarios: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
       throw new InternalServerErrorException('No se pudieron obtener los usuarios');
@@ -124,7 +124,8 @@ export class UsersService {
     try {
       const user = await this.userRepository.findOne({ where: { id, memberships: { tenantId, status: MembershipStatus.ACTIVE } },  relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con ID ${id} no encontrado`) }
-      return this.hideForeignBranch(user, tenantId);
+      await this.attachTenantBranches([user], tenantId);
+      return user;
     } catch (error) {
       if (error instanceof NotFoundException) { throw error }
       this.logger.error(`Error al obtener el usuario con ID ${id}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
@@ -169,7 +170,6 @@ export class UsersService {
           'Uno o más roles especificados no existen en el sistema',
         );
       }
-      user.roles = roles;
       await this.membershipRepository.update(
         { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
         { role: this.toTenantRole(roles[0].name) },
@@ -180,6 +180,10 @@ export class UsersService {
       if (updateUserDto.branchId === null) {
         user.branch = null;
         user.branchId = null;
+        await this.membershipRepository.update(
+          { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
+          { branchId: null },
+        );
       } else {
         const branch = await this.branchRepository.findOne({
           where: { id: updateUserDto.branchId, tenantId },
@@ -191,6 +195,10 @@ export class UsersService {
         }
         user.branch = branch;
         user.branchId = branch.id;
+        await this.membershipRepository.update(
+          { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
+          { branchId: branch.id },
+        );
       }
     }
 
@@ -201,7 +209,11 @@ export class UsersService {
       );
     }
 
-    return await this.userRepository.save(user);
+    // branch and role are membership-scoped; never write them to global user columns.
+    user.branch = null;
+    user.branchId = null;
+    await this.userRepository.save(user);
+    return this.findOne(id, tenantId);
   }
 
   async assignBranch(tenantId: string, assignBranchDto: AssignBranchDto): Promise<UserEntity> {
@@ -209,18 +221,21 @@ export class UsersService {
     const user = await this.findOne(userId, tenantId);
     const branchFind = await this.branchRepository.findOne({ where: { id: branchId, tenantId } });
     if (!branchFind) { throw new NotFoundException(`Sucursal con ID ${assignBranchDto.branchId} no encontrada`) }
-    user.branch = branchFind;
-    user.branchId = branchFind.id;
-    return await this.userRepository.save(user);
+    await this.membershipRepository.update(
+      { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
+      { branchId: branchFind.id },
+    );
+    return this.findOne(userId, tenantId);
   };
 
   async unassignBranch(userId: string, tenantId: string): Promise<{ message: string }> {
     try {
       const user = await this.findOne(userId, tenantId);
       if (!user.branch) { throw new BadRequestException('El usuario no tiene una sucursal asignada') }
-      user.branch = null;
-      user.branchId = null;
-      await this.userRepository.save(user);
+      await this.membershipRepository.update(
+        { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
+        { branchId: null },
+      );
 
       return { message: 'Sucursal desasignada correctamente del usuario' };
     } catch (error) {
@@ -235,7 +250,7 @@ export class UsersService {
       const branch = await this.branchRepository.findOne({ where: { id: branchId, tenantId } });
       if (!branch) { throw new NotFoundException(`Sucursal con ID ${branchId} no encontrada`) }
 
-      return await this.userRepository.find({ where: { branch: { id: branchId }, memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true },
+      return await this.userRepository.find({ where: { memberships: { tenantId, branchId, status: MembershipStatus.ACTIVE } }, relations: { person: true },
         select: {
           id: true,
           username: true,
@@ -277,12 +292,26 @@ export class UsersService {
     );
     return { message: `El usuario '${user.username}' ha sido activado en esta empresa` };
   }
-  private hideForeignBranch(user: UserEntity, tenantId: string): UserEntity {
-    if (user.branch && user.branch.tenantId !== tenantId) {
-      user.branch = null;
-      user.branchId = null;
+  private async attachTenantBranches(users: UserEntity[], tenantId: string): Promise<UserEntity[]> {
+    if (users.length === 0) return users;
+    const memberships = await this.membershipRepository.find({
+      where: {
+        tenantId,
+        userId: In(users.map((user) => user.id)),
+        status: MembershipStatus.ACTIVE,
+      },
+      relations: { branch: true },
+    });
+    const branchByUser = new Map(memberships.map((membership) => [
+      membership.userId,
+      { branch: membership.branch ?? null, branchId: membership.branchId ?? null },
+    ]));
+    for (const user of users) {
+      const assignment = branchByUser.get(user.id);
+      user.branch = assignment?.branch ?? null;
+      user.branchId = assignment?.branchId ?? null;
     }
-    return user;
+    return users;
   }
 
   private toTenantRole(role: UserRoleEnum): TenantRole {
