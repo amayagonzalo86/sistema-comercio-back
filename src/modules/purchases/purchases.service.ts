@@ -20,6 +20,7 @@ import { InventoryAuditContext } from '../inventory/product/inventory-audit-cont
 import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
 import { PurchaseReceiptEntity } from './entities/purchase-receipt.entity';
 import { PurchaseReceiptItemEntity } from './entities/purchase-receipt-item.entity';
+import { SupplierPayableEntity } from './entities/supplier-payable.entity';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 const MAX_STOCK_MILLI = 999_999_999_999n;
@@ -75,6 +76,7 @@ export class PurchasesService {
         supplierPersonId: dto.supplierPersonId,
         sourceDocumentType: dto.sourceDocumentType?.trim() || null,
         sourceDocumentNumber: dto.sourceDocumentNumber?.trim() || null,
+        dueDate: dto.dueDate ?? null,
         lines: normalizedLines,
       }))
       .digest('hex');
@@ -189,6 +191,17 @@ export class PurchasesService {
         idempotencyKey: key,
         requestFingerprint: fingerprint,
         actorUserId,
+      }));
+
+      const payableRepository = queryRunner.manager.getRepository(SupplierPayableEntity);
+      await payableRepository.save(payableRepository.create({
+        tenantId,
+        branchId: branch.id,
+        supplierPersonId: supplier.id,
+        purchaseReceiptId: receipt.id,
+        currency: receipt.currency,
+        originalAmount: receipt.total,
+        dueDate: dto.dueDate ?? null,
       }));
 
       const itemRepository = queryRunner.manager.getRepository(PurchaseReceiptItemEntity);

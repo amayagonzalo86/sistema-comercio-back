@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsNumber,
   IsOptional,
   IsString,
@@ -22,7 +23,7 @@ export class CreatePurchaseReceiptLineDto {
   @Max(999999999.999)
   quantity!: number;
 
-  // Cost before the tax rate configured on the product; this is an internal stock valuation input.
+  // Cost before tax; taxRate is transcribed from the supplier document for internal accounting.
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
   @Max(9999999999.99)
@@ -40,6 +41,10 @@ export class CreatePurchaseReceiptDto {
 
   @IsUUID('4')
   supplierPersonId!: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
 
   @IsOptional()
   @IsString()
