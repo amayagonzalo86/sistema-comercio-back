@@ -11,6 +11,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { BranchEntity } from '../branches/entities/branch.entity';
+import { UserEntity } from '../users/entities/user.entity';
+import { MembershipStatus, TenantMembershipEntity, TenantRole } from '../platform/entities/tenant-membership.entity';
+import { TenantEntity, TenantStatus } from '../platform/entities/tenant.entity';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
@@ -64,6 +67,7 @@ export class CashService {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       started = true;
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER]);
 
       const branch = await queryRunner.manager.findOne(BranchEntity, {
         where: { id: branchId, tenantId, status: true },
@@ -151,6 +155,7 @@ export class CashService {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       started = true;
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER, TenantRole.CASHIER]);
 
       const register = await queryRunner.manager
         .createQueryBuilder(CashRegisterEntity, 'register')
@@ -278,6 +283,7 @@ export class CashService {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       started = true;
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER, TenantRole.CASHIER]);
 
       const session = await this.lockSession(queryRunner.manager, tenantId, sessionId, allowedBranchId);
       if (session.status !== CashSessionStatus.OPEN) {
@@ -391,6 +397,7 @@ export class CashService {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       started = true;
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER, TenantRole.CASHIER]);
 
       const session = await this.lockSession(queryRunner.manager, tenantId, sessionId, allowedBranchId);
       if (session.status === CashSessionStatus.CLOSED) {
@@ -502,6 +509,52 @@ export class CashService {
         ? encodeCursor({ createdAt: lastRaw.cursorCreatedAt, id: last.id })
         : null,
     };
+  }
+
+  private async assertActorAccess(
+    manager: EntityManager,
+    tenantId: string,
+    actorUserId: string,
+    allowedBranchId: string | null,
+    permittedRoles: TenantRole[],
+  ): Promise<void> {
+    // Share locks keep permission revocation from racing a cash write while allowing
+    // concurrent requests from the same active user to proceed together.
+    const membership = await manager.createQueryBuilder(TenantMembershipEntity, 'membership')
+      .setLock('pessimistic_read')
+      .where('membership.tenantId = :tenantId', { tenantId })
+      .andWhere('membership.userId = :actorUserId', { actorUserId })
+      .andWhere('membership.status = :status', { status: MembershipStatus.ACTIVE })
+      .getOne();
+    if (
+      !membership ||
+      (membership.branchId ?? null) !== allowedBranchId ||
+      !permittedRoles.includes(membership.role)
+    ) {
+      throw new ForbiddenException('La membresía actual no tiene acceso a esta operación de caja.');
+    }
+
+    const user = await manager.createQueryBuilder(UserEntity, 'user')
+      .select(['user.id', 'user.isActive'])
+      .setLock('pessimistic_read')
+      .where('user.id = :actorUserId', { actorUserId })
+      .andWhere('user.isActive = :isActive', { isActive: true })
+      .getOne();
+    if (!user) {
+      throw new ForbiddenException('La cuenta de usuario está desactivada.');
+    }
+
+    const tenant = await manager.createQueryBuilder(TenantEntity, 'tenant')
+      .select(['tenant.id', 'tenant.status'])
+      .setLock('pessimistic_read')
+      .where('tenant.id = :tenantId', { tenantId })
+      .andWhere('tenant.status IN (:...statuses)', {
+        statuses: [TenantStatus.ACTIVE, TenantStatus.TRIAL],
+      })
+      .getOne();
+    if (!tenant) {
+      throw new ForbiddenException('La empresa está suspendida o inactiva.');
+    }
   }
 
   private async lockSession(
