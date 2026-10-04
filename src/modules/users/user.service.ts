@@ -46,7 +46,7 @@ export class UsersService {
       if (existingUserByUsername) { throw new ConflictException(`El nombre de usuario '${username}' ya está registrado en el sistema`) }
         
       // 2. Validar existencia previa e independiente de la persona
-      const person = await this.personRepository.findOne({ where: { id: personId } });
+      const person = await this.personRepository.findOne({ where: { id: personId, tenantId } });
       if (!person) { throw new NotFoundException(`No existe una persona registrada con el ID ${personId}. Debe crear la persona previamente.`) }
         
       // 3. Verificar que la persona no posea ya un usuario asociado
