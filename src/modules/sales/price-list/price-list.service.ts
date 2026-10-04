@@ -80,7 +80,7 @@ export class PriceListService {
       await queryRunner.commitTransaction();
 
       return await this.priceListRepo.findOneOrFail({
-        where: { id: savedPriceList.id },
+        where: { id: savedPriceList.id, tenantId },
         relations: { productOverrides: true },
       });
     } catch (error: unknown) {
