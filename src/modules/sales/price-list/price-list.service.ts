@@ -37,13 +37,13 @@ export class PriceListService {
     private readonly productBranchRepo: Repository<ProductBranchEntity>,
   ) { }
 
-  async create(createPriceListDto: CreatePriceListDto): Promise<PriceListEntity> {
+  async create(tenantId: string, createPriceListDto: CreatePriceListDto): Promise<PriceListEntity> {
     const { productOverrides = [], ...priceListData } = createPriceListDto;
 
     if (productOverrides.length > 0) {
       const productIds = productOverrides.map((item) => item.productId);
 
-      const existingProducts = await this.productRepo.find({ where: { id: In(productIds) }, select: { id: true } });
+      const existingProducts = await this.productRepo.find({ where: { id: In(productIds), tenantId }, select: { id: true } });
 
       const existingIds = new Set(existingProducts.map((p) => p.id));
       const invalidIds = productIds.filter((id) => !existingIds.has(id));
@@ -60,6 +60,7 @@ export class PriceListService {
     try {
       const newPriceList = queryRunner.manager.create(PriceListEntity, {
         ...priceListData,
+        tenantId,
       });
 
       const savedPriceList = await queryRunner.manager.save(PriceListEntity, newPriceList);
@@ -100,13 +101,13 @@ export class PriceListService {
 
   
   //Obtiene el precio calculado considerando la sucursal (sellingPrice) y las reglas de sobreescritura
-  async getCalculatedProductPrice(productId: string, branchId: string, priceListId: string): Promise<CalculatedPriceResponse> {
+  async getCalculatedProductPrice(tenantId: string, productId: string, branchId: string, priceListId: string): Promise<CalculatedPriceResponse> {
     try{
-      const priceList = await this.priceListRepo.findOne({ where: { id: priceListId, isActive: true }, relations: { productOverrides: true } });
+      const priceList = await this.priceListRepo.findOne({ where: { id: priceListId, tenantId, isActive: true }, relations: { productOverrides: true } });
 
       if (!priceList) { throw new NotFoundException(`La lista de precios con ID '${priceListId}' no existe o está inactiva.`) }
 
-      const productBranch = await this.productBranchRepo.findOne({ where: { productId, branchId }, relations: { product: true } });
+      const productBranch = await this.productBranchRepo.findOne({ where: { productId, branchId, tenantId }, relations: { product: true } });
 
       if (!productBranch) {
         throw new NotFoundException(`El producto '${productId}' no está asignado o habilitado en la sucursal '${branchId}'.`);
