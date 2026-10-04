@@ -10,7 +10,6 @@ import {
 } from 'typeorm';
 import { BranchEntity } from '../../../branches/entities/branch.entity';
 import { ProductEntity } from './product.entity';
-import { TenantEntity } from '../../../platform/entities/tenant.entity';
 
 const columnNumericTransformer = {
     to: (data: number): number => data,
@@ -24,10 +23,6 @@ export class ProductBranchEntity {
     @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
     tenantId!: string;
 
-    @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT' })
-    @JoinColumn({ name: 'tenant_id' })
-    tenant!: TenantEntity;
-
     @PrimaryGeneratedColumn('uuid')
     id!: string;
 
@@ -40,11 +35,17 @@ export class ProductBranchEntity {
     @ManyToOne(() => ProductEntity, (product: ProductEntity) => product.branchSettings, {
         onDelete: 'CASCADE',
     })
-    @JoinColumn({ name: 'product_id' })
+    @JoinColumn([
+        { name: 'tenant_id', referencedColumnName: 'tenantId' },
+        { name: 'product_id', referencedColumnName: 'id' },
+    ])
     product!: ProductEntity;
 
     @ManyToOne(() => BranchEntity, { onDelete: 'CASCADE' })
-    @JoinColumn({ name: 'branch_id' })
+    @JoinColumn([
+        { name: 'tenant_id', referencedColumnName: 'tenantId' },
+        { name: 'branch_id', referencedColumnName: 'id' },
+    ])
     branch!: BranchEntity;
 
     @Column({ name: 'cost_price', type: 'decimal', precision: 12, scale: 2, default: 0.0, transformer: columnNumericTransformer })
