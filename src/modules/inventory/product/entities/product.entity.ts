@@ -6,10 +6,13 @@ import {
   Index,
   OneToMany,
   PrimaryGeneratedColumn,
+  JoinColumn,
+  ManyToOne,
   UpdateDateColumn,
 } from 'typeorm';
 import { ProductPriceListEntity } from '../../../sales/price-list/entities/product-price-list.entity';
 import { ProductBranchEntity } from './product-branch.entity';
+import { TenantEntity } from '../../../platform/entities/tenant.entity';
 
 export enum UnitOfMeasure {
   UNIT = 'UNIT',
@@ -26,9 +29,18 @@ const columnNumericTransformer = {
 };
 
 @Entity('products')
-@Index(['sku'], { unique: true })
+@Index('UQ_products_tenant_sku', ['tenantId', 'sku'], { unique: true })
+@Index('UQ_products_tenant_id', ['tenantId', 'id'], { unique: true })
+@Index('IDX_products_tenant_barcode', ['tenantId', 'barcode'])
 @Index(['barcode'])
 export class ProductEntity {
+  @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+  tenantId!: string;
+
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'tenant_id' })
+  tenant!: TenantEntity;
+
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 

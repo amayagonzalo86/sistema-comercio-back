@@ -3,8 +3,11 @@ import { ProductEntity } from '../../../inventory/product/entities/product.entit
 import { PriceListEntity } from './price-list.entity';
 
 @Entity('product_price_lists')
-@Index('IDX_UNIQUE_TENANT_PL_PRODUCT', ['priceListId', 'productId'], { unique: true })
+@Index('UQ_product_price_lists_tenant_list_product', ['tenantId', 'priceListId', 'productId'], { unique: true })
 export class ProductPriceListEntity {
+  @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+  tenantId!: string;
+
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 

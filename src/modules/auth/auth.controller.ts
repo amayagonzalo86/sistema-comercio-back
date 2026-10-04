@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -18,6 +19,13 @@ export class AuthController {
     return await this.authService.login(loginDto, ipAddress, userAgent);
   }
 
+  @Get('tenants')
+  @UseGuards(AuthGuard('jwt'))
+  async listTenants(@Req() request: Request) {
+    const authenticatedUser = request.user as { id: string };
+    return this.authService.listUserTenants(authenticatedUser.id);
+  }
+
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() request: Request, @Body() body: RefreshTokenDto, @Res({ passthrough: true }) response: Response ) {
@@ -27,15 +35,7 @@ export class AuthController {
 
     if (!refreshToken) { throw new UnauthorizedException('Token de refresco no proporcionado') }
 
-    // El ID del usuario se extrae del payload codificado del token recibido
-    const decodedToken = JSON.parse(
-      Buffer.from(refreshToken.split('.')[1], 'base64').toString(),
-    ) as { sub: string };
-
-    const tokens = await this.authService.refreshTokens(
-      decodedToken.sub,
-      refreshToken,
-    );
+    const tokens = await this.authService.refreshTokens(refreshToken);
 
     response.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
@@ -58,18 +58,10 @@ export class AuthController {
   ) {
     const refreshToken = request.cookies?.['refreshToken'] as string | undefined;
 
-    if (refreshToken) {
-      try {
-        const decodedToken = JSON.parse(
-          Buffer.from(refreshToken.split('.')[1], 'base64').toString(),
-        ) as { sub: string };
-        // Anular el hash guardado en la base de datos
-        await this.authService['userRepository'].update(decodedToken.sub, {
-          currentHashedRefreshToken: undefined,
-        });
-      } catch {
-        // Ignorar errores de parseo si el token expiró o viene corrupto
-      }
+    try {
+      await this.authService.logoutWithRefreshToken(refreshToken);
+    } catch {
+      // Invalid or expired tokens still result in the cookie being cleared.
     }
 
     // Destruir cookie de refresco

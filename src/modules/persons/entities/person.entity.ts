@@ -2,24 +2,34 @@ import {
   Column,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   OneToOne,
 } from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { UserEntity } from '../../users/entities/user.entity';
+import { TenantEntity } from '../../platform/entities/tenant.entity';
 
 @Entity('persons')
+@Index('UQ_persons_tenant_id', ['tenantId', 'id'], { unique: true })
+@Index('UQ_persons_tenant_national_id', ['tenantId', 'nationalId'], { unique: true })
+@Index('UQ_persons_tenant_email', ['tenantId', 'email'], { unique: true })
 export class PersonEntity extends BaseAuditEntity {
+  @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+  tenantId!: string;
+
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'tenant_id' })
+  tenant!: TenantEntity;
   @Column({ type: 'varchar', length: 100, nullable: false, name: 'first_name' })
   firstName!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: false, name: 'last_name' })
   lastName!: string;
 
-  @Index('idx_persons_national_id', { unique: true })
   @Column({ type: 'varchar', length: 20, nullable: true, name: 'national_id' })
   nationalId?: string | null;
 
-  @Index('idx_persons_email', { unique: true })
   @Column({ type: 'varchar', length: 150, nullable: true })
   email?: string | null;
 

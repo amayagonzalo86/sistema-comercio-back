@@ -4,6 +4,7 @@ import { SessionEntity } from '../../auth/entities/session.entity';
 import { BranchEntity } from '../../branches/entities/branch.entity';
 import { PersonEntity } from '../../persons/entities/person.entity';
 import { RoleEntity, UserRoleEnum } from '../../roles/entities/role.entity';
+import { TenantMembershipEntity } from '../../platform/entities/tenant-membership.entity';
 
 // export enum UserRole {
 //   SUPER_ADMIN = 'SUPER_ADMIN',
@@ -56,6 +57,9 @@ export class UserEntity extends BaseAuditEntity {
   branch?: BranchEntity | null;
 
   // --- Relación 1-a-N con Session (Control de Refresco de Tokens) ---
+  @OneToMany(() => TenantMembershipEntity, (membership) => membership.user)
+  memberships!: TenantMembershipEntity[];
+
   @OneToMany(() => SessionEntity, (session) => session.user)
   sessions!: SessionEntity[];
 

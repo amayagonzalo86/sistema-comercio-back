@@ -17,9 +17,12 @@ const columnNumericTransformer = {
 };
 
 @Entity('product_branches')
-@Index(['productId', 'branchId'], { unique: true })
-@Index(['branchId'])
+@Index('UQ_product_branches_tenant_product_branch', ['tenantId', 'productId', 'branchId'], { unique: true })
+@Index('IDX_product_branches_tenant_branch', ['tenantId', 'branchId'])
 export class ProductBranchEntity {
+    @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+    tenantId!: string;
+
     @PrimaryGeneratedColumn('uuid')
     id!: string;
 

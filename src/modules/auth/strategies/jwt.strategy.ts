@@ -10,6 +10,8 @@ export interface JwtCustomPayload {
   username?: string;
   role?: UserRoleEnum | string;
   roles?: (UserRoleEnum | string)[];
+  tenantId?: string;
+  tenantRole?: string;
 }
 
 export interface AuthenticatedUser {
@@ -18,6 +20,9 @@ export interface AuthenticatedUser {
   username?: string;
   role: UserRoleEnum | string;
   roles: (UserRoleEnum | string)[];
+  tenantId?: string;
+  tenantRole?: string;
+  branchId?: string;
 }
 
 @Injectable()
@@ -49,6 +54,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       username: payload.username,
       role: primaryRole,
       roles: allRoles,
+      tenantId: payload.tenantId,
+      tenantRole: payload.tenantRole,
     };
   }
 }

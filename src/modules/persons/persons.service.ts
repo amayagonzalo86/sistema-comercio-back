@@ -13,9 +13,9 @@ export class PersonsService {
   ){}
 
 
-  async create(createPersonDto: CreatePersonDto): Promise<PersonEntity> {
+  async create(tenantId: string, createPersonDto: CreatePersonDto): Promise<PersonEntity> {
     try{
-      const personNew: PersonEntity = this.personRepository.create(createPersonDto);
+      const personNew: PersonEntity = this.personRepository.create({ ...createPersonDto, tenantId });
       return await this.personRepository.save(personNew);
     } catch (error) {
       if ( error instanceof NotFoundException || error instanceof ConflictException || error instanceof BadRequestException ) {

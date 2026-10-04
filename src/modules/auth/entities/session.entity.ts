@@ -15,6 +15,10 @@ export class SessionEntity extends BaseAuditEntity {
   @JoinColumn({ name: 'user_id' })
   user!: UserEntity;
 
+  @Index('UQ_user_sessions_token_id', { unique: true })
+  @Column({ type: 'varchar', length: 36, nullable: false, name: 'token_id' })
+  tokenId!: string;
+
   @Column({  type: 'varchar', length: 500, nullable: false, name: 'refresh_token_hash' })
   refreshTokenHash!: string;
 
