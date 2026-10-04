@@ -35,6 +35,9 @@ export class BranchesService {
       this.logger.log(`Sucursal registrada correctamente: ${savedBranch.name} (${savedBranch.code})`);
       return savedBranch;
     } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+        throw new ConflictException(`Ya existe una sucursal con el código '${cleanCode}' en esta empresa`);
+      }
       this.logger.error('Error al registrar la sucursal en MySQL', error);
       throw new InternalServerErrorException('Error interno al crear la sucursal');
     }
@@ -55,6 +58,9 @@ export class BranchesService {
       if (!branch) { throw new NotFoundException( `Sucursal con ID '${id}' no encontrada` ) }
       return branch;
     } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
       this.logger.error(`Error al buscar la sucursal ID '${id}'`, error);
       throw new InternalServerErrorException('Error interno al consultar la sucursal');
     }
