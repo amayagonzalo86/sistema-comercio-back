@@ -2,8 +2,8 @@ import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@
 
 type TenantRequest = {
   user?: {
-    };
-  tenantId?: string;
+    tenantId?: string;
+  };
 };
 
 export const GetTenantId = createParamDecorator(
