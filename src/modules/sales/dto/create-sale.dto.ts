@@ -31,6 +31,10 @@ export class CreateSalePaymentDto {
   @Min(0.01)
   @Max(999999999999.99)
   amount!: number;
+
+  @IsOptional()
+  @IsUUID('4')
+  cashSessionId?: string;
 }
 
 export class CreateSaleDto {
