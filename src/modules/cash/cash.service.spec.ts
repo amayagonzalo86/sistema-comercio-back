@@ -39,11 +39,11 @@ function setup(expectedAmount = '10.00') {
   const tenantBuilder = makeQueryBuilder({ id: session.tenantId, status: TenantStatus.TRIAL });
   const movement = { id: 'movement-0000-4000-8000-000000000001' };
   const movementRepository = {
-    create: jest.fn((value) => value),
-    save: jest.fn().mockImplementation(async (value) => ({ ...value, ...movement })),
+    create: jest.fn((value: Record<string, unknown>) => value),
+    save: jest.fn().mockImplementation(async (value: Record<string, unknown>) => ({ ...value, ...movement })),
   };
   const manager = {
-    createQueryBuilder: jest.fn((entity) => entity === TenantMembershipEntity
+    createQueryBuilder: jest.fn((entity: unknown) => entity === TenantMembershipEntity
       ? membershipBuilder
       : entity === UserEntity
         ? userBuilder
@@ -52,8 +52,8 @@ function setup(expectedAmount = '10.00') {
           : queryBuilder),
     findOne: jest.fn().mockResolvedValue(null),
     getRepository: jest.fn().mockReturnValue(movementRepository),
-    create: jest.fn((_entity, value) => value),
-    save: jest.fn().mockImplementation(async (_entity, value) => value),
+    create: jest.fn((_entity: unknown, value: unknown) => value),
+    save: jest.fn().mockImplementation(async (_entity: unknown, value: unknown) => value),
   };
   const queryRunner = {
     manager,
