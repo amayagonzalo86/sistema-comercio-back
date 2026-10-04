@@ -63,6 +63,11 @@ export class CreateTenantCashManagement1791000000011 implements MigrationInterfa
         CONSTRAINT CK_cash_sessions_close_state CHECK (
           (status = 'OPEN' AND closed_at IS NULL AND closed_by_user_id IS NULL AND expected_amount IS NULL AND counted_amount IS NULL AND difference_amount IS NULL)
           OR (status = 'CLOSED' AND closed_at IS NOT NULL AND closed_by_user_id IS NOT NULL AND expected_amount IS NOT NULL AND counted_amount IS NOT NULL AND difference_amount IS NOT NULL)
+        ),
+        CONSTRAINT CK_cash_sessions_nonnegative_amounts CHECK (
+          opening_amount >= 0
+          AND (expected_amount IS NULL OR expected_amount >= 0)
+          AND (counted_amount IS NULL OR counted_amount >= 0)
         )
       ) ENGINE=InnoDB
     `);
