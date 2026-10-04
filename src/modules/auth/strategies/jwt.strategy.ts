@@ -22,6 +22,7 @@ export interface AuthenticatedUser {
   roles: (UserRoleEnum | string)[];
   tenantId?: string;
   tenantRole?: string;
+  branchId?: string;
 }
 
 @Injectable()
@@ -55,6 +56,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       roles: allRoles,
       tenantId: payload.tenantId,
       tenantRole: payload.tenantRole,
+      branchId: payload.branchId,
     };
   }
 }
