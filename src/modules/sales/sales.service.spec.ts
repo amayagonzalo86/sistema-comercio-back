@@ -35,7 +35,7 @@ function setup() {
     sellingPrice: '100.00',
     isActive: true,
     product: { sku: 'SKU-1', name: 'Producto', taxRate: '0.00', status: true },
-  } as ProductBranchEntity;
+  } as unknown as ProductBranchEntity;
   let savedSale: SaleEntity | null = null;
   const salesRepo = {
     findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
