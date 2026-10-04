@@ -1,8 +1,18 @@
-import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { ProductPriceListEntity } from './product-price-list.entity';
+import { Index, JoinColumn, ManyToOne, Column } from 'typeorm';
+import { TenantEntity } from '../../../platform/entities/tenant.entity';
 
 @Entity('price_lists')
+@Index('IDX_price_lists_tenant_active', ['tenantId', 'isActive'])
 export class PriceListEntity {
+  @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+  tenantId!: string;
+
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'tenant_id' })
+  tenant!: TenantEntity;
+
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
