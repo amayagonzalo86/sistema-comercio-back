@@ -294,7 +294,7 @@ export class ProductsService {
         throw new BadRequestException('El cursor de movimientos no es válido.');
       }
       if (
-        !/^\\d{1,20}$/.test(cursorId)
+        !/^[0-9]{1,20}$/.test(cursorId)
       ) {
         throw new BadRequestException('El cursor de movimientos no es válido.');
       }
