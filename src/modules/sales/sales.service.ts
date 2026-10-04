@@ -21,6 +21,8 @@ import { SaleEntity, SaleFiscalStatus } from './entities/sale.entity';
 import { SaleItemEntity } from './entities/sale-item.entity';
 import { SalePaymentEntity } from './entities/sale-payment.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { CashMovementDirection, CashMovementEntity, CashMovementType } from '../cash/entities/cash-movement.entity';
+import { CashSessionEntity, CashSessionStatus } from '../cash/entities/cash-session.entity';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 
@@ -68,10 +70,12 @@ export class SalesService {
       .map((payment) => ({
         method: payment.method,
         amount: Number(payment.amount).toFixed(2),
+        ...(payment.cashSessionId ? { cashSessionId: payment.cashSessionId } : {}),
       }))
       .sort((a, b) =>
         a.method.localeCompare(b.method) ||
-        a.amount.localeCompare(b.amount),
+        a.amount.localeCompare(b.amount) ||
+        (a.cashSessionId ?? '').localeCompare(b.cashSessionId ?? ''),
       );
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({
@@ -88,6 +92,13 @@ export class SalesService {
         throw new ConflictException('Idempotency-Key ya fue utilizado para otra venta.');
       }
       return this.loadSale(tenantId, prior.id);
+    }
+
+    if (dto.payments.some((payment) => payment.method === 'CASH' && !payment.cashSessionId)) {
+      throw new BadRequestException('Cada cobro en efectivo debe indicar cashSessionId.');
+    }
+    if (dto.payments.some((payment) => payment.method !== 'CASH' && payment.cashSessionId)) {
+      throw new BadRequestException('cashSessionId solo corresponde a pagos en efectivo.');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -189,6 +200,30 @@ export class SalesService {
         }
       }
 
+      const cashSessions = new Map<string, CashSessionEntity>();
+      const cashSessionIds = [...new Set(
+        dto.payments
+          .filter((payment) => payment.method === 'CASH' && payment.cashSessionId)
+          .map((payment) => payment.cashSessionId as string),
+      )].sort();
+      for (const cashSessionId of cashSessionIds) {
+        const cashSession = await queryRunner.manager
+          .createQueryBuilder(CashSessionEntity, 'cashSession')
+          .setLock('pessimistic_write')
+          .where('cashSession.tenantId = :tenantId', { tenantId })
+          .andWhere('cashSession.id = :cashSessionId', { cashSessionId })
+          .andWhere('cashSession.branchId = :branchId', { branchId: branch.id })
+          .andWhere('cashSession.status = :status', { status: CashSessionStatus.OPEN })
+          .getOne();
+        if (!cashSession) {
+          throw new NotFoundException('La sesión de caja no existe, está cerrada o no corresponde a la sucursal de la venta.');
+        }
+        if (cashSession.currency !== tenant.currencyCode) {
+          throw new BadRequestException('La moneda de la sesión de caja debe coincidir con la moneda de la venta.');
+        }
+        cashSessions.set(cashSession.id, cashSession);
+      }
+
       const saleRepository = queryRunner.manager.getRepository(SaleEntity);
       const sale = await saleRepository.save(saleRepository.create({
         tenantId,
@@ -233,7 +268,58 @@ export class SalesService {
           externalReference: null,
         }),
       );
-      await paymentRepository.save(payments);
+      const savedPayments = await paymentRepository.save(payments);
+      const cashMovementRepository = queryRunner.manager.getRepository(CashMovementEntity);
+      for (let index = 0; index < dto.payments.length; index += 1) {
+        const requestPayment = dto.payments[index];
+        if (requestPayment.method !== 'CASH') continue;
+
+        const payment = savedPayments[index];
+        const cashSession = cashSessions.get(requestPayment.cashSessionId as string);
+        if (!payment || !cashSession) {
+          throw new InternalServerErrorException('No se pudo asociar el cobro en efectivo a una sesión de caja.');
+        }
+
+        const amountCents = toMinorUnits(Number(payment.amount));
+        const currentCashCents = parseDecimalCents(cashSession.expectedAmount);
+        const nextCashCents = currentCashCents + amountCents;
+        if (nextCashCents > MAX_MONEY_CENTS) {
+          throw new BadRequestException('El saldo de caja excede el máximo monetario admitido.');
+        }
+
+        const cashMovementKey = `sale-payment:${payment.id}`;
+        const requestFingerprint = createHash('sha256')
+          .update(JSON.stringify({ saleId: sale.id, paymentId: payment.id, amount: payment.amount }))
+          .digest('hex');
+        await cashMovementRepository.save(cashMovementRepository.create({
+          tenantId,
+          branchId: branch.id,
+          cashSessionId: cashSession.id,
+          type: CashMovementType.SALE,
+          direction: CashMovementDirection.IN,
+          amount: payment.amount,
+          currency: payment.currency,
+          reason: 'Cobro de venta',
+          sourceType: 'SALE_PAYMENT',
+          sourceId: payment.id,
+          idempotencyKey: cashMovementKey,
+          requestFingerprint,
+          actorUserId,
+        }));
+        cashSession.expectedAmount = formatCents(nextCashCents);
+        await queryRunner.manager.save(CashSessionEntity, cashSession);
+        await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
+          tenantId,
+          actorUserId,
+          requestId: auditContext.requestId,
+          ipAddress: auditContext.ipAddress,
+          userAgent: auditContext.userAgent,
+          eventType: 'SALE_CASH_RECEIVED',
+          aggregateType: 'SALE_PAYMENT',
+          aggregateId: payment.id,
+          metadata: { saleId: sale.id, branchId: branch.id, cashSessionId: cashSession.id, amount: payment.amount, currency: payment.currency },
+        }));
+      }
 
       const movementRepository = queryRunner.manager.getRepository(InventoryMovementEntity);
       for (const line of pricedLines) {
@@ -357,6 +443,15 @@ function toMinorUnits(value: number): bigint {
   }
   const [whole, fraction = ''] = value.toFixed(2).split('.');
   return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+}
+
+
+function parseDecimalCents(value: string): bigint {
+  if (!/^(?:0|[1-9]\\d{0,11})\\.\\d{2}$/.test(value)) {
+    throw new BadRequestException('El saldo de caja tiene un formato inválido.');
+  }
+  const [whole, fraction] = value.split('.');
+  return BigInt(whole) * 100n + BigInt(fraction);
 }
 
 function roundDivide(numerator: bigint, denominator: bigint): bigint {
