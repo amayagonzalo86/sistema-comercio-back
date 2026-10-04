@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -16,6 +17,13 @@ export class AuthController {
     const userAgent = req.headers['user-agent'];
 
     return await this.authService.login(loginDto, ipAddress, userAgent);
+  }
+
+  @Get('tenants')
+  @UseGuards(AuthGuard('jwt'))
+  async listTenants(@Req() request: Request) {
+    const authenticatedUser = request.user as { id: string };
+    return this.authService.listUserTenants(authenticatedUser.id);
   }
 
   @Post('refresh')
