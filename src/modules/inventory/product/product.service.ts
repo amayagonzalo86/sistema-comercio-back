@@ -287,38 +287,32 @@ export class ProductsService {
       .andWhere('movement.branchId = :branchId', { branchId });
 
     if (query.cursor) {
-      let cursorCreatedAt: Date;
       let cursorId: string;
       try {
-        const decoded = Buffer.from(query.cursor, 'base64url').toString('utf8');
-        const separator = decoded.lastIndexOf('|');
-        cursorCreatedAt = new Date(decoded.slice(0, separator));
-        cursorId = decoded.slice(separator + 1);
+        cursorId = Buffer.from(query.cursor, 'base64url').toString('utf8');
       } catch {
         throw new BadRequestException('El cursor de movimientos no es válido.');
       }
       if (
-        !Number.isFinite(cursorCreatedAt.getTime()) ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursorId)
+        !/^\\d{1,20}$/.test(cursorId)
       ) {
         throw new BadRequestException('El cursor de movimientos no es válido.');
       }
       builder.andWhere(
-        '(movement.createdAt < :cursorCreatedAt OR (movement.createdAt = :cursorCreatedAt AND movement.id < :cursorId))',
-        { cursorCreatedAt, cursorId },
+        'movement.id < :cursorId',
+        { cursorId },
       );
     }
 
     const rows = await builder
-      .orderBy('movement.createdAt', 'DESC')
-      .addOrderBy('movement.id', 'DESC')
+      .orderBy('movement.id', 'DESC')
       .take(limit + 1)
       .getMany();
     const hasMore = rows.length > limit;
     const items = rows.slice(0, limit);
     const last = items.at(-1);
     const nextCursor = hasMore && last
-      ? Buffer.from(`${last.createdAt.toISOString()}|${last.id}`, 'utf8').toString('base64url')
+      ? Buffer.from(last.id, 'utf8').toString('base64url')
       : null;
     return { items, nextCursor };
   }
