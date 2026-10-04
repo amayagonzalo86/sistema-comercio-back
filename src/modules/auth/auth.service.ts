@@ -120,6 +120,13 @@ export class AuthService {
       );
     }
 
+    // A user may belong to several companies, but its legacy branch relation is global.
+    // Never return another company's branch in the login response.
+    if (user.branch && user.branch.tenantId !== membership.tenantId) {
+      user.branch = null;
+      user.branchId = null;
+    }
+
     // Extraer únicamente los nombres de los roles para el JWT Payload
     const roleNames: UserRoleEnum[] = user.roles ? user.roles.map((r) => r.name) : [];
 
