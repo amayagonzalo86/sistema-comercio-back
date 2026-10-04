@@ -102,11 +102,13 @@ export class AuthService {
       where: { userId: user.id, status: MembershipStatus.ACTIVE },
       relations: { tenant: true },
     });
+    memberships.sort((a, b) => {
+      const byCreation = a.createdAt.getTime() - b.createdAt.getTime();
+      return byCreation || a.tenant.slug.localeCompare(b.tenant.slug);
+    });
     const membership = loginDto.tenantId
       ? memberships.find((item) => item.tenantId === loginDto.tenantId)
-      : memberships.length === 1
-        ? memberships[0]
-        : undefined;
+      : memberships[0];
 
     if (
       !membership ||
@@ -114,7 +116,7 @@ export class AuthService {
       ![TenantStatus.ACTIVE, TenantStatus.TRIAL].includes(membership.tenant.status)
     ) {
       throw new UnauthorizedException(
-        'Empresa no asignada, inactiva o ambigua. Verifique el tenantId de acceso.',
+        'Empresa no asignada o inactiva. Verifique el tenantId de acceso.',
       );
     }
 
@@ -187,6 +189,23 @@ export class AuthService {
         refreshToken,
       },
     };
+  }
+
+  async listUserTenants(userId: string): Promise<Array<{ id: string; slug: string; legalName: string; tradeName: string | null; role: TenantRole }>> {
+    const memberships = await this.membershipRepository.find({
+      where: { userId, status: MembershipStatus.ACTIVE },
+      relations: { tenant: true },
+      order: { createdAt: 'ASC' },
+    });
+    return memberships
+      .filter((membership) => membership.tenant && [TenantStatus.ACTIVE, TenantStatus.TRIAL].includes(membership.tenant.status))
+      .map(({ tenant, role }) => ({
+        id: tenant.id,
+        slug: tenant.slug,
+        legalName: tenant.legalName,
+        tradeName: tenant.tradeName ?? null,
+        role,
+      }));
   }
 
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {
