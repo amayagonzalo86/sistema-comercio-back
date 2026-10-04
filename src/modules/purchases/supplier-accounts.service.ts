@@ -404,7 +404,7 @@ function formatCents(cents: bigint): string {
 
 
 function parseDecimalCents(value: string): bigint {
-  if (!/^(?:0|[1-9]\\d{0,11})\\.\\d{2}$/.test(value)) {
+  if (!/^(?:0|[1-9]\d{0,11})\.\d{2}$/.test(value)) {
     throw new InternalServerErrorException('El saldo de caja tiene un formato inválido.');
   }
   const [whole, fraction] = value.split('.');
