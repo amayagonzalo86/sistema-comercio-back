@@ -37,6 +37,15 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'UPDATE branches SET tenant_id = ? WHERE tenant_id IS NULL',
       [LEGACY_TENANT_ID],
     );
+    const duplicateBranchCode = await queryRunner.query(
+      'SELECT code FROM branches GROUP BY code HAVING COUNT(*) > 1 LIMIT 1',
+    );
+    if (duplicateBranchCode.length > 0) {
+      throw new Error(
+        'No se puede migrar: existen códigos de sucursal duplicados. Corrija branches.code antes de reintentar.',
+      );
+    }
+
     await queryRunner.query(
       'ALTER TABLE branches MODIFY tenant_id varchar(36) NOT NULL, ' +
         'ADD UNIQUE KEY UQ_branches_tenant_code (tenant_id, code), ' +
@@ -89,8 +98,17 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
         LEGACY_TENANT_ID +
         "') WHERE pb.tenant_id IS NULL",
     );
+    const duplicateProductBranches = await queryRunner.query(
+      'SELECT product_id, branch_id FROM product_branches GROUP BY product_id, branch_id HAVING COUNT(*) > 1 LIMIT 1',
+    );
+    if (duplicateProductBranches.length > 0) {
+      throw new Error(
+        'No se puede migrar: existen productos duplicados por sucursal en product_branches. Depure esas filas antes de reintentar.',
+      );
+    }
     await queryRunner.query(
       'ALTER TABLE product_branches MODIFY tenant_id varchar(36) NOT NULL, ' +
+        'ADD UNIQUE KEY UQ_product_branches_tenant_product_branch (tenant_id, product_id, branch_id), ' +
         'ADD KEY IDX_product_branches_tenant_branch (tenant_id, branch_id), ' +
         'ADD CONSTRAINT FK_product_branches_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT',
     );
@@ -114,7 +132,7 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'ALTER TABLE price_lists DROP FOREIGN KEY FK_price_lists_tenant, DROP INDEX IDX_price_lists_tenant_active, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
-      'ALTER TABLE product_branches DROP FOREIGN KEY FK_product_branches_tenant, DROP INDEX IDX_product_branches_tenant_branch, DROP COLUMN tenant_id',
+      'ALTER TABLE product_branches DROP FOREIGN KEY FK_product_branches_tenant, DROP INDEX IDX_product_branches_tenant_branch, DROP INDEX UQ_product_branches_tenant_product_branch, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
       'ALTER TABLE products DROP FOREIGN KEY FK_products_tenant, DROP INDEX IDX_products_tenant_barcode, DROP INDEX UQ_products_tenant_sku, DROP COLUMN tenant_id',
