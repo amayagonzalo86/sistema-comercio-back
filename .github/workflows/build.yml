@@ -16,5 +16,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit fix
+      - name: Capture regenerated lockfile
+        run: node -e "const fs=require('node:fs'); console.log('LOCKFILE_BASE64_BEGIN'); console.log(fs.readFileSync('package-lock.json').toString('base64')); console.log('LOCKFILE_BASE64_END')"
+      - run: npm audit --audit-level=high
       - run: npm run build
