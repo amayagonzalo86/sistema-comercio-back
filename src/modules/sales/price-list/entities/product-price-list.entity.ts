@@ -27,17 +27,11 @@ export class ProductPriceListEntity {
   appliedPercentage!: number;
 
   @ManyToOne(() => PriceListEntity, (pl) => pl.productOverrides, { onDelete: 'CASCADE' })
-  @JoinColumn([
-    { name: 'tenant_id', referencedColumnName: 'tenantId' },
-    { name: 'price_list_id', referencedColumnName: 'id' },
-  ])
+  @JoinColumn({ name: 'price_list_id' })
   priceList!: PriceListEntity;
 
   @ManyToOne(() => ProductEntity, { onDelete: 'CASCADE' })
-  @JoinColumn([
-    { name: 'tenant_id', referencedColumnName: 'tenantId' },
-    { name: 'product_id', referencedColumnName: 'id' },
-  ])
+  @JoinColumn({ name: 'product_id' })
   product!: ProductEntity;
 
   @CreateDateColumn({ name: 'created_at' })
