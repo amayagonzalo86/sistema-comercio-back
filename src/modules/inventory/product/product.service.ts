@@ -132,6 +132,9 @@ export class ProductsService {
       if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof NotFoundException) {
         throw error;
       }
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+        throw new ConflictException('El SKU o código de barras ya está registrado en esta empresa.');
+      }
       throw new InternalServerErrorException('Error al guardar el producto en la base de datos');
     } finally {
       await queryRunner.release();
@@ -343,6 +346,9 @@ export class ProductsService {
       if (!product) { throw new NotFoundException(`El producto con ID '${id}' no existe en su catálogo`) }
       return product;
     } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
       this.logger.error(`Error al buscar el producto ID '${id}'`, error);
       throw new InternalServerErrorException('Error al consultar el producto');
     }
