@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { BranchEntity } from '../../../branches/entities/branch.entity';
 import { ProductEntity } from './product.entity';
+import { TenantEntity } from '../../../platform/entities/tenant.entity';
 
 const columnNumericTransformer = {
     to: (data: number): number => data,
@@ -17,9 +18,16 @@ const columnNumericTransformer = {
 };
 
 @Entity('product_branches')
-@Index(['productId', 'branchId'], { unique: true })
-@Index(['branchId'])
+@Index('UQ_product_branches_tenant_product_branch', ['tenantId', 'productId', 'branchId'], { unique: true })
+@Index('IDX_product_branches_tenant_branch', ['tenantId', 'branchId'])
 export class ProductBranchEntity {
+    @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+    tenantId!: string;
+
+    @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT' })
+    @JoinColumn({ name: 'tenant_id' })
+    tenant!: TenantEntity;
+
     @PrimaryGeneratedColumn('uuid')
     id!: string;
 
