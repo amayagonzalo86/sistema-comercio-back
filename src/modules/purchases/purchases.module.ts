@@ -8,6 +8,11 @@ import { ProductBranchEntity } from '../inventory/product/entities/product-branc
 import { InventoryMovementEntity } from '../inventory/product/entities/inventory-movement.entity';
 import { PurchaseReceiptEntity } from './entities/purchase-receipt.entity';
 import { PurchaseReceiptItemEntity } from './entities/purchase-receipt-item.entity';
+import { SupplierPayableEntity } from './entities/supplier-payable.entity';
+import { SupplierPaymentEntity } from './entities/supplier-payment.entity';
+import { SupplierPaymentAllocationEntity } from './entities/supplier-payment-allocation.entity';
+import { SupplierAccountsController } from './supplier-accounts.controller';
+import { SupplierAccountsService } from './supplier-accounts.service';
 import { PurchasesController } from './purchases.controller';
 import { PurchasesService } from './purchases.service';
 
@@ -20,11 +25,14 @@ import { PurchasesService } from './purchases.service';
       InventoryMovementEntity,
       PurchaseReceiptEntity,
       PurchaseReceiptItemEntity,
+      SupplierPayableEntity,
+      SupplierPaymentEntity,
+      SupplierPaymentAllocationEntity,
       TenantEntity,
       AuditEventEntity,
     ]),
   ],
-  controllers: [PurchasesController],
-  providers: [PurchasesService],
+  controllers: [PurchasesController, SupplierAccountsController],
+  providers: [PurchasesService, SupplierAccountsService],
 })
 export class PurchasesModule {}
