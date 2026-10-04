@@ -1,6 +1,11 @@
-import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { PersonType } from "../entities/person.entity";
 
 export class CreatePersonDto {
+
+    @IsOptional()
+    @IsEnum(PersonType)
+    personType?: PersonType;
 
     @IsString( { message: 'el Primer nombre debe ser String'})
     @MinLength(3, { message: 'El Primer Nombre debe contener mínimo 3 (tres) letras'})

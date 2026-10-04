@@ -10,84 +10,81 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { DataSource, Repository } from 'typeorm';
+import { BranchEntity } from '../branches/entities/branch.entity';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { TenantEntity } from '../platform/entities/tenant.entity';
-import { BranchEntity } from '../branches/entities/branch.entity';
 import { PersonEntity, PersonType } from '../persons/entities/person.entity';
 import { ProductBranchEntity } from '../inventory/product/entities/product-branch.entity';
 import { InventoryMovementEntity, InventoryMovementType } from '../inventory/product/entities/inventory-movement.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
-import { SaleEntity, SaleFiscalStatus } from './entities/sale.entity';
-import { SaleItemEntity } from './entities/sale-item.entity';
-import { SalePaymentEntity } from './entities/sale-payment.entity';
-import { CreateSaleDto } from './dto/create-sale.dto';
+import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
+import { PurchaseReceiptEntity } from './entities/purchase-receipt.entity';
+import { PurchaseReceiptItemEntity } from './entities/purchase-receipt-item.entity';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
+const MAX_STOCK_MILLI = 999_999_999_999n;
 
-type PricedLine = {
-  line: CreateSaleDto['lines'][number];
-  stock: ProductBranchEntity;
+type PricedPurchaseLine = {
+  productId: string;
   quantityMilli: bigint;
-  unitPriceCents: bigint;
+  unitCostCents: bigint;
   taxRateHundredths: bigint;
   netCents: bigint;
   taxCents: bigint;
   totalCents: bigint;
+  stock: ProductBranchEntity;
 };
 
 @Injectable()
-export class SalesService {
-  private readonly logger = new Logger(SalesService.name);
+export class PurchasesService {
+  private readonly logger = new Logger(PurchasesService.name);
 
   constructor(
     private readonly dataSource: DataSource,
-    @InjectRepository(SaleEntity)
-    private readonly saleRepository: Repository<SaleEntity>,
+    @InjectRepository(PurchaseReceiptEntity)
+    private readonly receiptRepository: Repository<PurchaseReceiptEntity>,
   ) {}
 
-  async create(
+  async receive(
     tenantId: string,
     actorUserId: string,
     idempotencyKey: string,
-    dto: CreateSaleDto,
+    dto: CreatePurchaseReceiptDto,
+    allowedBranchId: string | null,
     auditContext: InventoryAuditContext = {},
-    allowedBranchId: string | null = null,
   ): Promise<Record<string, unknown>> {
     const key = idempotencyKey.trim();
     if (!key || key.length > 100) {
       throw new BadRequestException('Idempotency-Key es obligatorio y debe tener hasta 100 caracteres.');
     }
     if (new Set(dto.lines.map((line) => line.productId)).size !== dto.lines.length) {
-      throw new BadRequestException('Cada producto debe aparecer una sola vez en la venta.');
+      throw new BadRequestException('Cada producto debe aparecer una sola vez en la recepción.');
     }
 
     const normalizedLines = [...dto.lines]
-      .map((line) => ({ productId: line.productId, quantity: Number(line.quantity).toFixed(3) }))
-      .sort((a, b) => a.productId.localeCompare(b.productId));
-    const normalizedPayments = [...dto.payments]
-      .map((payment) => ({
-        method: payment.method,
-        amount: Number(payment.amount).toFixed(2),
+      .map((line) => ({
+        productId: line.productId,
+        quantity: Number(line.quantity).toFixed(3),
+        unitCost: Number(line.unitCost).toFixed(2),
+        taxRate: Number(line.taxRate).toFixed(2),
       }))
-      .sort((a, b) =>
-        a.method.localeCompare(b.method) ||
-        a.amount.localeCompare(b.amount),
-      );
+      .sort((a, b) => a.productId.localeCompare(b.productId));
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({
         branchId: dto.branchId,
-        customerPersonId: dto.customerPersonId ?? null,
+        supplierPersonId: dto.supplierPersonId,
+        sourceDocumentType: dto.sourceDocumentType?.trim() || null,
+        sourceDocumentNumber: dto.sourceDocumentNumber?.trim() || null,
         lines: normalizedLines,
-        payments: normalizedPayments,
       }))
       .digest('hex');
 
-    const prior = await this.saleRepository.findOne({ where: { tenantId, idempotencyKey: key } });
+    const prior = await this.receiptRepository.findOne({ where: { tenantId, idempotencyKey: key } });
     if (prior) {
       if (prior.requestFingerprint !== fingerprint) {
-        throw new ConflictException('Idempotency-Key ya fue utilizado para otra venta.');
+        throw new ConflictException('Idempotency-Key ya fue utilizado para otra recepción.');
       }
-      return this.loadSale(tenantId, prior.id);
+      return this.loadReceipt(tenantId, prior.id, allowedBranchId);
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -108,17 +105,14 @@ export class SalesService {
         throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
       }
 
-      if (dto.customerPersonId) {
-        const customer = await queryRunner.manager.findOne(PersonEntity, {
-          where: { id: dto.customerPersonId, tenantId, isActive: true },
-          select: { id: true, tenantId: true, isActive: true, personType: true },
-        });
-        if (!customer || customer.personType === PersonType.SUPPLIER) {
-          throw new NotFoundException('El cliente no existe, no está activo o no está habilitado para ventas en esta empresa.');
-        }
+      const supplier = await queryRunner.manager.findOne(PersonEntity, {
+        where: { id: dto.supplierPersonId, tenantId, isActive: true },
+      });
+      if (!supplier || supplier.personType === PersonType.CUSTOMER) {
+        throw new NotFoundException('El proveedor no existe, no está activo o no está habilitado para compras en esta empresa.');
       }
 
-      const pricedLines: PricedLine[] = [];
+      const pricedLines: PricedPurchaseLine[] = [];
       for (const line of normalizedLines) {
         const stock = await queryRunner.manager
           .createQueryBuilder(ProductBranchEntity, 'stock')
@@ -130,129 +124,115 @@ export class SalesService {
           .andWhere('stock.isActive = true')
           .andWhere('product.status = true')
           .getOne();
-        if (!stock || !stock.product) {
-          throw new NotFoundException('Uno de los productos no está activo en esta sucursal.');
+        if (!stock?.product) {
+          throw new NotFoundException('Uno de los productos no está activo en esta sucursal de la empresa.');
         }
 
         const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
-        const unitPriceCents = toMinorUnits(Number(stock.sellingPrice));
-        const taxRateHundredths = toMinorUnits(Number(stock.product.taxRate));
-        const netCents = roundDivide(unitPriceCents * quantityMilli, 1000n);
+        const unitCostCents = toMinorUnits(Number(line.unitCost));
+        const taxRateHundredths = toMinorUnits(Number(line.taxRate));
+        const netCents = roundDivide(unitCostCents * quantityMilli, 1000n);
         const taxCents = roundDivide(netCents * taxRateHundredths, 10000n);
         const totalCents = netCents + taxCents;
         if (totalCents > MAX_MONEY_CENTS) {
           throw new BadRequestException('El importe de una línea excede el máximo admitido.');
         }
         pricedLines.push({
-          line: { productId: line.productId, quantity: Number(line.quantity) },
-          stock,
+          productId: line.productId,
           quantityMilli,
-          unitPriceCents,
+          unitCostCents,
           taxRateHundredths,
           netCents,
           taxCents,
           totalCents,
+          stock,
         });
       }
 
-      // A second read after taking stock locks makes same-key concurrent requests replay safely.
-      const concurrentSale = await queryRunner.manager.findOne(SaleEntity, {
+      // Locked product rows serialize retries and concurrent receipts for overlapping SKUs.
+      const concurrentReceipt = await queryRunner.manager.findOne(PurchaseReceiptEntity, {
         where: { tenantId, idempotencyKey: key },
       });
-      if (concurrentSale) {
-        if (concurrentSale.requestFingerprint !== fingerprint) {
-          throw new ConflictException('Idempotency-Key ya fue utilizado para otra venta.');
+      if (concurrentReceipt) {
+        if (concurrentReceipt.requestFingerprint !== fingerprint) {
+          throw new ConflictException('Idempotency-Key ya fue utilizado para otra recepción.');
         }
         await queryRunner.commitTransaction();
         transactionStarted = false;
-        return this.loadSale(tenantId, concurrentSale.id);
+        return this.loadReceipt(tenantId, concurrentReceipt.id, allowedBranchId);
       }
 
       const subtotalCents = pricedLines.reduce((sum, line) => sum + line.netCents, 0n);
       const taxTotalCents = pricedLines.reduce((sum, line) => sum + line.taxCents, 0n);
       const totalCents = subtotalCents + taxTotalCents;
       if (totalCents <= 0n || totalCents > MAX_MONEY_CENTS) {
-        throw new BadRequestException('El total de la venta está fuera del rango admitido.');
+        throw new BadRequestException('El total de la recepción está fuera del rango admitido.');
       }
-      const paymentCents = dto.payments.reduce(
-        (sum, payment) => sum + toMinorUnits(Number(payment.amount)),
-        0n,
-      );
-      if (paymentCents !== totalCents) {
-        throw new BadRequestException('La suma de los medios de pago debe coincidir con el total de la venta.');
-      }
-
       for (const line of pricedLines) {
-        const availableMilli = BigInt(Math.round(Number(line.stock.stock) * 1000));
-        if (line.quantityMilli > availableMilli) {
-          throw new BadRequestException(`Stock insuficiente para el producto ${line.line.productId}.`);
+        const beforeMilli = BigInt(Math.round(Number(line.stock.stock) * 1000));
+        if (beforeMilli + line.quantityMilli > MAX_STOCK_MILLI) {
+          throw new BadRequestException(`La recepción excede el stock máximo para el producto ${line.productId}.`);
         }
       }
 
-      const saleRepository = queryRunner.manager.getRepository(SaleEntity);
-      const sale = await saleRepository.save(saleRepository.create({
+      const receiptRepository = queryRunner.manager.getRepository(PurchaseReceiptEntity);
+      const receipt = await receiptRepository.save(receiptRepository.create({
         tenantId,
         branchId: branch.id,
-        customerPersonId: dto.customerPersonId ?? null,
+        supplierPersonId: supplier.id,
         currency: tenant.currencyCode,
+        sourceDocumentType: dto.sourceDocumentType?.trim() || null,
+        sourceDocumentNumber: dto.sourceDocumentNumber?.trim() || null,
         subtotal: formatCents(subtotalCents),
         taxTotal: formatCents(taxTotalCents),
         total: formatCents(totalCents),
-        fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
         actorUserId,
       }));
 
-      const itemRepository = queryRunner.manager.getRepository(SaleItemEntity);
-      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, taxRateHundredths, netCents, taxCents, totalCents: lineTotal }) =>
-        itemRepository.create({
-          tenantId,
-          saleId: sale.id,
-          productId: line.productId,
-          skuSnapshot: stock.product.sku,
-          nameSnapshot: stock.product.name,
-          quantity: formatMilli(quantityMilli),
-          unitPrice: formatCents(unitPriceCents),
-          taxRate: formatCents(taxRateHundredths),
-          netAmount: formatCents(netCents),
-          taxAmount: formatCents(taxCents),
-          total: formatCents(lineTotal),
-        }),
-      );
+      const itemRepository = queryRunner.manager.getRepository(PurchaseReceiptItemEntity);
+      const items = pricedLines.map((line) => itemRepository.create({
+        tenantId,
+        purchaseReceiptId: receipt.id,
+        productId: line.productId,
+        skuSnapshot: line.stock.product.sku,
+        nameSnapshot: line.stock.product.name,
+        quantity: formatMilli(line.quantityMilli),
+        unitCost: formatCents(line.unitCostCents),
+        taxRate: formatCents(line.taxRateHundredths),
+        netAmount: formatCents(line.netCents),
+        taxAmount: formatCents(line.taxCents),
+        total: formatCents(line.totalCents),
+      }));
       await itemRepository.save(items);
-
-      const paymentRepository = queryRunner.manager.getRepository(SalePaymentEntity);
-      const payments = dto.payments.map((payment) =>
-        paymentRepository.create({
-          tenantId,
-          saleId: sale.id,
-          method: payment.method,
-          amount: formatCents(toMinorUnits(Number(payment.amount))),
-          currency: tenant.currencyCode,
-          externalReference: null,
-        }),
-      );
-      await paymentRepository.save(payments);
 
       const movementRepository = queryRunner.manager.getRepository(InventoryMovementEntity);
       for (const line of pricedLines) {
         const beforeMilli = BigInt(Math.round(Number(line.stock.stock) * 1000));
-        const afterMilli = beforeMilli - line.quantityMilli;
-        line.stock.stock = Number(afterMilli) / 1000;
+        const afterMilli = beforeMilli + line.quantityMilli;
+        const previousCostCents = toMinorUnits(Number(line.stock.costPrice));
+        const weightedCostCents = beforeMilli === 0n
+          ? line.unitCostCents
+          : roundDivide(
+            previousCostCents * beforeMilli + line.unitCostCents * line.quantityMilli,
+            afterMilli,
+          );
+        line.stock.stock = Number(formatMilli(afterMilli));
+        line.stock.costPrice = Number(formatCents(weightedCostCents));
         await queryRunner.manager.save(ProductBranchEntity, line.stock);
         await movementRepository.save(movementRepository.create({
           tenantId,
-          productId: line.line.productId,
+          productId: line.productId,
           branchId: branch.id,
-          movementType: InventoryMovementType.SALE,
-          quantityDelta: formatMilli(-line.quantityMilli),
+          movementType: InventoryMovementType.PURCHASE,
+          quantityDelta: formatMilli(line.quantityMilli),
           quantityBefore: formatMilli(beforeMilli),
           quantityAfter: formatMilli(afterMilli),
-          reason: 'Salida por venta completada',
-          referenceType: 'SALE',
-          referenceId: sale.id,
-          idempotencyKey: `sale:${sale.id}:${line.line.productId}`,
+          reason: 'Ingreso por recepción de compra',
+          referenceType: 'PURCHASE_RECEIPT',
+          referenceId: receipt.id,
+          idempotencyKey: `purchase:${receipt.id}:${line.productId}`,
           actorUserId,
         }));
       }
@@ -263,24 +243,25 @@ export class SalesService {
         requestId: auditContext.requestId,
         ipAddress: auditContext.ipAddress,
         userAgent: auditContext.userAgent,
-        eventType: 'SALE_COMPLETED',
-        aggregateType: 'SALE',
-        aggregateId: sale.id,
+        eventType: 'PURCHASE_RECEIVED',
+        aggregateType: 'PURCHASE_RECEIPT',
+        aggregateId: receipt.id,
         metadata: {
           branchId: branch.id,
-          currency: tenant.currencyCode,
-          subtotal: sale.subtotal,
-          taxTotal: sale.taxTotal,
-          total: sale.total,
+          supplierPersonId: supplier.id,
+          currency: receipt.currency,
+          subtotal: receipt.subtotal,
+          taxTotal: receipt.taxTotal,
+          total: receipt.total,
           lineCount: items.length,
-          paymentCount: payments.length,
-          fiscalStatus: sale.fiscalStatus,
+          sourceDocumentType: receipt.sourceDocumentType,
+          sourceDocumentNumber: receipt.sourceDocumentNumber,
         },
       }));
 
       await queryRunner.commitTransaction();
       transactionStarted = false;
-      return this.loadSale(tenantId, sale.id);
+      return this.loadReceipt(tenantId, receipt.id, allowedBranchId);
     } catch (error) {
       if (transactionStarted) {
         await queryRunner.rollbackTransaction();
@@ -299,16 +280,16 @@ export class SalesService {
         'code' in error &&
         error.code === 'ER_DUP_ENTRY'
       ) {
-        const existing = await this.saleRepository.findOne({ where: { tenantId, idempotencyKey: key } });
+        const existing = await this.receiptRepository.findOne({ where: { tenantId, idempotencyKey: key } });
         if (existing && existing.requestFingerprint === fingerprint) {
-          return this.loadSale(tenantId, existing.id);
+          return this.loadReceipt(tenantId, existing.id, allowedBranchId);
         }
-        throw new ConflictException('Idempotency-Key ya fue utilizado para otra venta.');
+        throw new ConflictException('Idempotency-Key ya fue utilizado para otra recepción.');
       }
-      this.logger.error('Error al registrar la venta', error);
-      throw new InternalServerErrorException('No se pudo registrar la venta.');
+      this.logger.error('Error al registrar la recepción de compra', error);
+      throw new InternalServerErrorException('No se pudo registrar la recepción de compra.');
     } finally {
-      if (queryRunner.isReleased === false) {
+      if (!queryRunner.isReleased) {
         await queryRunner.release();
       }
     }
@@ -316,38 +297,42 @@ export class SalesService {
 
   async findOne(
     tenantId: string,
-    saleId: string,
+    receiptId: string,
     allowedBranchId: string | null = null,
   ): Promise<Record<string, unknown>> {
-    const sale = await this.saleRepository.findOne({
+    const receipt = await this.receiptRepository.findOne({
       where: {
-        id: saleId,
+        id: receiptId,
         tenantId,
         ...(allowedBranchId ? { branchId: allowedBranchId } : {}),
       },
     });
-    if (!sale) {
-      throw new NotFoundException('Venta no encontrada.');
+    if (!receipt) {
+      throw new NotFoundException('Recepción de compra no encontrada.');
     }
-    return this.loadSale(tenantId, sale.id);
+    return this.loadReceipt(tenantId, receipt.id, allowedBranchId);
   }
 
-  private async loadSale(tenantId: string, saleId: string): Promise<Record<string, unknown>> {
-    const sale = await this.saleRepository.findOne({ where: { id: saleId, tenantId } });
-    if (!sale) {
-      throw new NotFoundException('Venta no encontrada.');
+  private async loadReceipt(
+    tenantId: string,
+    receiptId: string,
+    allowedBranchId: string | null,
+  ): Promise<Record<string, unknown>> {
+    const receipt = await this.receiptRepository.findOne({
+      where: {
+        id: receiptId,
+        tenantId,
+        ...(allowedBranchId ? { branchId: allowedBranchId } : {}),
+      },
+    });
+    if (!receipt) {
+      throw new NotFoundException('Recepción de compra no encontrada.');
     }
-    const [items, payments] = await Promise.all([
-      this.dataSource.getRepository(SaleItemEntity).find({
-        where: { tenantId, saleId },
-        order: { id: 'ASC' },
-      }),
-      this.dataSource.getRepository(SalePaymentEntity).find({
-        where: { tenantId, saleId },
-        order: { createdAt: 'ASC' },
-      }),
-    ]);
-    return { ...sale, items, payments };
+    const items = await this.dataSource.getRepository(PurchaseReceiptItemEntity).find({
+      where: { tenantId, purchaseReceiptId: receiptId },
+      order: { id: 'ASC' },
+    });
+    return { ...receipt, items };
   }
 }
 
