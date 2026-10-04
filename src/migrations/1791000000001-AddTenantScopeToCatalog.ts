@@ -63,6 +63,7 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
     await queryRunner.query(
       'ALTER TABLE branches MODIFY tenant_id varchar(36) NOT NULL, ' +
         'ADD UNIQUE KEY UQ_branches_tenant_code (tenant_id, code), ' +
+        'ADD UNIQUE KEY UQ_branches_tenant_id (tenant_id, id), ' +
         'ADD KEY IDX_branches_tenant_status (tenant_id, status), ' +
         'ADD CONSTRAINT FK_branches_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT',
     );
@@ -75,6 +76,7 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
     await queryRunner.query(
       'ALTER TABLE products MODIFY tenant_id varchar(36) NOT NULL, ' +
         'ADD UNIQUE KEY UQ_products_tenant_sku (tenant_id, sku), ' +
+        'ADD UNIQUE KEY UQ_products_tenant_id (tenant_id, id), ' +
         'ADD KEY IDX_products_tenant_barcode (tenant_id, barcode), ' +
         'ADD CONSTRAINT FK_products_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT',
     );
@@ -124,7 +126,8 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'ALTER TABLE product_branches MODIFY tenant_id varchar(36) NOT NULL, ' +
         'ADD UNIQUE KEY UQ_product_branches_tenant_product_branch (tenant_id, product_id, branch_id), ' +
         'ADD KEY IDX_product_branches_tenant_branch (tenant_id, branch_id), ' +
-        'ADD CONSTRAINT FK_product_branches_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT',
+        'ADD CONSTRAINT FK_product_branches_tenant_branch FOREIGN KEY (tenant_id, branch_id) REFERENCES branches (tenant_id, id) ON DELETE CASCADE, ' +
+        'ADD CONSTRAINT FK_product_branches_tenant_product FOREIGN KEY (tenant_id, product_id) REFERENCES products (tenant_id, id) ON DELETE CASCADE',
     );
 
     await queryRunner.query(
@@ -160,13 +163,13 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'ALTER TABLE price_lists DROP FOREIGN KEY FK_price_lists_tenant, DROP INDEX IDX_price_lists_tenant_active, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
-      'ALTER TABLE product_branches DROP FOREIGN KEY FK_product_branches_tenant, DROP INDEX IDX_product_branches_tenant_branch, DROP INDEX UQ_product_branches_tenant_product_branch, DROP COLUMN tenant_id',
+      'ALTER TABLE product_branches DROP FOREIGN KEY FK_product_branches_tenant_branch, DROP FOREIGN KEY FK_product_branches_tenant_product, DROP INDEX IDX_product_branches_tenant_branch, DROP INDEX UQ_product_branches_tenant_product_branch, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
-      'ALTER TABLE products DROP FOREIGN KEY FK_products_tenant, DROP INDEX IDX_products_tenant_barcode, DROP INDEX UQ_products_tenant_sku, DROP COLUMN tenant_id',
+      'ALTER TABLE products DROP FOREIGN KEY FK_products_tenant, DROP INDEX IDX_products_tenant_barcode, DROP INDEX UQ_products_tenant_id, DROP INDEX UQ_products_tenant_sku, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
-      'ALTER TABLE branches DROP FOREIGN KEY FK_branches_tenant, DROP INDEX IDX_branches_tenant_status, DROP INDEX UQ_branches_tenant_code, DROP COLUMN tenant_id',
+      'ALTER TABLE branches DROP FOREIGN KEY FK_branches_tenant, DROP INDEX IDX_branches_tenant_status, DROP INDEX UQ_branches_tenant_id, DROP INDEX UQ_branches_tenant_code, DROP COLUMN tenant_id',
     );
   }
 }
