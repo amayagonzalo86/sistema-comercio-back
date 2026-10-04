@@ -35,17 +35,11 @@ export class ProductBranchEntity {
     @ManyToOne(() => ProductEntity, (product: ProductEntity) => product.branchSettings, {
         onDelete: 'CASCADE',
     })
-    @JoinColumn([
-        { name: 'tenant_id', referencedColumnName: 'tenantId' },
-        { name: 'product_id', referencedColumnName: 'id' },
-    ])
+    @JoinColumn({ name: 'product_id' })
     product!: ProductEntity;
 
     @ManyToOne(() => BranchEntity, { onDelete: 'CASCADE' })
-    @JoinColumn([
-        { name: 'tenant_id', referencedColumnName: 'tenantId' },
-        { name: 'branch_id', referencedColumnName: 'id' },
-    ])
+    @JoinColumn({ name: 'branch_id' })
     branch!: BranchEntity;
 
     @Column({ name: 'cost_price', type: 'decimal', precision: 12, scale: 2, default: 0.0, transformer: columnNumericTransformer })
