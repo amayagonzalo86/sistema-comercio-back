@@ -4,7 +4,7 @@ Backend REST para un ERP comercial construido con NestJS, TypeScript, TypeORM y 
 
 ## Estado
 
-El repositorio contiene autenticación, usuarios, personas, roles, sucursales, productos, stock por sucursal, listas de precios y entidades de plataforma para empresas, membresías, auditoría y configuración fiscal. La rama de evolución agrega contexto multiempresa a varios de esos módulos.
+El repositorio contiene autenticación, usuarios, personas, roles, sucursales, productos, stock por sucursal, listas de precios y entidades de plataforma para empresas, membresías, auditoría y configuración fiscal. La rama de evolución agrega contexto multiempresa a varios de esos módulos y un libro transaccional de movimientos de inventario.
 
 **El aislamiento integral todavía no está terminado y el sistema no está listo para producción:** faltan otros dominios, auditoría en todas las operaciones críticas, pruebas de seguridad y carga, y la integración fiscal no emite comprobantes. Revisá [la arquitectura y hoja de ruta](docs/architecture/erp-argentina.md).
 
