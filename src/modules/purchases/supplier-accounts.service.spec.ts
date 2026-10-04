@@ -128,7 +128,7 @@ describe('SupplierAccountsService', () => {
   });
 
   it('rechaza pagar por encima del saldo pendiente', async () => {
-    const h = setup('25.00');
+    const h = setup();
     const overpayment = { ...dto, allocations: [{ payableId, amount: 80 }] };
 
     await expect(h.service.createPayment(tenantId, 'actor-1', 'pay-key-1', overpayment, branchId))
