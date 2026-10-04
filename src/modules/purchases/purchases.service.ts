@@ -66,6 +66,7 @@ export class PurchasesService {
         productId: line.productId,
         quantity: Number(line.quantity).toFixed(3),
         unitCost: Number(line.unitCost).toFixed(2),
+        taxRate: Number(line.taxRate).toFixed(2),
       }))
       .sort((a, b) => a.productId.localeCompare(b.productId));
     const fingerprint = createHash('sha256')
@@ -129,7 +130,7 @@ export class PurchasesService {
 
         const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
         const unitCostCents = toMinorUnits(Number(line.unitCost));
-        const taxRateHundredths = toMinorUnits(Number(stock.product.taxRate));
+        const taxRateHundredths = toMinorUnits(Number(line.taxRate));
         const netCents = roundDivide(unitCostCents * quantityMilli, 1000n);
         const taxCents = roundDivide(netCents * taxRateHundredths, 10000n);
         const totalCents = netCents + taxCents;
