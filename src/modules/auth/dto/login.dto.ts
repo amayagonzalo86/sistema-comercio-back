@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class LoginDto {
   @IsString({ message: 'El nombre de usuario debe ser una cadena de texto' })
@@ -9,5 +9,9 @@ export class LoginDto {
   @IsNotEmpty({ message: 'La contraseña es requerida' })
   @MinLength(6, { message: 'La contraseña debe tener al menos 6 caracteres' })
   readonly password!: string;
+
+  @IsUUID('4', { message: 'La empresa debe ser un UUID válido.' })
+  @IsOptional()
+  readonly tenantId?: string;
 
 }
