@@ -9,7 +9,7 @@ export class EnableCashSessionOperations1791000000013 implements MigrationInterf
     );
     await queryRunner.query(`
       ALTER TABLE cash_sessions
-        ADD COLUMN opening_request_fingerprint char(64) NULL,
+        ADD COLUMN opening_request_fingerprint char(64) NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000',
         ADD COLUMN close_idempotency_key varchar(100) NULL,
         ADD COLUMN close_request_fingerprint char(64) NULL,
         ADD UNIQUE KEY UQ_cash_sessions_tenant_close_key (tenant_id, close_idempotency_key)
@@ -31,7 +31,8 @@ export class EnableCashSessionOperations1791000000013 implements MigrationInterf
             AND counted_amount IS NULL
             AND difference_amount IS NULL
             AND close_idempotency_key IS NULL
-            AND close_request_fingerprint IS NULL)
+            AND close_request_fingerprint IS NULL
+            AND opening_request_fingerprint IS NOT NULL)
           OR
           (status = 'CLOSED'
             AND closed_at IS NOT NULL
@@ -39,7 +40,8 @@ export class EnableCashSessionOperations1791000000013 implements MigrationInterf
             AND counted_amount IS NOT NULL
             AND difference_amount IS NOT NULL
             AND close_idempotency_key IS NOT NULL
-            AND close_request_fingerprint IS NOT NULL)
+            AND close_request_fingerprint IS NOT NULL
+            AND opening_request_fingerprint IS NOT NULL)
         )
     `);
   }
