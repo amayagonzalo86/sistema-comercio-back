@@ -32,6 +32,20 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       [LEGACY_TENANT_ID],
     );
 
+    await queryRunner.query('ALTER TABLE persons ADD COLUMN tenant_id varchar(36) NULL');
+    await queryRunner.query(
+      'UPDATE persons SET tenant_id = ? WHERE tenant_id IS NULL',
+      [LEGACY_TENANT_ID],
+    );
+    await queryRunner.query(
+      'ALTER TABLE persons MODIFY tenant_id varchar(36) NOT NULL, ' +
+        'DROP INDEX idx_persons_national_id, DROP INDEX idx_persons_email, ' +
+        'ADD UNIQUE KEY UQ_persons_tenant_national_id (tenant_id, national_id), ' +
+        'ADD UNIQUE KEY UQ_persons_tenant_email (tenant_id, email), ' +
+        'ADD KEY IDX_persons_tenant_active (tenant_id, is_active), ' +
+        'ADD CONSTRAINT FK_persons_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT',
+    );
+
     await queryRunner.query('ALTER TABLE branches ADD COLUMN tenant_id varchar(36) NULL');
     await queryRunner.query(
       'UPDATE branches SET tenant_id = ? WHERE tenant_id IS NULL',
@@ -128,6 +142,9 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      'ALTER TABLE persons DROP FOREIGN KEY FK_persons_tenant, DROP INDEX IDX_persons_tenant_active, DROP INDEX UQ_persons_tenant_email, DROP INDEX UQ_persons_tenant_national_id, ADD UNIQUE KEY idx_persons_email (email), ADD UNIQUE KEY idx_persons_national_id (national_id), DROP COLUMN tenant_id',
+    );
     await queryRunner.query(
       'ALTER TABLE price_lists DROP FOREIGN KEY FK_price_lists_tenant, DROP INDEX IDX_price_lists_tenant_active, DROP COLUMN tenant_id',
     );
