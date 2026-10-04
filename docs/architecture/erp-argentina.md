@@ -15,7 +15,7 @@ La migración `1791000000000-CreateSaasCore` agrega:
 - `audit_events`: eventos de auditoría indexados por empresa, fecha, recurso y request.
 - `fiscal_profiles`: CUIT, condición IVA, inscripción de IIBB y ambiente ARCA. Certificados y claves se guardan como referencias a un gestor de secretos, nunca como contenido.
 
-Este es el modelo base. Todavía no se conecta a los endpoints existentes ni garantiza aislamiento de consultas, permisos o escrituras.
+La siguiente etapa de implementación añade guard de membresía activa y rol vigente, alta de empresas por operador de plataforma, empresa heredada para los datos existentes, y `tenant_id` en sucursales, productos, stock por sucursal, listas de precios y personas. El login selecciona la membresía más antigua cuando no recibe `tenantId`; `GET /api/v1/auth/tenants` permite consultar las empresas activas propias y volver a iniciar sesión seleccionando el `tenantId` deseado. Esto reduce el riesgo en esos módulos, pero aún no prueba el aislamiento de toda la API ni constituye una liberación de producción.
 
 ## Decisiones que deben guiar el desarrollo
 
@@ -45,12 +45,12 @@ Este es el modelo base. Todavía no se conecta a los endpoints existentes ni gar
 
 ## Hoja de ruta técnica
 
-1. **Aislamiento y acceso**: membresía activa en login, selección segura de empresa, guard de tenant, permisos por rol y sucursal; migrar sucursales, productos y listas de precios con tenant.
+1. **Aislamiento y acceso**: extender filtros por tenant a todos los módulos (incluyendo compras, ventas, caja y reportes); garantizar relaciones compuestas entre tenant y sucursal/producto/persona; habilitar cambio de empresa con reemisión de sesión; agregar auditoría en altas, cambios de permisos, catálogo y operaciones; probar acceso cruzado entre empresas. La migración actual puede requerir depuración previa si encuentra códigos de sucursal o asociaciones de producto/sucursal duplicados.
 2. **Operación comercial**: movimientos de inventario, compras, ventas, comprobantes internos, caja, pagos, devoluciones y notas de crédito; transacciones e idempotencia.
 3. **Fiscal Argentina**: puntos de venta, tipos de comprobante, numeración fiscal serializada por CUIT/punto/tipo, CAE/CAEA y almacenamiento de respuesta. Implementar adaptadores y homologar con ARCA antes de producción; seleccionar WSFEv1 o WSMTXCA según el detalle exigido por la operación.
 4. **Seguridad operativa**: MFA, recuperación segura, rotación de refresh por sesión, protección de secretos, respaldos cifrados con pruebas de restauración, alertas y respuesta a incidentes.
 5. **SaaS y monetización**: planes, límites por plan, suscripciones, medición de uso, facturación del servicio y proceso de alta/baja. Integrar el medio de pago luego de definir modelo comercial y proveedor.
-6. **Liberación**: CI con lint/build/migraciones, pruebas de autorización entre tenants, pruebas de integración fiscal, carga, revisión de seguridad y despliegue progresivo.
+6. **Liberación**: CI con lint/build/migraciones, pruebas de autorización entre tenants, pruebas de integración fiscal, carga, revisión de seguridad y despliegue progresivo. `synchronize` debe mantenerse desactivado en producción; las migraciones deben ejecutarse sobre un respaldo verificado.
 
 ## Referencias de trabajo
 
