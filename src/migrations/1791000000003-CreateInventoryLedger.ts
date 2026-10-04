@@ -22,7 +22,8 @@ export class CreateInventoryLedger1791000000003 implements MigrationInterface {
         created_at timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         PRIMARY KEY (id),
         UNIQUE KEY UQ_inventory_movements_tenant_idempotency (tenant_id, idempotency_key),
-        KEY IDX_inventory_movements_stock_history (tenant_id, branch_id, product_id, created_at),
+        KEY IDX_inventory_movements_stock_cursor (tenant_id, product_id, branch_id, id),
+        KEY IDX_inventory_movements_tenant_time (tenant_id, created_at),
         CONSTRAINT FK_inventory_movements_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT,
         CONSTRAINT FK_inventory_movements_product FOREIGN KEY (tenant_id, product_id) REFERENCES products (tenant_id, id) ON DELETE RESTRICT,
         CONSTRAINT FK_inventory_movements_branch FOREIGN KEY (tenant_id, branch_id) REFERENCES branches (tenant_id, id) ON DELETE RESTRICT
