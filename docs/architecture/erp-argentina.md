@@ -46,7 +46,7 @@ La siguiente etapa de implementación añade guard de membresía activa y rol vi
 ## Hoja de ruta técnica
 
 1. **Aislamiento y acceso**: extender filtros por tenant a todos los módulos (incluyendo compras, ventas, caja y reportes); garantizar relaciones compuestas entre tenant y sucursal/producto/persona; habilitar cambio de empresa con reemisión de sesión; agregar auditoría en altas, cambios de permisos, catálogo y operaciones; probar acceso cruzado entre empresas. La migración actual puede requerir depuración previa si encuentra códigos de sucursal o asociaciones de producto/sucursal duplicados.
-2. **Operación comercial**: movimientos de inventario, compras, ventas, comprobantes internos, caja, pagos, devoluciones y notas de crédito; transacciones e idempotencia.
+2. **Operación comercial**: integrar el libro actual con compras, ventas, transferencias, devoluciones y comprobantes internos; construir caja, pagos y notas de crédito; aplicar la misma atomicidad e idempotencia en cada flujo.
 3. **Fiscal Argentina**: puntos de venta, tipos de comprobante, numeración fiscal serializada por CUIT/punto/tipo, CAE/CAEA y almacenamiento de respuesta. Implementar adaptadores y homologar con ARCA antes de producción; seleccionar WSFEv1 o WSMTXCA según el detalle exigido por la operación.
 4. **Seguridad operativa**: MFA, recuperación segura, rotación de refresh por sesión, protección de secretos, respaldos cifrados con pruebas de restauración, alertas y respuesta a incidentes.
 5. **SaaS y monetización**: planes, límites por plan, suscripciones, medición de uso, facturación del servicio y proceso de alta/baja. Integrar el medio de pago luego de definir modelo comercial y proveedor.
