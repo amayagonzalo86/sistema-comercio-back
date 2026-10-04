@@ -36,6 +36,10 @@ export class CreateSupplierPaymentDto {
   method!: SupplierPaymentMethod;
 
   @IsOptional()
+  @IsUUID('4')
+  cashSessionId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(100)
   externalReference?: string;
