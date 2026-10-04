@@ -6,7 +6,7 @@ export class CreateInventoryLedger1791000000003 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE inventory_movements (
-        id varchar(36) NOT NULL,
+        id bigint unsigned NOT NULL AUTO_INCREMENT,
         tenant_id varchar(36) NOT NULL,
         product_id varchar(36) NOT NULL,
         branch_id varchar(36) NOT NULL,
@@ -31,11 +31,11 @@ export class CreateInventoryLedger1791000000003 implements MigrationInterface {
 
     await queryRunner.query(`
       INSERT INTO inventory_movements (
-        id, tenant_id, product_id, branch_id, movement_type, quantity_delta,
+        tenant_id, product_id, branch_id, movement_type, quantity_delta,
         quantity_before, quantity_after, reason, reference_type, reference_id,
         idempotency_key, actor_user_id, created_at
       )
-      SELECT UUID(), tenant_id, product_id, branch_id, 'OPENING', stock, 0, stock,
+      SELECT tenant_id, product_id, branch_id, 'OPENING', stock, 0, stock,
         'Saldo inicial importado durante la migración', 'LEGACY_IMPORT', id,
         CONCAT('legacy-opening:', id), NULL, created_at
       FROM product_branches
