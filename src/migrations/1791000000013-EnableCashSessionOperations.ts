@@ -9,6 +9,7 @@ export class EnableCashSessionOperations1791000000013 implements MigrationInterf
     );
     await queryRunner.query(`
       ALTER TABLE cash_sessions
+        ADD COLUMN opening_request_fingerprint char(64) NULL,
         ADD COLUMN close_idempotency_key varchar(100) NULL,
         ADD COLUMN close_request_fingerprint char(64) NULL,
         ADD UNIQUE KEY UQ_cash_sessions_tenant_close_key (tenant_id, close_idempotency_key)
@@ -54,7 +55,7 @@ export class EnableCashSessionOperations1791000000013 implements MigrationInterf
       "UPDATE cash_sessions SET expected_amount = NULL WHERE status = 'OPEN'",
     );
     await queryRunner.query(
-      'ALTER TABLE cash_sessions DROP INDEX UQ_cash_sessions_tenant_close_key, DROP COLUMN close_request_fingerprint, DROP COLUMN close_idempotency_key',
+      'ALTER TABLE cash_sessions DROP INDEX UQ_cash_sessions_tenant_close_key, DROP COLUMN close_request_fingerprint, DROP COLUMN close_idempotency_key, DROP COLUMN opening_request_fingerprint',
     );
     await queryRunner.query(`
       ALTER TABLE cash_sessions
