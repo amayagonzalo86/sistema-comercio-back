@@ -22,16 +22,16 @@ export class ProductsService {
 
   
   //Registra un producto y su matriz de precios/stock inicial por sucursal en una transacción atómica.
-  async create(createProductDto: CreateProductDto): Promise<ProductEntity> {
+  async create(tenantId: string, createProductDto: CreateProductDto): Promise<ProductEntity> {
     const { sku, barcode, branchSettings, ...productData } = createProductDto;
 
     // 1. Validar duplicados dentro de la empresa para SKU y código de barras
-    const existingSku = await this.productRepository.findOne({ where: { sku } });
+    const existingSku = await this.productRepository.findOne({ where: { sku: sku.trim().toUpperCase(), tenantId } });
 
     if (existingSku) { throw new ConflictException(`El SKU '${sku}' ya está registrado en su catálogo`); }
 
     if (barcode) {
-      const existingBarcode = await this.productRepository.findOne({ where: { barcode } });
+      const existingBarcode = await this.productRepository.findOne({ where: { barcode: barcode.trim(), tenantId } });
       if (existingBarcode) { throw new ConflictException(`El código de barras '${barcode}' ya está asignado a otro producto`) }
     }
 
@@ -44,6 +44,7 @@ export class ProductsService {
       // a. Guardar Cabecera del Producto
       const newProduct = queryRunner.manager.create(ProductEntity, {
         ...productData,
+        tenantId,
         sku: sku.trim().toUpperCase(),
         barcode: barcode?.trim() || null,
       });
@@ -55,12 +56,13 @@ export class ProductsService {
 
       for (const bSetting of branchSettings) {
         const branch = await queryRunner.manager.findOne(BranchEntity, {
-          where: { id: bSetting.branchId },
+          where: { id: bSetting.branchId, tenantId },
         });
 
         if (!branch) { throw new NotFoundException(`La sucursal ID '${bSetting.branchId}' no pertenece a su empresa`) }
 
         const pbEntry = queryRunner.manager.create(ProductBranchEntity, {
+          tenantId,
           productId: savedProduct.id,
           branchId: bSetting.branchId,
           costPrice: bSetting.costPrice,
@@ -78,7 +80,7 @@ export class ProductsService {
       await queryRunner.commitTransaction();
 
       this.logger.log(`Producto '${savedProduct.name}' (SKU: ${savedProduct.sku}) creado exitosamente.`);
-      return this.findOne(savedProduct.id);
+      return this.findOne(savedProduct.id, tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error('Error al ejecutar la transacción de creación de producto', error);
@@ -92,9 +94,9 @@ export class ProductsService {
   }
 
   //Busca productos por filtro de sucursal (para el POS o gestión de stock local). 
-  async findByBranch( branchId: string): Promise<ProductBranchEntity[]> {
+  async findByBranch(tenantId: string, branchId: string): Promise<ProductBranchEntity[]> {
     try{
-      return await this.productBranchRepository.find({ where: { branchId, isActive: true }, relations: { product: true }, order: { product: { name: 'ASC' } } });
+      return await this.productBranchRepository.find({ where: { tenantId, branchId, isActive: true }, relations: { product: true }, order: { product: { name: 'ASC' } } });
     } catch (error) {
       this.logger.error(`Error al buscar productos para la sucursal ID '${branchId}'`, error);
       throw new InternalServerErrorException('Error al consultar productos por sucursal');
@@ -102,9 +104,9 @@ export class ProductsService {
   };
 
   //Obtiene la ficha completa de un producto con la matriz de todas sus sucursales.
-  async findOne(id: string): Promise<ProductEntity> {
+  async findOne(id: string, tenantId: string): Promise<ProductEntity> {
     try{
-      const product = await this.productRepository.findOne({ where: { id }, relations: { branchSettings: { branch: true } } });
+      const product = await this.productRepository.findOne({ where: { id, tenantId }, relations: { branchSettings: { branch: true } } });
   
       if (!product) { throw new NotFoundException(`El producto con ID '${id}' no existe en su catálogo`) }
       return product;
