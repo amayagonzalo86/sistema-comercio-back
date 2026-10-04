@@ -50,7 +50,7 @@ export class ProductsController {
     return {
       requestId: (request as Request & { requestId?: string }).requestId,
       ipAddress: request.socket.remoteAddress ?? null,
-      userAgent: request.headers['user-agent'] ?? null,
+      userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
     };
   }
 
