@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CashMovementQueryDto {
   @IsOptional()
@@ -11,6 +11,6 @@ export class CashMovementQueryDto {
 
   @IsOptional()
   @IsString()
-  @Max(256)
+  @MaxLength(256)
   cursor?: string;
 }
