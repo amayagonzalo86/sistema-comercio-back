@@ -137,7 +137,8 @@ export class UsersService {
     try {
       const user = await this.userRepository.findOne({ where: { username, memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con el nombre '${username}' no encontrado`) }
-      return this.hideForeignBranch(user, tenantId);
+      await this.attachTenantBranches([user], tenantId);
+      return user;
     } catch (error) {
       if (error instanceof NotFoundException) { throw error }
       this.logger.error(`Error al obtener el usuario con nombre '${username}': ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
