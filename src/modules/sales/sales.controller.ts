@@ -67,8 +67,13 @@ export class SalesController {
   @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER)
   findOne(
     @GetTenantId() tenantId: string,
+    @Req() request: Request,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.salesService.findOne(tenantId, id);
+    const actor = request.user as { branchId?: string | null; tenantRole?: string };
+    if (['CASHIER', 'SELLER', 'INVENTORY'].includes(actor.tenantRole ?? '') && !actor.branchId) {
+      throw new ForbiddenException('El usuario debe tener una sucursal asignada en esta empresa.');
+    }
+    return this.salesService.findOne(tenantId, id, actor.branchId ?? null);
   }
 }
