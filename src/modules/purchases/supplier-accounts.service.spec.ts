@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { BranchEntity } from '../branches/entities/branch.entity';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { PersonEntity, PersonType } from '../persons/entities/person.entity';
@@ -133,7 +133,7 @@ describe('SupplierAccountsService', () => {
     const overpayment = { ...dto, allocations: [{ payableId, amount: 80 }] };
 
     await expect(h.service.createPayment(tenantId, 'actor-1', 'pay-key-1', overpayment, branchId))
-      .rejects.toBeInstanceOf(BadRequestException);
+      .rejects.toBeInstanceOf(ConflictException);
 
     expect(h.paymentRepo.save).not.toHaveBeenCalled();
     expect(h.payable.amountPaid).toBe('25.00');
