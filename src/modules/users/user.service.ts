@@ -103,7 +103,7 @@ export class UsersService {
   
   async findAll(tenantId: string): Promise<UserEntity[]> {
     try{
-      return await this.userRepository.find({ where: { memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true },
+      const users = await this.userRepository.find({ where: { memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true },
         select: {
           id: true,
           username: true,
@@ -113,6 +113,7 @@ export class UsersService {
           updatedAt: true,
         },
       });
+      return users.map((user) => this.hideForeignBranch(user, tenantId));
     } catch (error){
       this.logger.error(`Error al obtener usuarios: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
       throw new InternalServerErrorException('No se pudieron obtener los usuarios');
@@ -123,7 +124,7 @@ export class UsersService {
     try {
       const user = await this.userRepository.findOne({ where: { id, memberships: { tenantId, status: MembershipStatus.ACTIVE } },  relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con ID ${id} no encontrado`) }
-      return user;
+      return this.hideForeignBranch(user, tenantId);
     } catch (error) {
       if (error instanceof NotFoundException) { throw error }
       this.logger.error(`Error al obtener el usuario con ID ${id}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
@@ -135,7 +136,7 @@ export class UsersService {
     try {
       const user = await this.userRepository.findOne({ where: { username, memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con el nombre '${username}' no encontrado`) }
-      return user;
+      return this.hideForeignBranch(user, tenantId);
     } catch (error) {
       if (error instanceof NotFoundException) { throw error }
       this.logger.error(`Error al obtener el usuario con nombre '${username}': ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
@@ -276,6 +277,14 @@ export class UsersService {
     );
     return { message: `El usuario '${user.username}' ha sido activado en esta empresa` };
   }
+  private hideForeignBranch(user: UserEntity, tenantId: string): UserEntity {
+    if (user.branch && user.branch.tenantId !== tenantId) {
+      user.branch = null;
+      user.branchId = null;
+    }
+    return user;
+  }
+
   private toTenantRole(role: UserRoleEnum): TenantRole {
     const mapping: Record<UserRoleEnum, TenantRole> = {
       [UserRoleEnum.SUPER_ADMIN]: TenantRole.OWNER,
