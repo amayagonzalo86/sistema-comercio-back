@@ -4,6 +4,8 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { randomUUID } from 'node:crypto';
+import { NextFunction, Request, Response } from 'express';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -13,6 +15,11 @@ async function bootstrap() {
   // 1. Capa de Seguridad HTTP (Helmet)
   app.use(helmet());
   app.use(cookieParser());
+  app.use((request: Request & { requestId?: string }, response: Response, next: NextFunction) => {
+    request.requestId = randomUUID();
+    response.setHeader('x-request-id', request.requestId);
+    next();
+  });
 
   // 2. Prefijo Global Estricto (/api/v1)
   const globalPrefix = 'api/v1';
