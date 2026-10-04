@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsNumber,
   IsOptional,
   IsString,
@@ -40,6 +41,10 @@ export class CreatePurchaseReceiptDto {
 
   @IsUUID('4')
   supplierPersonId!: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
 
   @IsOptional()
   @IsString()
