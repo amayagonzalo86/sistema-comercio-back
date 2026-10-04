@@ -339,11 +339,14 @@ export class ProductsService {
   };
 
   //Obtiene la ficha completa de un producto con la matriz de todas sus sucursales.
-  async findOne(id: string, tenantId: string): Promise<ProductEntity> {
+  async findOne(id: string, tenantId: string, branchScope: string | null = null): Promise<ProductEntity> {
     try{
       const product = await this.productRepository.findOne({ where: { id, tenantId }, relations: { branchSettings: { branch: true } } });
   
       if (!product) { throw new NotFoundException(`El producto con ID '${id}' no existe en su catálogo`) }
+      if (branchScope) {
+        product.branchSettings = product.branchSettings.filter((setting) => setting.branchId === branchScope);
+      }
       return product;
     } catch (error) {
       if (error instanceof NotFoundException) {
