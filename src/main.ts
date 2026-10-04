@@ -36,6 +36,7 @@ async function bootstrap() {
     origin: allowedOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    exposedHeaders: ['x-request-id'],
   });
 
   // 4. Transformación y Validación Global de DTOs
