@@ -486,18 +486,20 @@ export class CashService {
         { cursorCreatedAt: cursor.createdAt, cursorId: cursor.id },
       );
     }
-    const rows = await builder
+    const { raw, entities } = await builder
+      .addSelect("DATE_FORMAT(movement.createdAt, '%Y-%m-%d %H:%i:%s.%f')", 'cursorCreatedAt')
       .orderBy('movement.createdAt', 'DESC')
       .addOrderBy('movement.id', 'DESC')
       .take(limit + 1)
-      .getMany();
-    const hasMore = rows.length > limit;
-    const items = rows.slice(0, limit);
+      .getRawAndEntities();
+    const hasMore = entities.length > limit;
+    const items = entities.slice(0, limit);
     const last = items.at(-1);
+    const lastRaw = raw[items.length - 1] as { cursorCreatedAt?: string } | undefined;
     return {
       items,
-      nextCursor: hasMore && last
-        ? encodeCursor({ createdAt: new Date(last.createdAt).toISOString(), id: last.id })
+      nextCursor: hasMore && last && lastRaw?.cursorCreatedAt
+        ? encodeCursor({ createdAt: lastRaw.cursorCreatedAt, id: last.id })
         : null,
     };
   }
@@ -602,11 +604,12 @@ function decodeCursor(cursor: string): { createdAt: string; id: string } {
     };
     if (
       typeof value.createdAt !== 'string' ||
-      Number.isNaN(Date.parse(value.createdAt)) ||
+      !/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{6}$/.test(value.createdAt) ||
+      Number.isNaN(Date.parse(value.createdAt.replace(' ', 'T') + 'Z')) ||
       typeof value.id !== 'string' ||
       !/^[0-9a-f-]{36}$/i.test(value.id)
     ) throw new Error('invalid cursor');
-    return { createdAt: new Date(value.createdAt).toISOString(), id: value.id };
+    return { createdAt: value.createdAt, id: value.id };
   } catch {
     throw new BadRequestException('El cursor de movimientos no es válido.');
   }
