@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { TenantEntity } from '../platform/entities/tenant.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
@@ -16,7 +16,7 @@ import { PersonEntity } from '../persons/entities/person.entity';
 import { ProductBranchEntity } from '../inventory/product/entities/product-branch.entity';
 import { InventoryMovementEntity, InventoryMovementType } from '../inventory/product/entities/inventory-movement.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
-import { SaleEntity } from './entities/sale.entity';
+import { SaleEntity, SaleFiscalStatus } from './entities/sale.entity';
 import { SaleItemEntity } from './entities/sale-item.entity';
 import { SalePaymentEntity } from './entities/sale-payment.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -66,12 +66,10 @@ export class SalesService {
       .map((payment) => ({
         method: payment.method,
         amount: Number(payment.amount).toFixed(2),
-        externalReference: payment.externalReference?.trim() || null,
       }))
       .sort((a, b) =>
         a.method.localeCompare(b.method) ||
-        a.amount.localeCompare(b.amount) ||
-        (a.externalReference ?? '').localeCompare(b.externalReference ?? ''),
+        a.amount.localeCompare(b.amount),
       );
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({
@@ -195,6 +193,7 @@ export class SalesService {
         subtotal: formatCents(subtotalCents),
         taxTotal: formatCents(taxTotalCents),
         total: formatCents(totalCents),
+        fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
         actorUserId,
@@ -226,7 +225,7 @@ export class SalesService {
           method: payment.method,
           amount: formatCents(toMinorUnits(Number(payment.amount))),
           currency: tenant.currencyCode,
-          externalReference: payment.externalReference?.trim() || null,
+          externalReference: null,
         }),
       );
       await paymentRepository.save(payments);
