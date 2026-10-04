@@ -50,7 +50,7 @@ En desarrollo, el esquema se sincroniza automáticamente. En otros entornos, usa
 npm run migration:run
 ```
 
-No habilites `synchronize` en producción. Revisá y respaldá la base antes de aplicar cada migración. Las migraciones `1791000000005-CreateAuthRateLimits` y `1791000000006-AddTenantAuditCursorIndex` deben aplicarse antes de desplegar esta versión; el login y la paginación de auditoría dependen de sus objetos. La migración de alcance multiempresa asigna registros preexistentes a una empresa heredada y aborta si detecta duplicados incompatibles con restricciones nuevas; inspeccioná el error y depurá los datos antes de reintentar.
+No habilites `synchronize` en producción. Revisá y respaldá la base antes de aplicar cada migración. Las migraciones `1791000000005-CreateAuthRateLimits`, `1791000000006-AddTenantAuditCursorIndex` y `1791000000007-AddPersonBusinessType` deben aplicarse antes de desplegar esta versión; el login, la paginación de auditoría y la clasificación de clientes/proveedores dependen de sus objetos. Las personas existentes quedan como `BOTH` para conservar su uso actual. La migración de alcance multiempresa asigna registros preexistentes a una empresa heredada y aborta si detecta duplicados incompatibles con restricciones nuevas; inspeccioná el error y depurá los datos antes de reintentar.
 
 ## Variables relevantes
 
