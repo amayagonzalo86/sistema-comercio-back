@@ -14,6 +14,7 @@ export enum CashSessionStatus {
 
 @Entity('cash_sessions')
 @Index('UQ_cash_sessions_tenant_id', ['tenantId', 'id'], { unique: true })
+@Index('UQ_cash_sessions_tenant_branch_id', ['tenantId', 'branchId', 'id'], { unique: true })
 @Index('UQ_cash_sessions_tenant_opening_key', ['tenantId', 'openingIdempotencyKey'], { unique: true })
 @Index('UQ_cash_sessions_one_open_per_register', ['tenantId', 'openRegisterId'], { unique: true })
 @Index('IDX_cash_sessions_tenant_branch_status', ['tenantId', 'branchId', 'status', 'openedAt'])
