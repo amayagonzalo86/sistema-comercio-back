@@ -19,7 +19,9 @@ async function bootstrap() {
   // 3. Configuración Estricta de CORS desde variables de entorno
   const allowedOrigins = configService
     .get<string>('ALLOWED_ORIGINS', 'http://localhost:5173')
-    .split(',');
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
   app.enableCors({
     origin: allowedOrigins,
