@@ -11,11 +11,11 @@ import {
   Req,
   UseGuards,
   BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { GetTenantId } from '../../common/decorators/get-tenant.decorator';
+import { requireAssignedBranch, requireBranchAccess } from '../../common/security/tenant-branch-access';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
@@ -47,12 +47,7 @@ export class SalesController {
       ipAddress: request.socket.remoteAddress ?? null,
       userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
     };
-    if (['CASHIER', 'SELLER', 'INVENTORY'].includes(actor.tenantRole ?? '') && !actor.branchId) {
-      throw new ForbiddenException('El usuario debe tener una sucursal asignada en esta empresa.');
-    }
-    if (actor.branchId && actor.branchId !== dto.branchId) {
-      throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
-    }
+    requireBranchAccess(actor, dto.branchId);
     return this.salesService.create(
       tenantId,
       actor.id,
@@ -71,9 +66,7 @@ export class SalesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     const actor = request.user as { branchId?: string | null; tenantRole?: string };
-    if (['CASHIER', 'SELLER', 'INVENTORY'].includes(actor.tenantRole ?? '') && !actor.branchId) {
-      throw new ForbiddenException('El usuario debe tener una sucursal asignada en esta empresa.');
-    }
+    requireAssignedBranch(actor);
     return this.salesService.findOne(tenantId, id, actor.branchId ?? null);
   }
 }

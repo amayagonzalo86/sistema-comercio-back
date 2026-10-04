@@ -14,6 +14,7 @@ import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { InventoryMovementEntity } from './entities/inventory-movement.entity';
 import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
 import { InventoryAuditContext } from './inventory-audit-context';
+import { requireAssignedBranch, requireBranchAccess } from '../../../common/security/tenant-branch-access';
 
 @Controller('products')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -25,8 +26,8 @@ export class ProductsController {
   @HttpCode(HttpStatus.CREATED)
   async create(@GetTenantId() tenantId: string, @Req() request: Request, @Body() createProductDto: CreateProductDto): Promise<ProductEntity> {
     const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
-    this.requireScopedBranch(actor);
-    if (actor.branchId && createProductDto.branchSettings.some((setting) => setting.branchId !== actor.branchId)) {
+    const assignedBranchId = requireAssignedBranch(actor);
+    if (assignedBranchId && createProductDto.branchSettings.some((setting) => setting.branchId !== assignedBranchId)) {
       throw new ForbiddenException('No puede configurar stock en otra sucursal.');
     }
     return await this.productsService.create(tenantId, actor.id, createProductDto, this.auditContext(request));
@@ -47,7 +48,7 @@ export class ProductsController {
       throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
     }
     const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
-    this.requireBranch(actor, branchId);
+    requireBranchAccess(actor, branchId);
     return this.productsService.adjustStock(tenantId, actor.id, productId, branchId, idempotencyKey, dto, this.auditContext(request));
   }
 
@@ -68,7 +69,7 @@ export class ProductsController {
     @Param('branchId', ParseUUIDPipe) branchId: string,
     @Query() query: StockMovementQueryDto,
   ): Promise<{ items: InventoryMovementEntity[]; nextCursor: string | null }> {
-    this.requireBranch(request.user as { branchId?: string | null; tenantRole?: string }, branchId);
+    requireBranchAccess(request.user as { branchId?: string | null; tenantRole?: string }, branchId);
     return this.productsService.findStockMovements(tenantId, productId, branchId, query);
   }
 
@@ -76,7 +77,7 @@ export class ProductsController {
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.STOCK_CLERK)
   async findOne( @Param('id', ParseUUIDPipe) id: string, @GetTenantId() tenantId: string, @Req() request: Request ): Promise<ProductEntity> {
     const actor = request.user as { branchId?: string | null; tenantRole?: string };
-    this.requireScopedBranch(actor);
+    requireAssignedBranch(actor);
     return await this.productsService.findOne(id, tenantId, actor.branchId ?? null);
   }
 
@@ -87,20 +88,8 @@ export class ProductsController {
     @Req() request: Request,
     @GetTenantId() tenantId: string,
   ): Promise<ProductBranchEntity[]> {
-    this.requireBranch(request.user as { branchId?: string | null; tenantRole?: string }, branchId);
+    requireBranchAccess(request.user as { branchId?: string | null; tenantRole?: string }, branchId);
     return this.productsService.findByBranch(tenantId, branchId);
   }
 
-  private requireScopedBranch(user: { branchId?: string | null; tenantRole?: string }): void {
-    if (['CASHIER', 'SELLER', 'INVENTORY'].includes(user.tenantRole ?? '') && !user.branchId) {
-      throw new ForbiddenException('El usuario debe tener una sucursal asignada en esta empresa.');
-    }
-  }
-
-  private requireBranch(user: { branchId?: string | null; tenantRole?: string }, branchId: string): void {
-    this.requireScopedBranch(user);
-    if (user.branchId && user.branchId !== branchId) {
-      throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
-    }
-  }
 }
