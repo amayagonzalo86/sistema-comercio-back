@@ -41,12 +41,13 @@ export class TenantContextGuard implements CanActivate {
         tenantId: user.tenantId,
         status: MembershipStatus.ACTIVE,
       },
-      relations: { tenant: true },
+      relations: { tenant: true, user: true },
     });
 
     if (
       !membership ||
       !membership.tenant ||
+      !membership.user?.isActive ||
       ![TenantStatus.ACTIVE, TenantStatus.TRIAL].includes(membership.tenant.status)
     ) {
       throw new UnauthorizedException('La membresía de la empresa no está activa.');
