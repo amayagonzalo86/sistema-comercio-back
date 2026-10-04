@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 export class SeedRoles1700000000002 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -51,7 +51,7 @@ export class SeedRoles1700000000002 implements MigrationInterface {
           is_active = 1
         `,
         [
-          uuidv4(),
+          randomUUID(),
           role.name,
           role.description,
         ],
