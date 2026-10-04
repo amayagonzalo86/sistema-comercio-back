@@ -14,15 +14,16 @@ export class BranchesService {
     private readonly branchRepository: Repository<BranchEntity>,
   ) {}
 
-  async create(createBranchDto: CreateBranchDto): Promise<BranchEntity> {
+  async create(tenantId: string, createBranchDto: CreateBranchDto): Promise<BranchEntity> {
     const cleanCode = createBranchDto.code.trim().toUpperCase();
 
-    const existingBranch = await this.branchRepository.findOne({ where: { code: cleanCode } });
+    const existingBranch = await this.branchRepository.findOne({ where: { code: cleanCode, tenantId } });
 
     if (existingBranch) { throw new ConflictException( `Ya existe una sucursal con el código '${cleanCode}'` ) }
 
     try {
       const branch = this.branchRepository.create({
+        tenantId,
         code: cleanCode,
         name: createBranchDto.name.trim(),
         address: createBranchDto.address?.trim(),
@@ -39,18 +40,18 @@ export class BranchesService {
     }
   }
 
-  async findAll(): Promise<BranchEntity[]> {
+  async findAll(tenantId: string): Promise<BranchEntity[]> {
     try{
-      return await this.branchRepository.find({ order: { createdAt: 'DESC' } });
+      return await this.branchRepository.find({ where: { tenantId }, order: { createdAt: 'DESC' } });
     } catch (error) {
       this.logger.error('Error al buscar sucursales', error);
       throw new InternalServerErrorException('Error interno al consultar sucursales');
     }
   };
 
-  async findOne(id: string): Promise<BranchEntity> {
+  async findOne(id: string, tenantId: string): Promise<BranchEntity> {
     try{
-      const branch = await this.branchRepository.findOne({ where: { id } });
+      const branch = await this.branchRepository.findOne({ where: { id, tenantId } });
       if (!branch) { throw new NotFoundException( `Sucursal con ID '${id}' no encontrada` ) }
       return branch;
     } catch (error) {
@@ -59,16 +60,16 @@ export class BranchesService {
     }
   };
 
-  async update( id: string, updateBranchDto: UpdateBranchDto ): Promise<BranchEntity> {
+  async update(id: string, tenantId: string, updateBranchDto: UpdateBranchDto): Promise<BranchEntity> {
     try {
-      const branch = await this.findOne(id);
+      const branch = await this.findOne(id, tenantId);
       const { code, ...restUpdateData } = updateBranchDto;
  
       if (code) {
         const cleanCode = code.trim().toUpperCase();
         if (cleanCode !== branch.code) {
           const existingBranch = await this.branchRepository.findOne({
-            where: { code: cleanCode },
+            where: { code: cleanCode, tenantId },
           });
   
           if (existingBranch) {
@@ -91,9 +92,9 @@ export class BranchesService {
     }
   };
 
-  async remove(id: string): Promise<{ message: string }> {
+  async remove(id: string, tenantId: string): Promise<{ message: string }> {
     try{
-      const branch = await this.findOne(id);
+      const branch = await this.findOne(id, tenantId);
 
       branch.status = false;
       await this.branchRepository.save(branch);
