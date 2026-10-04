@@ -314,8 +314,18 @@ export class SalesService {
     }
   }
 
-  async findOne(tenantId: string, saleId: string): Promise<Record<string, unknown>> {
-    const sale = await this.saleRepository.findOne({ where: { id: saleId, tenantId } });
+  async findOne(
+    tenantId: string,
+    saleId: string,
+    allowedBranchId: string | null = null,
+  ): Promise<Record<string, unknown>> {
+    const sale = await this.saleRepository.findOne({
+      where: {
+        id: saleId,
+        tenantId,
+        ...(allowedBranchId ? { branchId: allowedBranchId } : {}),
+      },
+    });
     if (!sale) {
       throw new NotFoundException('Venta no encontrada.');
     }
