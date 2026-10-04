@@ -3,8 +3,11 @@ import { ProductEntity } from '../../../inventory/product/entities/product.entit
 import { PriceListEntity } from './price-list.entity';
 
 @Entity('product_price_lists')
-@Index('IDX_UNIQUE_TENANT_PL_PRODUCT', ['priceListId', 'productId'], { unique: true })
+@Index('UQ_product_price_lists_tenant_list_product', ['tenantId', 'priceListId', 'productId'], { unique: true })
 export class ProductPriceListEntity {
+  @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+  tenantId!: string;
+
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -24,11 +27,17 @@ export class ProductPriceListEntity {
   appliedPercentage!: number;
 
   @ManyToOne(() => PriceListEntity, (pl) => pl.productOverrides, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'price_list_id' })
+  @JoinColumn([
+    { name: 'tenant_id', referencedColumnName: 'tenantId' },
+    { name: 'price_list_id', referencedColumnName: 'id' },
+  ])
   priceList!: PriceListEntity;
 
   @ManyToOne(() => ProductEntity, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'product_id' })
+  @JoinColumn([
+    { name: 'tenant_id', referencedColumnName: 'tenantId' },
+    { name: 'product_id', referencedColumnName: 'id' },
+  ])
   product!: ProductEntity;
 
   @CreateDateColumn({ name: 'created_at' })
