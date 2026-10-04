@@ -8,6 +8,7 @@ import { PersonEntity, PersonType } from '../persons/entities/person.entity';
 import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
 import { PurchaseReceiptEntity } from './entities/purchase-receipt.entity';
 import { PurchaseReceiptItemEntity } from './entities/purchase-receipt-item.entity';
+import { SupplierPayableEntity } from './entities/supplier-payable.entity';
 import { PurchasesService } from './purchases.service';
 
 const tenantId = 'tenant-1';
@@ -34,6 +35,7 @@ function setup(supplierType = PersonType.SUPPLIER) {
     product: { id: productId, sku: 'SKU-1', name: 'Producto', taxRate: 21, status: true },
   } as ProductBranchEntity;
   const savedItems: PurchaseReceiptItemEntity[] = [];
+  const savedPayables: SupplierPayableEntity[] = [];
   const savedMovements: InventoryMovementEntity[] = [];
   const receipt = {
     id: 'receipt-1',
@@ -62,6 +64,13 @@ function setup(supplierType = PersonType.SUPPLIER) {
       Object.assign(receipt, value);
       receipt.id = 'receipt-1';
       return receipt;
+    }),
+  };
+  const payableRepository = {
+    create: jest.fn((value: Partial<SupplierPayableEntity>) => value),
+    save: jest.fn(async (value: SupplierPayableEntity) => {
+      savedPayables.push(value);
+      return value;
     }),
   };
   const transactionItemRepository = {
@@ -103,6 +112,7 @@ function setup(supplierType = PersonType.SUPPLIER) {
     getRepository: jest.fn((entity: Function) => {
       if (entity === PurchaseReceiptEntity) return transactionReceiptRepository;
       if (entity === PurchaseReceiptItemEntity) return transactionItemRepository;
+      if (entity === SupplierPayableEntity) return payableRepository;
       if (entity === InventoryMovementEntity) return movementRepository;
       throw new Error('Repositorio no esperado en la prueba');
     }),
@@ -133,6 +143,7 @@ function setup(supplierType = PersonType.SUPPLIER) {
     dataSource,
     queryRunner,
     savedItems,
+    savedPayables,
     savedMovements,
     getConcurrentLookupCount: () => concurrentLookupCount,
   };
@@ -154,6 +165,8 @@ describe('PurchasesService', () => {
     expect(result).toMatchObject({ total: '242.00', currency: 'ARS' });
     expect(h.stock.stock).toBe(12);
     expect(h.stock.costPrice).toBe(58.33);
+    expect(h.savedPayables).toHaveLength(1);
+    expect(h.savedPayables[0]).toMatchObject({ originalAmount: '242.00', purchaseReceiptId: 'receipt-1' });
     expect(h.savedItems).toHaveLength(1);
     expect(h.savedItems[0]).toMatchObject({
       quantity: '2.000',
