@@ -126,6 +126,7 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'ALTER TABLE product_branches MODIFY tenant_id varchar(36) NOT NULL, ' +
         'ADD UNIQUE KEY UQ_product_branches_tenant_product_branch (tenant_id, product_id, branch_id), ' +
         'ADD KEY IDX_product_branches_tenant_branch (tenant_id, branch_id), ' +
+        'ADD CONSTRAINT FK_product_branches_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT, ' +
         'ADD CONSTRAINT FK_product_branches_tenant_branch FOREIGN KEY (tenant_id, branch_id) REFERENCES branches (tenant_id, id) ON DELETE CASCADE, ' +
         'ADD CONSTRAINT FK_product_branches_tenant_product FOREIGN KEY (tenant_id, product_id) REFERENCES products (tenant_id, id) ON DELETE CASCADE',
     );
@@ -163,7 +164,7 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'ALTER TABLE price_lists DROP FOREIGN KEY FK_price_lists_tenant, DROP INDEX IDX_price_lists_tenant_active, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
-      'ALTER TABLE product_branches DROP FOREIGN KEY FK_product_branches_tenant_branch, DROP FOREIGN KEY FK_product_branches_tenant_product, DROP INDEX IDX_product_branches_tenant_branch, DROP INDEX UQ_product_branches_tenant_product_branch, DROP COLUMN tenant_id',
+      'ALTER TABLE product_branches DROP FOREIGN KEY FK_product_branches_tenant, DROP FOREIGN KEY FK_product_branches_tenant_branch, DROP FOREIGN KEY FK_product_branches_tenant_product, DROP INDEX IDX_product_branches_tenant_branch, DROP INDEX UQ_product_branches_tenant_product_branch, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
       'ALTER TABLE products DROP FOREIGN KEY FK_products_tenant, DROP INDEX IDX_products_tenant_barcode, DROP INDEX UQ_products_tenant_id, DROP INDEX UQ_products_tenant_sku, DROP COLUMN tenant_id',
