@@ -194,7 +194,10 @@ export class UsersService {
     }
 
     if (updateUserDto.isActive !== undefined) {
-      user.isActive = updateUserDto.isActive;
+      await this.membershipRepository.update(
+        { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
+        { status: updateUserDto.isActive ? MembershipStatus.ACTIVE : MembershipStatus.SUSPENDED },
+      );
     }
 
     return await this.userRepository.save(user);
@@ -262,9 +265,13 @@ export class UsersService {
   };
 
   async enable(id: string, tenantId: string): Promise<{ message: string }> {
-    const user = await this.findOne(id, tenantId);
+    const user = await this.userRepository.findOne({
+      where: { id, memberships: { tenantId } },
+      relations: { person: true, branch: true, roles: true },
+    });
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     await this.membershipRepository.update(
-      { userId: user.id, tenantId },
+      { userId: user.id, tenantId, status: MembershipStatus.SUSPENDED },
       { status: MembershipStatus.ACTIVE, acceptedAt: new Date() },
     );
     return { message: `El usuario '${user.username}' ha sido activado en esta empresa` };
