@@ -11,6 +11,7 @@ import {
   Req,
   UseGuards,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
@@ -40,18 +41,25 @@ export class SalesController {
     if (!idempotencyKey) {
       throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
     }
-    const actor = request.user as { id: string };
+    const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
     const auditContext: InventoryAuditContext = {
       requestId: (request as Request & { requestId?: string }).requestId,
       ipAddress: request.socket.remoteAddress ?? null,
       userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
     };
+    if (['CASHIER', 'SELLER', 'INVENTORY'].includes(actor.tenantRole ?? '') && !actor.branchId) {
+      throw new ForbiddenException('El usuario debe tener una sucursal asignada en esta empresa.');
+    }
+    if (actor.branchId && actor.branchId !== dto.branchId) {
+      throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
+    }
     return this.salesService.create(
       tenantId,
       actor.id,
       idempotencyKey,
       dto,
       auditContext,
+      actor.branchId ?? null,
     );
   }
 
