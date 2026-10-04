@@ -36,6 +36,8 @@ El inventario expone ajustes con saldo firmado, motivo e idempotencia:
 El historial se consulta en `GET /api/v1/products/:productId/branches/:branchId/stock-movements`; acepta `limit` (máximo 100) y un `cursor` opaco devuelto por la respuesta.
 Los movimientos y sus eventos de auditoría se escriben en la misma transacción. Las consultas de sucursales, existencias, ventas y precios calculados limitan los resultados a la sucursal asignada en la membresía; los perfiles de caja, venta e inventario sin sucursal asignada reciben acceso denegado.
 
+Las recepciones de compra se registran con `POST /api/v1/purchases/receipts`, `Idempotency-Key`, sucursal, proveedor y líneas con cantidad y costo unitario sin impuestos. La operación guarda la recepción, el costo promedio ponderado, el ingreso de inventario y su auditoría en una sola transacción. La tasa impositiva se toma del producto y el documento queda como registro interno: no valida comprobantes del proveedor ni emite documentación fiscal.
+
 Las ventas internas se registran con `POST /api/v1/sales`, encabezado `Idempotency-Key`, empresa/sucursal, productos/cantidades y medios de pago. El servidor calcula precio e impuestos del catálogo, comprueba el total cobrado y registra venta, pagos, salida de inventario y auditoría atómicamente. La respuesta queda con `fiscalStatus: NOT_ISSUED`: todavía no es una factura electrónica ni reemplaza la emisión/homologación ARCA. Los cierres de caja, cuentas corrientes y conciliación de pagos siguen pendientes.
 
 Los titulares y administradores de la empresa pueden consultar auditoría en `GET /api/v1/audit-events`. Siempre filtra por la empresa del token y ofrece filtros por tipo de evento, entidad, actor, request y fecha, con cursor descendente y páginas de hasta 100 eventos. Es una consulta de solo lectura; no expone eventos de otras empresas.
@@ -50,7 +52,7 @@ En desarrollo, el esquema se sincroniza automáticamente. En otros entornos, usa
 npm run migration:run
 ```
 
-No habilites `synchronize` en producción. Revisá y respaldá la base antes de aplicar cada migración. Las migraciones `1791000000005-CreateAuthRateLimits`, `1791000000006-AddTenantAuditCursorIndex` y `1791000000007-AddPersonBusinessType` deben aplicarse antes de desplegar esta versión; el login, la paginación de auditoría y la clasificación de clientes/proveedores dependen de sus objetos. Las personas existentes quedan como `BOTH` para conservar su uso actual. La migración de alcance multiempresa asigna registros preexistentes a una empresa heredada y aborta si detecta duplicados incompatibles con restricciones nuevas; inspeccioná el error y depurá los datos antes de reintentar.
+No habilites `synchronize` en producción. Revisá y respaldá la base antes de aplicar cada migración. Las migraciones `1791000000005-CreateAuthRateLimits`, `1791000000006-AddTenantAuditCursorIndex` `, `1791000000007-AddPersonBusinessType` y `1791000000008-CreatePurchaseReceipts` deben aplicarse antes de desplegar esta versión; el login, la paginación de auditoría y la clasificación de clientes/proveedores dependen de sus objetos. Las personas existentes quedan como `BOTH` para conservar su uso actual. La migración de alcance multiempresa asigna registros preexistentes a una empresa heredada y aborta si detecta duplicados incompatibles con restricciones nuevas; inspeccioná el error y depurá los datos antes de reintentar.
 
 ## Variables relevantes
 
