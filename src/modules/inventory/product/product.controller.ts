@@ -13,6 +13,7 @@ import { UserRoleEnum } from '../../roles/entities/role.entity';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { InventoryMovementEntity } from './entities/inventory-movement.entity';
 import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
+import { InventoryAuditContext } from './inventory-audit-context';
 
 @Controller('products')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -24,7 +25,7 @@ export class ProductsController {
   @HttpCode(HttpStatus.CREATED)
   async create(@GetTenantId() tenantId: string, @Req() request: Request, @Body() createProductDto: CreateProductDto): Promise<ProductEntity> {
     const actor = request.user as { id: string };
-    return await this.productsService.create(tenantId, actor.id, createProductDto);
+    return await this.productsService.create(tenantId, actor.id, createProductDto, this.auditContext(request));
   }
 
   @Post(':productId/branches/:branchId/stock-adjustments')
@@ -42,7 +43,15 @@ export class ProductsController {
       throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
     }
     const actor = request.user as { id: string };
-    return this.productsService.adjustStock(tenantId, actor.id, productId, branchId, idempotencyKey, dto);
+    return this.productsService.adjustStock(tenantId, actor.id, productId, branchId, idempotencyKey, dto, this.auditContext(request));
+  }
+
+  private auditContext(request: Request): InventoryAuditContext {
+    return {
+      requestId: (request as Request & { requestId?: string }).requestId,
+      ipAddress: request.socket.remoteAddress ?? null,
+      userAgent: request.headers['user-agent'] ?? null,
+    };
   }
 
   @Get(':productId/branches/:branchId/stock-movements')
