@@ -19,6 +19,8 @@ import { SupplierPayableQueryDto } from './dto/supplier-payable-query.dto';
 import { SupplierPayableEntity } from './entities/supplier-payable.entity';
 import { SupplierPaymentAllocationEntity } from './entities/supplier-payment-allocation.entity';
 import { SupplierPaymentEntity } from './entities/supplier-payment.entity';
+import { CashMovementDirection, CashMovementEntity, CashMovementType } from '../cash/entities/cash-movement.entity';
+import { CashSessionEntity, CashSessionStatus } from '../cash/entities/cash-session.entity';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 
@@ -61,6 +63,7 @@ export class SupplierAccountsService {
         branchId: dto.branchId,
         supplierPersonId: dto.supplierPersonId,
         method: dto.method,
+        ...(dto.cashSessionId ? { cashSessionId: dto.cashSessionId } : {}),
         externalReference: dto.externalReference?.trim() || null,
         allocations,
       }))
@@ -72,6 +75,13 @@ export class SupplierAccountsService {
         throw new ConflictException('Idempotency-Key ya fue utilizado para otro pago.');
       }
       return this.loadPayment(tenantId, prior.id, allowedBranchId);
+    }
+
+    if (dto.method === 'CASH' && !dto.cashSessionId) {
+      throw new BadRequestException('El pago en efectivo debe indicar cashSessionId.');
+    }
+    if (dto.method !== 'CASH' && dto.cashSessionId) {
+      throw new BadRequestException('cashSessionId solo corresponde a pagos en efectivo.');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -148,6 +158,30 @@ export class SupplierAccountsService {
         throw new BadRequestException('El importe total del pago está fuera del rango admitido.');
       }
 
+      let cashSession: CashSessionEntity | null = null;
+      let nextCashCents: bigint | null = null;
+      if (dto.method === 'CASH') {
+        cashSession = await queryRunner.manager
+          .createQueryBuilder(CashSessionEntity, 'cashSession')
+          .setLock('pessimistic_write')
+          .where('cashSession.tenantId = :tenantId', { tenantId })
+          .andWhere('cashSession.id = :cashSessionId', { cashSessionId: dto.cashSessionId })
+          .andWhere('cashSession.branchId = :branchId', { branchId: branch.id })
+          .andWhere('cashSession.status = :status', { status: CashSessionStatus.OPEN })
+          .getOne();
+        if (!cashSession) {
+          throw new NotFoundException('La sesión de caja no existe, está cerrada o no corresponde a la sucursal del pago.');
+        }
+        if (cashSession.currency !== currency) {
+          throw new BadRequestException('La moneda de la sesión de caja debe coincidir con la moneda de las cuentas.');
+        }
+        const currentCashCents = parseDecimalCents(cashSession.expectedAmount);
+        if (paymentCents > currentCashCents) {
+          throw new ConflictException('El pago supera el efectivo esperado disponible en la caja.');
+        }
+        nextCashCents = currentCashCents - paymentCents;
+      }
+
       const paymentRepo = queryRunner.manager.getRepository(SupplierPaymentEntity);
       const payment = await paymentRepo.save(paymentRepo.create({
         tenantId,
@@ -173,6 +207,43 @@ export class SupplierAccountsService {
       for (const allocation of allocationRows) {
         allocation.payable.amountPaid = formatCents(allocation.newPaidCents);
         await queryRunner.manager.save(SupplierPayableEntity, allocation.payable);
+      }
+
+      if (cashSession && nextCashCents !== null) {
+        const cashMovementRepository = queryRunner.manager.getRepository(CashMovementEntity);
+        const amount = formatCents(paymentCents);
+        const cashMovementKey = `supplier-payment:${payment.id}`;
+        const requestFingerprint = createHash('sha256')
+          .update(JSON.stringify({ paymentId: payment.id, amount, currency, cashSessionId: cashSession.id }))
+          .digest('hex');
+        await cashMovementRepository.save(cashMovementRepository.create({
+          tenantId,
+          branchId: branch.id,
+          cashSessionId: cashSession.id,
+          type: CashMovementType.EXPENSE,
+          direction: CashMovementDirection.OUT,
+          amount,
+          currency,
+          reason: 'Pago a proveedor',
+          sourceType: 'SUPPLIER_PAYMENT',
+          sourceId: payment.id,
+          idempotencyKey: cashMovementKey,
+          requestFingerprint,
+          actorUserId,
+        }));
+        cashSession.expectedAmount = formatCents(nextCashCents);
+        await queryRunner.manager.save(CashSessionEntity, cashSession);
+        await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
+          tenantId,
+          actorUserId,
+          requestId: auditContext.requestId,
+          ipAddress: auditContext.ipAddress,
+          userAgent: auditContext.userAgent,
+          eventType: 'SUPPLIER_CASH_DISBURSED',
+          aggregateType: 'SUPPLIER_PAYMENT',
+          aggregateId: payment.id,
+          metadata: { branchId: branch.id, supplierPersonId: supplier.id, cashSessionId: cashSession.id, amount, currency },
+        }));
       }
 
       await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
@@ -329,6 +400,15 @@ function formatCents(cents: bigint): string {
   const sign = cents < 0n ? '-' : '';
   const absolute = cents < 0n ? -cents : cents;
   return `${sign}${absolute / 100n}.${(absolute % 100n).toString().padStart(2, '0')}`;
+}
+
+
+function parseDecimalCents(value: string): bigint {
+  if (!/^(?:0|[1-9]\\d{0,11})\\.\\d{2}$/.test(value)) {
+    throw new InternalServerErrorException('El saldo de caja tiene un formato inválido.');
+  }
+  const [whole, fraction] = value.split('.');
+  return BigInt(whole) * 100n + BigInt(fraction);
 }
 
 function encodeCursor(value: { createdAt: string; id: string }): string {
