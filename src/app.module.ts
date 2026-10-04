@@ -12,6 +12,7 @@ import { UserModule } from './modules/users/user.module';
 import { PersonsModule } from './modules/persons/persons.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { validateEnv } from './config/env.validation';
+import { PlatformModule } from './modules/platform/platform.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { validateEnv } from './config/env.validation';
     ProductPriceListModule,
     PersonsModule,
     RolesModule,
+    PlatformModule,
   ],
   controllers: [AppController],
   providers: [AppService],
