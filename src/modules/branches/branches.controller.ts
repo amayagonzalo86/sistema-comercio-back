@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { requireAssignedBranch, requireBranchAccess } from '../../common/security/tenant-branch-access';
+import { requireAssignedBranch, requireBranchAccess } from '../../common/security/tenant-branch-access';
 import { Request } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -76,7 +77,7 @@ export class BranchesController {
     @GetTenantId() tenantId: string,
     @Req() request: Request,
   ): Promise<{ message: string }> {
-    this.requireBranch(request.user as { branchId?: string | null; tenantRole?: string }, id);
+    requireBranchAccess(request.user as { branchId?: string | null; tenantRole?: string }, id);
     return await this.branchesService.remove(id, tenantId);
   }
 
