@@ -15,6 +15,7 @@ import { RolesModule } from './modules/roles/roles.module';
 import { validateEnv } from './config/env.validation';
 import { PlatformModule } from './modules/platform/platform.module';
 import { PurchasesModule } from './modules/purchases/purchases.module';
+import { CashModule } from './modules/cash/cash.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { PurchasesModule } from './modules/purchases/purchases.module';
     RolesModule,
     PlatformModule,
     PurchasesModule,
+    CashModule,
   ],
   controllers: [AppController],
   providers: [AppService],
