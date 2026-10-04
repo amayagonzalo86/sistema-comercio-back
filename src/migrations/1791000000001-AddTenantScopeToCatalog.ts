@@ -142,6 +142,17 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    const duplicateLegacyPersonIdentifiers = await queryRunner.query(
+      'SELECT national_id FROM persons WHERE national_id IS NOT NULL GROUP BY national_id HAVING COUNT(*) > 1 LIMIT 1',
+    );
+    const duplicateLegacyEmails = await queryRunner.query(
+      'SELECT email FROM persons WHERE email IS NOT NULL GROUP BY email HAVING COUNT(*) > 1 LIMIT 1',
+    );
+    if (duplicateLegacyPersonIdentifiers.length > 0 || duplicateLegacyEmails.length > 0) {
+      throw new Error(
+        'No se puede revertir: hay datos personales duplicados entre empresas; consolídelos antes de quitar el aislamiento.',
+      );
+    }
     await queryRunner.query(
       'ALTER TABLE persons DROP FOREIGN KEY FK_persons_tenant, DROP INDEX IDX_persons_tenant_active, DROP INDEX UQ_persons_tenant_email, DROP INDEX UQ_persons_tenant_national_id, ADD UNIQUE KEY idx_persons_email (email), ADD UNIQUE KEY idx_persons_national_id (national_id), DROP COLUMN tenant_id',
     );
