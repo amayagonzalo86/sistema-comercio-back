@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 export class CreateRolesTableAndRelation1700000000001
   implements MigrationInterface
@@ -36,37 +36,37 @@ export class CreateRolesTableAndRelation1700000000001
     // 3. Seed de roles con UUIDs pre-generados en Node.js (Garantía de inserción uniforme)
     const defaultRoles = [
       {
-        id: uuidv4(),
+        id: randomUUID(),
         name: 'SUPER_ADMIN',
         description: 'Acceso total a la plataforma ERP y configuraciones multitenant',
       },
       {
-        id: uuidv4(),
+        id: randomUUID(),
         name: 'ADMIN',
         description: 'Gestión general de la sucursal y configuraciones de empresa',
       },
       {
-        id: uuidv4(),
+        id: randomUUID(),
         name: 'MANAGER',
         description: 'Control de operaciones, reportes y supervisión',
       },
       {
-        id: uuidv4(),
+        id: randomUUID(),
         name: 'SELLER',
         description: 'Generación de cotizaciones y ventas',
       },
       {
-        id: uuidv4(),
+        id: randomUUID(),
         name: 'CASHIER',
         description: 'Operaciones de caja POS, cobros y aperturas/cierres',
       },
       {
-        id: uuidv4(),
+        id: randomUUID(),
         name: 'WAREHOUSE',
         description: 'Gestión de inventario y movimientos de almacén',
       },
       {
-        id: uuidv4(),
+        id: randomUUID(),
         name: 'USER',
         description: 'Acceso básico al sistema',
       },
