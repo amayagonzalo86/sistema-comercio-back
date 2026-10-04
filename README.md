@@ -4,9 +4,9 @@ Backend REST para un ERP comercial construido con NestJS, TypeScript, TypeORM y 
 
 ## Estado
 
-El repositorio contiene autenticación, usuarios, personas, roles, sucursales, productos, stock por sucursal y listas de precios. La base de plataforma agrega empresas, membresías por empresa, eventos de auditoría y perfiles fiscales para preparar el aislamiento y la integración con ARCA.
+El repositorio contiene autenticación, usuarios, personas, roles, sucursales, productos, stock por sucursal, listas de precios y entidades de plataforma para empresas, membresías, auditoría y configuración fiscal. La rama de evolución agrega contexto multiempresa a varios de esos módulos.
 
-**La base SaaS todavía no está terminada para producción:** las rutas y consultas actuales aún deben aplicar tenant y sucursal en cada operación. El perfil fiscal no emite comprobantes. Revisá [la arquitectura y hoja de ruta](docs/architecture/erp-argentina.md).
+**El aislamiento integral todavía no está terminado y el sistema no está listo para producción:** faltan otros dominios, auditoría en todas las operaciones críticas, pruebas de seguridad y carga, y la integración fiscal no emite comprobantes. Revisá [la arquitectura y hoja de ruta](docs/architecture/erp-argentina.md).
 
 ## Requisitos locales
 
@@ -29,7 +29,7 @@ npm ci
 npm run start:dev
 ```
 
-La API escucha por defecto en `http://localhost:3000/api/v1`. El login local es `POST /auth/login` con JSON `{ "username": "...", "password": "..." }`.
+La API escucha por defecto en `http://localhost:3000/api/v1`. El login es `POST /auth/login` con JSON `{ "username": "...", "password": "..." }`. Si el usuario pertenece a varias empresas, sin `tenantId` ingresa a la membresía activa más antigua; con el token, `GET /auth/tenants` lista sus empresas activas para elegir una e iniciar sesión nuevamente enviando `tenantId`.
 
 El seeder actual crea `admin` con una clave conocida solo si el usuario no existe. Es exclusivamente para desarrollo: cambiá esa contraseña inmediatamente y reemplazá el mecanismo de bootstrap por una invitación segura antes de publicar el servicio.
 
@@ -41,7 +41,7 @@ En desarrollo, el esquema se sincroniza automáticamente. En otros entornos, usa
 npm run migration:run
 ```
 
-No habilites `synchronize` en producción. Revisá y respaldá la base antes de aplicar cada migración.
+No habilites `synchronize` en producción. Revisá y respaldá la base antes de aplicar cada migración. La migración de alcance multiempresa asigna registros preexistentes a una empresa heredada y aborta si detecta duplicados incompatibles con restricciones nuevas; inspeccioná el error y depurá los datos antes de reintentar.
 
 ## Variables relevantes
 
