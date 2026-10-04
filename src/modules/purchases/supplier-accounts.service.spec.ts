@@ -29,6 +29,7 @@ function setup(paidAmount = '25.00') {
     supplierPersonId: supplierId,
     currency: 'ARS',
     originalAmount: '100.00',
+    amountPaid: '25.00',
   } as SupplierPayableEntity;
   let savedPayment: SupplierPaymentEntity | null = null;
   let savedAllocations: SupplierPaymentAllocationEntity[] = [];
@@ -102,7 +103,7 @@ function setup(paidAmount = '25.00') {
     paymentRepository as never,
     payableRepository as never,
   );
-  return { service, dataSource, queryRunner, paymentRepo, getPayment: () => savedPayment, getAllocations: () => savedAllocations };
+  return { service, dataSource, queryRunner, paymentRepo, payable, getPayment: () => savedPayment, getAllocations: () => savedAllocations };
 }
 
 const dto: CreateSupplierPaymentDto = {
@@ -122,6 +123,7 @@ describe('SupplierAccountsService', () => {
     expect(payment).toMatchObject({ amount: '50.00', currency: 'ARS' });
     expect(h.getAllocations()).toHaveLength(1);
     expect(h.getAllocations()[0]).toMatchObject({ payableId, amount: '50.00' });
+    expect(h.payable.amountPaid).toBe('75.00');
     expect(h.queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     expect(h.queryRunner.rollbackTransaction).not.toHaveBeenCalled();
   });
@@ -134,6 +136,7 @@ describe('SupplierAccountsService', () => {
       .rejects.toBeInstanceOf(BadRequestException);
 
     expect(h.paymentRepo.save).not.toHaveBeenCalled();
+    expect(h.payable.amountPaid).toBe('25.00');
     expect(h.queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
   });
 
