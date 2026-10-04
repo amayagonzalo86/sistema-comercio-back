@@ -5,11 +5,8 @@ import {
   IsArray,
   IsEnum,
   IsNumber,
-  IsOptional,
-  IsString,
   IsUUID,
   Max,
-  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -33,11 +30,6 @@ export class CreateSalePaymentDto {
   @Min(0.01)
   @Max(999999999999.99)
   amount!: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  externalReference?: string;
 }
 
 export class CreateSaleDto {
