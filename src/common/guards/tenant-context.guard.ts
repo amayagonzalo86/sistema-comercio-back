@@ -17,6 +17,7 @@ type TenantRequest = {
     id?: string;
     tenantId?: string;
     tenantRole?: string;
+    branchId?: string | null;
   };
 };
 
@@ -41,7 +42,7 @@ export class TenantContextGuard implements CanActivate {
         tenantId: user.tenantId,
         status: MembershipStatus.ACTIVE,
       },
-      relations: { tenant: true, user: true },
+      relations: { tenant: true, user: true, branch: true },
     });
 
     if (
@@ -55,6 +56,7 @@ export class TenantContextGuard implements CanActivate {
 
     // Use the current database role, not a possibly stale role claim in the JWT.
     user.tenantRole = membership.role;
+    user.branchId = membership.branchId ?? null;
     return true;
   }
 }
