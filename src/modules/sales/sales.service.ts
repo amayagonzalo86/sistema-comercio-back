@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -50,6 +51,7 @@ export class SalesService {
     idempotencyKey: string,
     dto: CreateSaleDto,
     auditContext: InventoryAuditContext = {},
+    allowedBranchId: string | null = null,
   ): Promise<Record<string, unknown>> {
     const key = idempotencyKey.trim();
     if (!key || key.length > 100) {
@@ -101,6 +103,9 @@ export class SalesService {
       });
       if (!tenant || !branch) {
         throw new NotFoundException('La sucursal no existe o no está activa en esta empresa.');
+      }
+      if (allowedBranchId && allowedBranchId !== branch.id) {
+        throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
       }
 
       if (dto.customerPersonId) {
@@ -283,6 +288,7 @@ export class SalesService {
       if (
         error instanceof BadRequestException ||
         error instanceof ConflictException ||
+        error instanceof ForbiddenException ||
         error instanceof NotFoundException
       ) {
         throw error;
