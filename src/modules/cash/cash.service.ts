@@ -313,13 +313,20 @@ export class CashService {
       if (nextCents < 0n) {
         throw new ConflictException('El egreso supera el efectivo esperado disponible.');
       }
+      if (nextCents > MAX_MONEY_CENTS) {
+        throw new BadRequestException('El saldo esperado supera el rango monetario admitido.');
+      }
 
       const movementRepo = queryRunner.manager.getRepository(CashMovementEntity);
       const movement = await movementRepo.save(movementRepo.create({
         tenantId,
         branchId: session.branchId,
         cashSessionId: session.id,
-        type: dto.type as unknown as CashMovementType,
+        type: dto.type === CashManualMovementType.INCOME
+          ? CashMovementType.INCOME
+          : dto.type === CashManualMovementType.EXPENSE
+            ? CashMovementType.EXPENSE
+            : CashMovementType.ADJUSTMENT,
         direction,
         amount,
         currency: session.currency,
