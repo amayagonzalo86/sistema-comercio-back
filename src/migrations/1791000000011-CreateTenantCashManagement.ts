@@ -22,7 +22,7 @@ export class CreateTenantCashManagement1791000000011 implements MigrationInterfa
         KEY IDX_cash_register_tenant_branch_active (tenant_id, branch_id, is_active),
         CONSTRAINT FK_cash_register_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
         CONSTRAINT FK_cash_register_branch FOREIGN KEY (tenant_id, branch_id) REFERENCES branches(tenant_id, id) ON DELETE RESTRICT,
-        CONSTRAINT FK_cash_register_creator FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+        CONSTRAINT FK_cash_register_creator_membership FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES tenant_memberships(tenant_id, user_id) ON DELETE RESTRICT
       ) ENGINE=InnoDB
     `);
 
@@ -58,8 +58,8 @@ export class CreateTenantCashManagement1791000000011 implements MigrationInterfa
         CONSTRAINT FK_cash_sessions_register FOREIGN KEY (tenant_id, branch_id, cash_register_id)
           REFERENCES cash_registers(tenant_id, branch_id, id) ON DELETE RESTRICT,
         CONSTRAINT FK_cash_sessions_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
-        CONSTRAINT FK_cash_sessions_opened_by FOREIGN KEY (opened_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
-        CONSTRAINT FK_cash_sessions_closed_by FOREIGN KEY (closed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+        CONSTRAINT FK_cash_sessions_opened_by_membership FOREIGN KEY (tenant_id, opened_by_user_id) REFERENCES tenant_memberships(tenant_id, user_id) ON DELETE RESTRICT,
+        CONSTRAINT FK_cash_sessions_closed_by_membership FOREIGN KEY (tenant_id, closed_by_user_id) REFERENCES tenant_memberships(tenant_id, user_id) ON DELETE RESTRICT,
         CONSTRAINT CK_cash_sessions_close_state CHECK (
           (status = 'OPEN' AND closed_at IS NULL AND closed_by_user_id IS NULL AND expected_amount IS NULL AND counted_amount IS NULL AND difference_amount IS NULL)
           OR (status = 'CLOSED' AND closed_at IS NOT NULL AND closed_by_user_id IS NOT NULL AND expected_amount IS NOT NULL AND counted_amount IS NOT NULL AND difference_amount IS NOT NULL)
@@ -93,7 +93,7 @@ export class CreateTenantCashManagement1791000000011 implements MigrationInterfa
         CONSTRAINT FK_cash_movements_session FOREIGN KEY (tenant_id, branch_id, cash_session_id)
           REFERENCES cash_sessions(tenant_id, branch_id, id) ON DELETE RESTRICT,
         CONSTRAINT FK_cash_movements_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
-        CONSTRAINT FK_cash_movements_actor FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+        CONSTRAINT FK_cash_movements_actor_membership FOREIGN KEY (tenant_id, actor_user_id) REFERENCES tenant_memberships(tenant_id, user_id) ON DELETE RESTRICT,
         CONSTRAINT CK_cash_movements_positive_amount CHECK (amount > 0)
       ) ENGINE=InnoDB
     `);
