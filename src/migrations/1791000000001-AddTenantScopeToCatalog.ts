@@ -50,6 +50,7 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
     await queryRunner.query(
       'ALTER TABLE persons MODIFY tenant_id varchar(36) NOT NULL, ' +
         'DROP INDEX idx_persons_national_id, DROP INDEX idx_persons_email, ' +
+        'ADD UNIQUE KEY UQ_persons_tenant_id (tenant_id, id), ' +
         'ADD UNIQUE KEY UQ_persons_tenant_national_id (tenant_id, national_id), ' +
         'ADD UNIQUE KEY UQ_persons_tenant_email (tenant_id, email), ' +
         'ADD KEY IDX_persons_tenant_active (tenant_id, is_active), ' +
@@ -182,7 +183,7 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       );
     }
     await queryRunner.query(
-      'ALTER TABLE persons DROP FOREIGN KEY FK_persons_tenant, DROP INDEX IDX_persons_tenant_active, DROP INDEX UQ_persons_tenant_email, DROP INDEX UQ_persons_tenant_national_id, ADD UNIQUE KEY idx_persons_email (email), ADD UNIQUE KEY idx_persons_national_id (national_id), DROP COLUMN tenant_id',
+      'ALTER TABLE persons DROP FOREIGN KEY FK_persons_tenant, DROP INDEX IDX_persons_tenant_active, DROP INDEX UQ_persons_tenant_email, DROP INDEX UQ_persons_tenant_national_id, DROP INDEX UQ_persons_tenant_id, ADD UNIQUE KEY idx_persons_email (email), ADD UNIQUE KEY idx_persons_national_id (national_id), DROP COLUMN tenant_id',
     );
     await queryRunner.query(
       'ALTER TABLE product_price_lists DROP FOREIGN KEY FK_product_price_lists_tenant, DROP FOREIGN KEY FK_product_price_lists_tenant_list, DROP FOREIGN KEY FK_product_price_lists_tenant_product, DROP INDEX UQ_product_price_lists_tenant_list_product, DROP COLUMN tenant_id',
