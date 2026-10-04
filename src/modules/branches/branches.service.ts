@@ -43,9 +43,12 @@ export class BranchesService {
     }
   }
 
-  async findAll(tenantId: string): Promise<BranchEntity[]> {
+  async findAll(tenantId: string, scopedBranchId: string | null = null): Promise<BranchEntity[]> {
     try{
-      return await this.branchRepository.find({ where: { tenantId }, order: { createdAt: 'DESC' } });
+      return await this.branchRepository.find({
+        where: { tenantId, ...(scopedBranchId ? { id: scopedBranchId } : {}) },
+        order: { createdAt: 'DESC' },
+      });
     } catch (error) {
       this.logger.error('Error al buscar sucursales', error);
       throw new InternalServerErrorException('Error interno al consultar sucursales');
