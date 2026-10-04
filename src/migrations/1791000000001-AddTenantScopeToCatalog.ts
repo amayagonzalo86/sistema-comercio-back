@@ -141,7 +141,30 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
     await queryRunner.query(
       'ALTER TABLE price_lists MODIFY tenant_id varchar(36) NOT NULL, ' +
         'ADD KEY IDX_price_lists_tenant_active (tenant_id, is_active), ' +
+        'ADD UNIQUE KEY UQ_price_lists_tenant_id (tenant_id, id), ' +
         'ADD CONSTRAINT FK_price_lists_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT',
+    );
+
+    await queryRunner.query(
+      'ALTER TABLE product_price_lists ADD COLUMN tenant_id varchar(36) NULL',
+    );
+    await queryRunner.query(
+      'UPDATE product_price_lists ppl JOIN price_lists pl ON pl.id = ppl.price_list_id SET ppl.tenant_id = pl.tenant_id WHERE ppl.tenant_id IS NULL',
+    );
+    const crossTenantPriceOverrides = await queryRunner.query(
+      'SELECT ppl.id FROM product_price_lists ppl JOIN products p ON p.id = ppl.product_id WHERE p.tenant_id <> ppl.tenant_id LIMIT 1',
+    );
+    if (crossTenantPriceOverrides.length > 0) {
+      throw new Error(
+        'No se puede migrar: hay precios personalizados que relacionan empresas distintas. Revise product_price_lists antes de reintentar.',
+      );
+    }
+    await queryRunner.query(
+      'ALTER TABLE product_price_lists MODIFY tenant_id varchar(36) NOT NULL, ' +
+        'ADD UNIQUE KEY UQ_product_price_lists_tenant_list_product (tenant_id, price_list_id, product_id), ' +
+        'ADD CONSTRAINT FK_product_price_lists_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT, ' +
+        'ADD CONSTRAINT FK_product_price_lists_tenant_list FOREIGN KEY (tenant_id, price_list_id) REFERENCES price_lists (tenant_id, id) ON DELETE CASCADE, ' +
+        'ADD CONSTRAINT FK_product_price_lists_tenant_product FOREIGN KEY (tenant_id, product_id) REFERENCES products (tenant_id, id) ON DELETE CASCADE',
     );
   }
 
@@ -161,7 +184,10 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'ALTER TABLE persons DROP FOREIGN KEY FK_persons_tenant, DROP INDEX IDX_persons_tenant_active, DROP INDEX UQ_persons_tenant_email, DROP INDEX UQ_persons_tenant_national_id, ADD UNIQUE KEY idx_persons_email (email), ADD UNIQUE KEY idx_persons_national_id (national_id), DROP COLUMN tenant_id',
     );
     await queryRunner.query(
-      'ALTER TABLE price_lists DROP FOREIGN KEY FK_price_lists_tenant, DROP INDEX IDX_price_lists_tenant_active, DROP COLUMN tenant_id',
+      'ALTER TABLE product_price_lists DROP FOREIGN KEY FK_product_price_lists_tenant, DROP FOREIGN KEY FK_product_price_lists_tenant_list, DROP FOREIGN KEY FK_product_price_lists_tenant_product, DROP INDEX UQ_product_price_lists_tenant_list_product, DROP COLUMN tenant_id',
+    );
+    await queryRunner.query(
+      'ALTER TABLE price_lists DROP FOREIGN KEY FK_price_lists_tenant, DROP INDEX IDX_price_lists_tenant_active, DROP INDEX UQ_price_lists_tenant_id, DROP COLUMN tenant_id',
     );
     await queryRunner.query(
       'ALTER TABLE product_branches DROP FOREIGN KEY FK_product_branches_tenant, DROP FOREIGN KEY FK_product_branches_tenant_branch, DROP FOREIGN KEY FK_product_branches_tenant_product, DROP INDEX IDX_product_branches_tenant_branch, DROP INDEX UQ_product_branches_tenant_product_branch, DROP COLUMN tenant_id',
