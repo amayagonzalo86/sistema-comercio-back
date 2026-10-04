@@ -1,10 +1,13 @@
 import { ConflictException } from '@nestjs/common';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CashMovementEntity } from './entities/cash-movement.entity';
 import { CashRegisterEntity } from './entities/cash-register.entity';
 import { CashSessionEntity, CashSessionStatus } from './entities/cash-session.entity';
 import { CashManualMovementDirection, CashManualMovementType } from './dto/create-cash-movement.dto';
 import { CashService } from './cash.service';
+import { TenantMembershipEntity, TenantRole, MembershipStatus } from '../platform/entities/tenant-membership.entity';
+import { UserEntity } from '../users/entities/user.entity';
+import { TenantEntity, TenantStatus } from '../platform/entities/tenant.entity';
 
 function setup(expectedAmount = '10.00') {
   const session = {
@@ -17,19 +20,36 @@ function setup(expectedAmount = '10.00') {
     expectedAmount,
   } as CashSessionEntity;
 
-  const queryBuilder = {
+  const makeQueryBuilder = (result: unknown) => ({
     setLock: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
-    getOne: jest.fn().mockResolvedValue(session),
-  };
+    getOne: jest.fn().mockResolvedValue(result),
+  });
+  const queryBuilder = makeQueryBuilder(session);
+  const membershipBuilder = makeQueryBuilder({
+    tenantId: session.tenantId,
+    userId: 'actor-0000-4000-8000-000000000001',
+    branchId: session.branchId,
+    role: TenantRole.CASHIER,
+    status: MembershipStatus.ACTIVE,
+  });
+  const userBuilder = makeQueryBuilder({ id: 'actor-0000-4000-8000-000000000001', isActive: true });
+  const tenantBuilder = makeQueryBuilder({ id: session.tenantId, status: TenantStatus.TRIAL });
   const movement = { id: 'movement-0000-4000-8000-000000000001' };
   const movementRepository = {
     create: jest.fn((value) => value),
     save: jest.fn().mockImplementation(async (value) => ({ ...value, ...movement })),
   };
   const manager = {
-    createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+    createQueryBuilder: jest.fn((entity) => entity === TenantMembershipEntity
+      ? membershipBuilder
+      : entity === UserEntity
+        ? userBuilder
+        : entity === TenantEntity
+          ? tenantBuilder
+          : queryBuilder),
     findOne: jest.fn().mockResolvedValue(null),
     getRepository: jest.fn().mockReturnValue(movementRepository),
     create: jest.fn((_entity, value) => value),
