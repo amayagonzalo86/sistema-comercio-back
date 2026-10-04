@@ -11,6 +11,7 @@ import { UserEntity } from '../../users/entities/user.entity';
 import { TenantEntity } from '../../platform/entities/tenant.entity';
 
 @Entity('persons')
+@Index('UQ_persons_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('UQ_persons_tenant_national_id', ['tenantId', 'nationalId'], { unique: true })
 @Index('UQ_persons_tenant_email', ['tenantId', 'email'], { unique: true })
 export class PersonEntity extends BaseAuditEntity {
