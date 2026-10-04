@@ -36,6 +36,8 @@ El inventario expone ajustes con saldo firmado, motivo e idempotencia:
 El historial se consulta en `GET /api/v1/products/:productId/branches/:branchId/stock-movements`; acepta `limit` (máximo 100) y un `cursor` opaco devuelto por la respuesta.
 Los movimientos y sus eventos de auditoría se escriben en la misma transacción.
 
+Las ventas internas se registran con `POST /api/v1/sales`, encabezado `Idempotency-Key`, empresa/sucursal, productos/cantidades y medios de pago. El servidor calcula precio e impuestos del catálogo, comprueba el total cobrado y registra venta, pagos, salida de inventario y auditoría atómicamente. La respuesta queda con `fiscalStatus: NOT_ISSUED`: todavía no es una factura electrónica ni reemplaza la emisión/homologación ARCA. Los cierres de caja, cuentas corrientes y conciliación de pagos siguen pendientes.
+
 El seeder actual crea `admin` con una clave conocida solo si el usuario no existe. Es exclusivamente para desarrollo: cambiá esa contraseña inmediatamente y reemplazá el mecanismo de bootstrap por una invitación segura antes de publicar el servicio.
 
 ## Migraciones
