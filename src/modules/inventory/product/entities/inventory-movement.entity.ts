@@ -14,7 +14,7 @@ export enum InventoryMovementType {
 @Index('UQ_inventory_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true })
 @Index('IDX_inventory_movements_stock_history', ['tenantId', 'branchId', 'productId', 'createdAt'])
 export class InventoryMovementEntity {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn('increment', { type: 'bigint', unsigned: true })
   id!: string;
 
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
