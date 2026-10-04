@@ -50,6 +50,7 @@ export class CreateTenantCashManagement1791000000011 implements MigrationInterfa
         updated_at timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         PRIMARY KEY (id),
         UNIQUE KEY UQ_cash_sessions_tenant_id (tenant_id, id),
+        UNIQUE KEY UQ_cash_sessions_tenant_branch_id (tenant_id, branch_id, id),
         UNIQUE KEY UQ_cash_sessions_tenant_opening_key (tenant_id, opening_idempotency_key),
         UNIQUE KEY UQ_cash_sessions_one_open_per_register (tenant_id, open_register_id),
         KEY IDX_cash_sessions_tenant_branch_status (tenant_id, branch_id, status, opened_at),
@@ -58,7 +59,11 @@ export class CreateTenantCashManagement1791000000011 implements MigrationInterfa
           REFERENCES cash_registers(tenant_id, branch_id, id) ON DELETE RESTRICT,
         CONSTRAINT FK_cash_sessions_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
         CONSTRAINT FK_cash_sessions_opened_by FOREIGN KEY (opened_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
-        CONSTRAINT FK_cash_sessions_closed_by FOREIGN KEY (closed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+        CONSTRAINT FK_cash_sessions_closed_by FOREIGN KEY (closed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+        CONSTRAINT CK_cash_sessions_close_state CHECK (
+          (status = 'OPEN' AND closed_at IS NULL AND closed_by_user_id IS NULL AND expected_amount IS NULL AND counted_amount IS NULL AND difference_amount IS NULL)
+          OR (status = 'CLOSED' AND closed_at IS NOT NULL AND closed_by_user_id IS NOT NULL AND expected_amount IS NOT NULL AND counted_amount IS NOT NULL AND difference_amount IS NOT NULL)
+        )
       ) ENGINE=InnoDB
     `);
 
@@ -88,7 +93,8 @@ export class CreateTenantCashManagement1791000000011 implements MigrationInterfa
         CONSTRAINT FK_cash_movements_session FOREIGN KEY (tenant_id, branch_id, cash_session_id)
           REFERENCES cash_sessions(tenant_id, branch_id, id) ON DELETE RESTRICT,
         CONSTRAINT FK_cash_movements_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
-        CONSTRAINT FK_cash_movements_actor FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE RESTRICT
+        CONSTRAINT FK_cash_movements_actor FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+        CONSTRAINT CK_cash_movements_positive_amount CHECK (amount > 0)
       ) ENGINE=InnoDB
     `);
   }
