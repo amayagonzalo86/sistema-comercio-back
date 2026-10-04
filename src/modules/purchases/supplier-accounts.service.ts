@@ -113,9 +113,12 @@ export class SupplierAccountsService {
         lockedPayables.push(payable);
       }
 
-      const concurrentPayment = await queryRunner.manager.findOne(SupplierPaymentEntity, {
-        where: { tenantId, idempotencyKey: key },
-      });
+      const concurrentPayment = await queryRunner.manager
+        .createQueryBuilder(SupplierPaymentEntity, 'payment')
+        .setLock('pessimistic_write')
+        .where('payment.tenantId = :tenantId', { tenantId })
+        .andWhere('payment.idempotencyKey = :idempotencyKey', { idempotencyKey: key })
+        .getOne();
       if (concurrentPayment) {
         if (concurrentPayment.requestFingerprint !== fingerprint) {
           throw new ConflictException('Idempotency-Key ya fue utilizado para otro pago.');
@@ -130,23 +133,18 @@ export class SupplierAccountsService {
         throw new BadRequestException('Todas las cuentas del pago deben usar la misma moneda.');
       }
 
-      const allocationRows: Array<{ payable: SupplierPayableEntity; amountCents: bigint }> = [];
+      const allocationRows: Array<{ payable: SupplierPayableEntity; amountCents: bigint; newPaidCents: bigint }> = [];
       let paymentCents = 0n;
       for (let index = 0; index < allocations.length; index += 1) {
         const requestedCents = toMinorUnits(Number(allocations[index].amount));
         const payable = lockedPayables[index];
-        const aggregate = await queryRunner.manager
-          .createQueryBuilder(SupplierPaymentAllocationEntity, 'allocation')
-          .select('COALESCE(SUM(allocation.amount), 0)', 'paidAmount')
-          .where('allocation.tenantId = :tenantId', { tenantId })
-          .andWhere('allocation.payableId = :payableId', { payableId: payable.id })
-          .getRawOne<{ paidAmount: string | number }>();
-        const paidCents = toMinorUnits(Number(aggregate?.paidAmount ?? 0));
+        const paidCents = toMinorUnits(Number(payable.amountPaid));
         const originalCents = toMinorUnits(Number(payable.originalAmount));
-        if (requestedCents <= 0n || paidCents + requestedCents > originalCents) {
+        const newPaidCents = paidCents + requestedCents;
+        if (requestedCents <= 0n || newPaidCents > originalCents) {
           throw new BadRequestException('El pago supera el saldo pendiente de una cuenta a pagar.');
         }
-        allocationRows.push({ payable, amountCents: requestedCents });
+        allocationRows.push({ payable, amountCents: requestedCents, newPaidCents });
         paymentCents += requestedCents;
       }
       if (paymentCents <= 0n || paymentCents > MAX_MONEY_CENTS) {
@@ -175,6 +173,10 @@ export class SupplierAccountsService {
         amount: formatCents(amountCents),
       }));
       await allocationRepo.save(savedAllocations);
+      for (const allocation of allocationRows) {
+        allocation.payable.amountPaid = formatCents(allocation.newPaidCents);
+        await queryRunner.manager.save(SupplierPayableEntity, allocation.payable);
+      }
 
       await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
         tenantId,
@@ -262,25 +264,9 @@ export class SupplierAccountsService {
       .getMany();
     const hasMore = rows.length > limit;
     const payables = rows.slice(0, limit);
-    const ids = payables.map((payable) => payable.id);
-    const paidByPayable = new Map<string, bigint>();
-    if (ids.length) {
-      const allocations = await this.dataSource.getRepository(SupplierPaymentAllocationEntity)
-        .createQueryBuilder('allocation')
-        .select('allocation.payableId', 'payableId')
-        .addSelect('SUM(allocation.amount)', 'paidAmount')
-        .where('allocation.tenantId = :tenantId', { tenantId })
-        .andWhere('allocation.payableId IN (:...payableIds)', { payableIds: ids })
-        .groupBy('allocation.payableId')
-        .getRawMany<{ payableId: string; paidAmount: string | number }>();
-      for (const allocation of allocations) {
-        paidByPayable.set(allocation.payableId, toMinorUnits(Number(allocation.paidAmount)));
-      }
-    }
-
     const items = payables.map((payable) => {
       const originalCents = toMinorUnits(Number(payable.originalAmount));
-      const paidCents = paidByPayable.get(payable.id) ?? 0n;
+      const paidCents = toMinorUnits(Number(payable.amountPaid));
       const outstanding = originalCents - paidCents;
       return {
         ...payable,
