@@ -6,6 +6,16 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
   name = 'AddTenantScopeToCatalog1791000000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // MySQL commits DDL implicitly, so reject incompatible legacy rows before altering any table.
+    const duplicateBranchCode = await queryRunner.query(
+      'SELECT code FROM branches GROUP BY code HAVING COUNT(*) > 1 LIMIT 1',
+    );
+    if (duplicateBranchCode.length > 0) {
+      throw new Error(
+        'No se puede migrar: existen códigos de sucursal duplicados. Corrija branches.code antes de reintentar.',
+      );
+    }
+
     await queryRunner.query(
       "ALTER TABLE tenant_memberships MODIFY role enum('OWNER','ADMIN','MANAGER','ACCOUNTANT','CASHIER','INVENTORY','SELLER','VIEWER') NOT NULL",
     );
@@ -51,15 +61,6 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
       'UPDATE branches SET tenant_id = ? WHERE tenant_id IS NULL',
       [LEGACY_TENANT_ID],
     );
-    const duplicateBranchCode = await queryRunner.query(
-      'SELECT code FROM branches GROUP BY code HAVING COUNT(*) > 1 LIMIT 1',
-    );
-    if (duplicateBranchCode.length > 0) {
-      throw new Error(
-        'No se puede migrar: existen códigos de sucursal duplicados. Corrija branches.code antes de reintentar.',
-      );
-    }
-
     await queryRunner.query(
       'ALTER TABLE branches MODIFY tenant_id varchar(36) NOT NULL, ' +
         'ADD UNIQUE KEY UQ_branches_tenant_code (tenant_id, code), ' +
