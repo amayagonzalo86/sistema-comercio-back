@@ -31,6 +31,11 @@ npm run start:dev
 
 La API escucha por defecto en `http://localhost:3000/api/v1`. El login es `POST /auth/login` con JSON `{ "username": "...", "password": "..." }`. Si el usuario pertenece a varias empresas, sin `tenantId` ingresa a la membresía activa más antigua; con el token, `GET /auth/tenants` lista sus empresas activas para elegir una e iniciar sesión nuevamente enviando `tenantId`.
 
+El inventario expone ajustes con saldo firmado, motivo e idempotencia:
+`POST /api/v1/products/:productId/branches/:branchId/stock-adjustments` requiere el encabezado `Idempotency-Key` y un cuerpo como `{ "quantityDelta": -2, "reason": "Conteo físico" }`.
+El historial se consulta en `GET /api/v1/products/:productId/branches/:branchId/stock-movements`; acepta `limit` (máximo 100) y un `cursor` opaco devuelto por la respuesta.
+Los movimientos y sus eventos de auditoría se escriben en la misma transacción.
+
 El seeder actual crea `admin` con una clave conocida solo si el usuario no existe. Es exclusivamente para desarrollo: cambiá esa contraseña inmediatamente y reemplazá el mecanismo de bootstrap por una invitación segura antes de publicar el servicio.
 
 ## Migraciones
