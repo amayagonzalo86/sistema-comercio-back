@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { BranchEntity } from '../branches/entities/branch.entity';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { PersonEntity, PersonType } from '../persons/entities/person.entity';
@@ -14,7 +14,7 @@ const branchId = 'branch-1';
 const supplierId = 'supplier-1';
 const payableId = 'payable-1';
 
-function setup(paidAmount = '25.00') {
+function setup() {
   const branch = { id: branchId, tenantId, status: true } as BranchEntity;
   const supplier = {
     id: supplierId,
@@ -29,6 +29,7 @@ function setup(paidAmount = '25.00') {
     supplierPersonId: supplierId,
     currency: 'ARS',
     originalAmount: '100.00',
+    amountPaid: '25.00',
   } as SupplierPayableEntity;
   let savedPayment: SupplierPaymentEntity | null = null;
   let savedAllocations: SupplierPaymentAllocationEntity[] = [];
@@ -70,7 +71,6 @@ function setup(paidAmount = '25.00') {
         andWhere: jest.fn(() => builder),
         select: jest.fn(() => builder),
         getOne: jest.fn(async () => entity === SupplierPayableEntity ? payable : null),
-        getRawOne: jest.fn(async () => ({ paidAmount })),
       };
       return builder;
     }),
@@ -102,7 +102,7 @@ function setup(paidAmount = '25.00') {
     paymentRepository as never,
     payableRepository as never,
   );
-  return { service, dataSource, queryRunner, paymentRepo, getPayment: () => savedPayment, getAllocations: () => savedAllocations };
+  return { service, dataSource, queryRunner, paymentRepo, payable, getPayment: () => savedPayment, getAllocations: () => savedAllocations };
 }
 
 const dto: CreateSupplierPaymentDto = {
@@ -115,25 +115,27 @@ const dto: CreateSupplierPaymentDto = {
 
 describe('SupplierAccountsService', () => {
   it('permite un pago parcial y registra asignación y auditoría', async () => {
-    const h = setup('25.00');
+    const h = setup();
 
     const payment = await h.service.createPayment(tenantId, 'actor-1', 'pay-key-1', dto, branchId);
 
     expect(payment).toMatchObject({ amount: '50.00', currency: 'ARS' });
     expect(h.getAllocations()).toHaveLength(1);
     expect(h.getAllocations()[0]).toMatchObject({ payableId, amount: '50.00' });
+    expect(h.payable.amountPaid).toBe('75.00');
     expect(h.queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     expect(h.queryRunner.rollbackTransaction).not.toHaveBeenCalled();
   });
 
   it('rechaza pagar por encima del saldo pendiente', async () => {
-    const h = setup('25.00');
+    const h = setup();
     const overpayment = { ...dto, allocations: [{ payableId, amount: 80 }] };
 
     await expect(h.service.createPayment(tenantId, 'actor-1', 'pay-key-1', overpayment, branchId))
-      .rejects.toBeInstanceOf(BadRequestException);
+      .rejects.toBeInstanceOf(ConflictException);
 
     expect(h.paymentRepo.save).not.toHaveBeenCalled();
+    expect(h.payable.amountPaid).toBe('25.00');
     expect(h.queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
   });
 

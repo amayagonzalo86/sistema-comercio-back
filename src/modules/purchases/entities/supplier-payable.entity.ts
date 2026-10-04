@@ -27,6 +27,10 @@ export class SupplierPayableEntity {
   @Column({ name: 'original_amount', type: 'decimal', precision: 14, scale: 2 })
   originalAmount!: string;
 
+  // Materialized balance; changed only while holding the payable row lock.
+  @Column({ name: 'amount_paid', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  amountPaid!: string;
+
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate?: string | null;
 
