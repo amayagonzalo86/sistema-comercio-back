@@ -113,12 +113,9 @@ export class SupplierAccountsService {
         lockedPayables.push(payable);
       }
 
-      const concurrentPayment = await queryRunner.manager
-        .createQueryBuilder(SupplierPaymentEntity, 'payment')
-        .setLock('pessimistic_write')
-        .where('payment.tenantId = :tenantId', { tenantId })
-        .andWhere('payment.idempotencyKey = :idempotencyKey', { idempotencyKey: key })
-        .getOne();
+      const concurrentPayment = await queryRunner.manager.findOne(SupplierPaymentEntity, {
+        where: { tenantId, idempotencyKey: key },
+      });
       if (concurrentPayment) {
         if (concurrentPayment.requestFingerprint !== fingerprint) {
           throw new ConflictException('Idempotency-Key ya fue utilizado para otro pago.');
@@ -142,7 +139,7 @@ export class SupplierAccountsService {
         const originalCents = toMinorUnits(Number(payable.originalAmount));
         const newPaidCents = paidCents + requestedCents;
         if (requestedCents <= 0n || newPaidCents > originalCents) {
-          throw new BadRequestException('El pago supera el saldo pendiente de una cuenta a pagar.');
+          throw new ConflictException('El pago supera el saldo pendiente de una cuenta a pagar.');
         }
         allocationRows.push({ payable, amountCents: requestedCents, newPaidCents });
         paymentCents += requestedCents;
@@ -204,9 +201,18 @@ export class SupplierAccountsService {
       if (transactionStarted) {
         await queryRunner.rollbackTransaction();
       }
+      if (error instanceof ConflictException) {
+        const existing = await this.paymentRepository.findOne({ where: { tenantId, idempotencyKey: key } });
+        if (existing) {
+          if (existing.requestFingerprint === fingerprint) {
+            return this.loadPayment(tenantId, existing.id, allowedBranchId);
+          }
+          throw new ConflictException('Idempotency-Key ya fue utilizado para otro pago.');
+        }
+        throw error;
+      }
       if (
         error instanceof BadRequestException ||
-        error instanceof ConflictException ||
         error instanceof ForbiddenException ||
         error instanceof NotFoundException
       ) {
