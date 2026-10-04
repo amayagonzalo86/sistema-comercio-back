@@ -68,6 +68,7 @@ export class PriceListService {
       if (productOverrides.length > 0) {
         const details = productOverrides.map((override) =>
           queryRunner.manager.create(ProductPriceListEntity, {
+            tenantId,
             priceListId: savedPriceList.id,
             productId: override.productId,
             appliedPercentage: override.appliedPercentage,
