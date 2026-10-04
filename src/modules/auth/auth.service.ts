@@ -100,7 +100,7 @@ export class AuthService {
 
     const memberships = await this.membershipRepository.find({
       where: { userId: user.id, status: MembershipStatus.ACTIVE },
-      relations: { tenant: true },
+      relations: { tenant: true, branch: true },
     });
     memberships.sort((a, b) => {
       const byCreation = a.createdAt.getTime() - b.createdAt.getTime();
@@ -120,12 +120,9 @@ export class AuthService {
       );
     }
 
-    // A user may belong to several companies, but its legacy branch relation is global.
-    // Never return another company's branch in the login response.
-    if (user.branch && user.branch.tenantId !== membership.tenantId) {
-      user.branch = null;
-      user.branchId = null;
-    }
+    // Branch assignment is scoped to the selected tenant membership.
+    user.branch = membership.branch ?? null;
+    user.branchId = membership.branchId ?? null;
 
     // Extraer únicamente los nombres de los roles para el JWT Payload
     const roleNames: UserRoleEnum[] = user.roles ? user.roles.map((r) => r.name) : [];
