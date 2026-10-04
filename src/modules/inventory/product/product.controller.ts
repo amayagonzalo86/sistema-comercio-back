@@ -26,7 +26,6 @@ export class ProductsController {
   @HttpCode(HttpStatus.CREATED)
   async create(@GetTenantId() tenantId: string, @Req() request: Request, @Body() createProductDto: CreateProductDto): Promise<ProductEntity> {
     const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
-    requireAssignedBranch(actor);
     const assignedBranchId = requireAssignedBranch(actor);
     if (assignedBranchId && createProductDto.branchSettings.some((setting) => setting.branchId !== assignedBranchId)) {
       throw new ForbiddenException('No puede configurar stock en otra sucursal.');
