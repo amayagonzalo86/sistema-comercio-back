@@ -1,9 +1,19 @@
-import { Column, Entity, OneToMany } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { UserEntity } from '../../users/entities/user.entity';
+import { TenantEntity } from '../../platform/entities/tenant.entity';
 
 @Entity('branches')
+@Index('UQ_branches_tenant_code', ['tenantId', 'code'], { unique: true })
+@Index('IDX_branches_tenant_status', ['tenantId', 'status'])
 export class BranchEntity extends BaseAuditEntity {
+    @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
+    tenantId!: string;
+
+    @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT' })
+    @JoinColumn({ name: 'tenant_id' })
+    tenant!: TenantEntity;
+
     @Column({ type: 'varchar', length: 20, nullable: false, name: 'code' })
     code!: string;
 
