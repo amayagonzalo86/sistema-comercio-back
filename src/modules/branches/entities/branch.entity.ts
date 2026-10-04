@@ -5,6 +5,7 @@ import { TenantEntity } from '../../platform/entities/tenant.entity';
 
 @Entity('branches')
 @Index('UQ_branches_tenant_code', ['tenantId', 'code'], { unique: true })
+@Index('UQ_branches_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('IDX_branches_tenant_status', ['tenantId', 'status'])
 export class BranchEntity extends BaseAuditEntity {
     @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
