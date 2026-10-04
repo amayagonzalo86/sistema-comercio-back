@@ -6,7 +6,10 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
   name = 'AddTenantScopeToCatalog1791000000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(\n      \"ALTER TABLE tenant_memberships MODIFY role enum('OWNER','ADMIN','MANAGER','ACCOUNTANT','CASHIER','INVENTORY','SELLER','VIEWER') NOT NULL\",\n    );\n    await queryRunner.query(
+    await queryRunner.query(
+      "ALTER TABLE tenant_memberships MODIFY role enum('OWNER','ADMIN','MANAGER','ACCOUNTANT','CASHIER','INVENTORY','SELLER','VIEWER') NOT NULL",
+    );
+    await queryRunner.query(
       'INSERT IGNORE INTO tenants (id, slug, legal_name, status, time_zone, currency_code) VALUES (?, ?, ?, ?, ?, ?)',
       [LEGACY_TENANT_ID, 'legacy-default', 'Empresa migrada', 'ACTIVE', 'America/Argentina/Buenos_Aires', 'ARS'],
     );
