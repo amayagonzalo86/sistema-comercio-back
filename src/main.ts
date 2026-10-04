@@ -2,6 +2,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -11,6 +12,7 @@ async function bootstrap() {
 
   // 1. Capa de Seguridad HTTP (Helmet)
   app.use(helmet());
+  app.use(cookieParser());
 
   // 2. Prefijo Global Estricto (/api/v1)
   const globalPrefix = 'api/v1';
