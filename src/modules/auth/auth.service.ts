@@ -207,7 +207,7 @@ export class AuthService {
     ];
     const exceeded = await Promise.all(scopes.map(async ({ value, maximum }) => {
       const scopeHash = createHmac('sha256', hmacKey).update(value).digest('hex');
-      const rows = await this.dataSource.query(
+      await this.dataSource.query(
         `INSERT INTO auth_rate_limits (scope_hash, attempt_count, window_started_at)
          VALUES (?, 1, CURRENT_TIMESTAMP(6))
          ON DUPLICATE KEY UPDATE
