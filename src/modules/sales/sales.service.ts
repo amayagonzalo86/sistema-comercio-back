@@ -13,7 +13,7 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { TenantEntity } from '../platform/entities/tenant.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
-import { PersonEntity } from '../persons/entities/person.entity';
+import { PersonEntity, PersonType } from '../persons/entities/person.entity';
 import { ProductBranchEntity } from '../inventory/product/entities/product-branch.entity';
 import { InventoryMovementEntity, InventoryMovementType } from '../inventory/product/entities/inventory-movement.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
@@ -111,10 +111,10 @@ export class SalesService {
       if (dto.customerPersonId) {
         const customer = await queryRunner.manager.findOne(PersonEntity, {
           where: { id: dto.customerPersonId, tenantId, isActive: true },
-          select: { id: true, tenantId: true, isActive: true },
+          select: { id: true, tenantId: true, isActive: true, personType: true },
         });
-        if (!customer) {
-          throw new NotFoundException('El cliente no existe o no está activo en esta empresa.');
+        if (!customer || customer.personType === PersonType.SUPPLIER) {
+          throw new NotFoundException('El cliente no existe, no está activo o no está habilitado para ventas en esta empresa.');
         }
       }
 
