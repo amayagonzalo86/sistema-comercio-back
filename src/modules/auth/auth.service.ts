@@ -3,12 +3,14 @@ import {
   InternalServerErrorException,
   Logger,
   UnauthorizedException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { DataSource, Repository } from 'typeorm';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { MembershipStatus, TenantMembershipEntity, TenantRole } from '../platform/entities/tenant-membership.entity';
 import { TenantStatus } from '../platform/entities/tenant.entity';
 import { UserEntity } from '../users/entities/user.entity';
@@ -33,6 +35,7 @@ export interface AuthTokens {
 
 @Injectable()
 export class AuthService {
+  private lastRateLimitCleanupAt = 0;
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
@@ -48,6 +51,7 @@ export class AuthService {
 
   async login( loginDto: LoginDto, ipAddress?: string, userAgent?: string): Promise<{ user: Omit<UserEntity, 'passwordHash'>; tokens: AuthTokens }> {
     const sanitizedUsername = loginDto.username.toLowerCase().trim();
+    await this.enforceLoginRateLimit(sanitizedUsername, ipAddress ?? 'unknown');
 
     // 1. Definir criterios de búsqueda dinámicos
     const whereConditions: Record<string, any> = {
@@ -69,12 +73,10 @@ export class AuthService {
 
     // Diagnóstico de existencia y estado del usuario
     if (!user) {
-      this.logger.warn(`Intento de login fallido: Usuario no encontrado para username [${sanitizedUsername}]`);
       throw new UnauthorizedException('Credenciales inválidas o cuenta desactivada');
     }
 
     if (!user.isActive) {
-      this.logger.warn(`Intento de login fallido: Usuario ID [${user.id}] desactivado || 'N/A'}]`);
       throw new UnauthorizedException('Credenciales inválidas o cuenta desactivada');
     }
 
@@ -94,7 +96,6 @@ export class AuthService {
     }
 
     if (!isPasswordValid) {
-      this.logger.warn(`Intento de login fallido: Contraseña incorrecta para el usuario [${user.id}]`);
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -193,6 +194,60 @@ export class AuthService {
         refreshToken,
       },
     };
+  }
+
+  private async enforceLoginRateLimit(username: string, ipAddress: string): Promise<void> {
+    const hmacKey = process.env.JWT_ACCESS_SECRET;
+    if (!hmacKey) {
+      throw new InternalServerErrorException('No se pudo verificar el acceso.');
+    }
+
+    const scopes = [
+      { value: `username:${username}`, maximum: 10 },
+      { value: `ip:${ipAddress}`, maximum: 60 },
+    ];
+    const exceeded = await Promise.all(scopes.map(async ({ value, maximum }) => {
+      const scopeHash = createHmac('sha256', hmacKey).update(value).digest('hex');
+      await this.dataSource.query(
+        `INSERT INTO auth_rate_limits (scope_hash, attempt_count, window_started_at)
+         VALUES (?, 1, CURRENT_TIMESTAMP(6))
+         ON DUPLICATE KEY UPDATE
+           attempt_count = IF(
+             window_started_at <= DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 15 MINUTE),
+             1,
+             attempt_count + 1
+           ),
+           window_started_at = IF(
+             window_started_at <= DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 15 MINUTE),
+             CURRENT_TIMESTAMP(6),
+             window_started_at
+           )`,
+        [scopeHash],
+      );
+      const result = await this.dataSource.query(
+        'SELECT attempt_count AS attemptCount FROM auth_rate_limits WHERE scope_hash = ?',
+        [scopeHash],
+      ) as Array<{ attemptCount: number | string }>;
+      const attempts = Number(result[0]?.attemptCount ?? 0);
+
+      // Bounded opportunistic cleanup keeps old, pseudonymized IP and identifier keys from accumulating.
+      const now = Date.now();
+      if (now - this.lastRateLimitCleanupAt > 60 * 60 * 1000) {
+        this.lastRateLimitCleanupAt = now;
+        void this.dataSource.query(
+          `DELETE FROM auth_rate_limits
+           WHERE window_started_at < DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 1 DAY)
+           ORDER BY window_started_at
+           LIMIT 500`,
+        ).catch(() => this.logger.warn('No se pudo completar la limpieza de límites de autenticación.'));
+      }
+
+      return attempts > maximum;
+    }));
+
+    if (exceeded.some(Boolean)) {
+      throw new HttpException('Demasiados intentos de acceso. Reintentá en 15 minutos.', HttpStatus.TOO_MANY_REQUESTS);
+    }
   }
 
   async listUserTenants(userId: string): Promise<Array<{ id: string; slug: string; legalName: string; tradeName: string | null; role: TenantRole }>> {

@@ -8,13 +8,14 @@ import { UserEntity } from '../users/entities/user.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { SessionEntity } from './entities/session.entity';
+import { AuthRateLimitEntity } from './entities/auth-rate-limit.entity';
 import { TenantMembershipEntity } from '../platform/entities/tenant-membership.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Global()
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, SessionEntity, TenantMembershipEntity]),
+    TypeOrmModule.forFeature([UserEntity, SessionEntity, TenantMembershipEntity, AuthRateLimitEntity]),
     PassportModule.register({ defaultStrategy: 'jwt', property: 'user' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

@@ -12,8 +12,8 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto, @Req() req: Request) {
-    const ipAddress =
-      (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
+    // X-Forwarded-For is client-controlled unless Express proxy trust is explicitly configured.
+    const ipAddress = req.socket.remoteAddress ?? 'unknown';
     const userAgent = req.headers['user-agent'];
 
     return await this.authService.login(loginDto, ipAddress, userAgent);
