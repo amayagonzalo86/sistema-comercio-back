@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../../common/guards/roles.guard';
@@ -9,6 +10,8 @@ import { ProductEntity } from './entities/product.entity';
 import { ProductBranchEntity } from './entities/product-branch.entity';
 import { ProductsService } from '../../../modules/inventory/product/product.service';
 import { UserRoleEnum } from '../../roles/entities/role.entity';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
+import { InventoryMovementEntity } from './entities/inventory-movement.entity';
 
 @Controller('products')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -18,8 +21,27 @@ export class ProductsController {
   @Post()
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.STOCK_CLERK )
   @HttpCode(HttpStatus.CREATED)
-  async create(@GetTenantId() tenantId: string, @Body() createProductDto: CreateProductDto): Promise<ProductEntity> {
-    return await this.productsService.create(tenantId, createProductDto);
+  async create(@GetTenantId() tenantId: string, @Req() request: Request, @Body() createProductDto: CreateProductDto): Promise<ProductEntity> {
+    const actor = request.user as { id: string };
+    return await this.productsService.create(tenantId, actor.id, createProductDto);
+  }
+
+  @Post(':productId/branches/:branchId/stock-adjustments')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK)
+  @HttpCode(HttpStatus.CREATED)
+  async adjustStock(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() dto: AdjustStockDto,
+  ): Promise<InventoryMovementEntity> {
+    if (!idempotencyKey) {
+      throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
+    }
+    const actor = request.user as { id: string };
+    return this.productsService.adjustStock(tenantId, actor.id, productId, branchId, idempotencyKey, dto);
   }
 
   @Get(':id')
