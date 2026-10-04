@@ -66,6 +66,9 @@ export class CashSessionEntity {
   @Column({ name: 'opening_idempotency_key', type: 'varchar', length: 100 })
   openingIdempotencyKey!: string;
 
+  @Column({ name: 'opening_request_fingerprint', type: 'char', length: 64, nullable: true })
+  openingRequestFingerprint?: string | null;
+
   @Column({ name: 'opened_by_user_id', type: 'varchar', length: 36 })
   openedByUserId!: string;
 
