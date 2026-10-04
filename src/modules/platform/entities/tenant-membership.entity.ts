@@ -18,6 +18,7 @@ export enum TenantRole {
   ACCOUNTANT = 'ACCOUNTANT',
   CASHIER = 'CASHIER',
   INVENTORY = 'INVENTORY',
+  SELLER = 'SELLER',
   VIEWER = 'VIEWER',
 }
 
