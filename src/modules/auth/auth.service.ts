@@ -3,7 +3,8 @@ import {
   InternalServerErrorException,
   Logger,
   UnauthorizedException,
-  TooManyRequestsException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -245,7 +246,7 @@ export class AuthService {
     }));
 
     if (exceeded.some(Boolean)) {
-      throw new TooManyRequestsException('Demasiados intentos de acceso. Reintentá en 15 minutos.');
+      throw new HttpException('Demasiados intentos de acceso. Reintentá en 15 minutos.', HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 
