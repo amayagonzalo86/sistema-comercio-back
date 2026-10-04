@@ -70,6 +70,17 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
         'ADD CONSTRAINT FK_branches_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT',
     );
 
+    await queryRunner.query(
+      'ALTER TABLE tenant_memberships ADD COLUMN branch_id varchar(36) NULL',
+    );
+    await queryRunner.query(
+      'UPDATE tenant_memberships tm JOIN users u ON u.id = tm.user_id JOIN branches b ON b.id = u.branch_id AND b.tenant_id = tm.tenant_id SET tm.branch_id = b.id WHERE tm.branch_id IS NULL',
+    );
+    await queryRunner.query(
+      'ALTER TABLE tenant_memberships ADD KEY IDX_tenant_membership_branch (tenant_id, branch_id), ' +
+        'ADD CONSTRAINT FK_tenant_membership_branch FOREIGN KEY (tenant_id, branch_id) REFERENCES branches (tenant_id, id) ON DELETE RESTRICT',
+    );
+
     await queryRunner.query('ALTER TABLE products ADD COLUMN tenant_id varchar(36) NULL');
     await queryRunner.query(
       'UPDATE products SET tenant_id = ? WHERE tenant_id IS NULL',
@@ -196,6 +207,9 @@ export class AddTenantScopeToCatalog1791000000001 implements MigrationInterface 
     );
     await queryRunner.query(
       'ALTER TABLE products DROP FOREIGN KEY FK_products_tenant, DROP INDEX IDX_products_tenant_barcode, DROP INDEX UQ_products_tenant_id, DROP INDEX UQ_products_tenant_sku, DROP COLUMN tenant_id',
+    );
+    await queryRunner.query(
+      'ALTER TABLE tenant_memberships DROP FOREIGN KEY FK_tenant_membership_branch, DROP INDEX IDX_tenant_membership_branch, DROP COLUMN branch_id',
     );
     await queryRunner.query(
       'ALTER TABLE branches DROP FOREIGN KEY FK_branches_tenant, DROP INDEX IDX_branches_tenant_status, DROP INDEX UQ_branches_tenant_id, DROP INDEX UQ_branches_tenant_code, DROP COLUMN tenant_id',
