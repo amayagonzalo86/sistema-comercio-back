@@ -143,7 +143,7 @@ const dto: CreatePurchaseReceiptDto = {
   supplierPersonId: supplierId,
   sourceDocumentType: 'FACTURA',
   sourceDocumentNumber: 'A-0001-00000001',
-  lines: [{ productId, quantity: 2, unitCost: 100 }],
+  lines: [{ productId, quantity: 2, unitCost: 100, taxRate: 21 }],
 };
 
 describe('PurchasesService', () => {
