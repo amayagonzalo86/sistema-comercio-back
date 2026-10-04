@@ -34,7 +34,7 @@ La API escucha por defecto en `http://localhost:3000/api/v1`. El login es `POST 
 El inventario expone ajustes con saldo firmado, motivo e idempotencia:
 `POST /api/v1/products/:productId/branches/:branchId/stock-adjustments` requiere el encabezado `Idempotency-Key` y un cuerpo como `{ "quantityDelta": -2, "reason": "Conteo físico" }`.
 El historial se consulta en `GET /api/v1/products/:productId/branches/:branchId/stock-movements`; acepta `limit` (máximo 100) y un `cursor` opaco devuelto por la respuesta.
-Los movimientos y sus eventos de auditoría se escriben en la misma transacción.
+Los movimientos y sus eventos de auditoría se escriben en la misma transacción. Las consultas de sucursales, existencias, ventas y precios calculados limitan los resultados a la sucursal asignada en la membresía; los perfiles de caja, venta e inventario sin sucursal asignada reciben acceso denegado.
 
 Las ventas internas se registran con `POST /api/v1/sales`, encabezado `Idempotency-Key`, empresa/sucursal, productos/cantidades y medios de pago. El servidor calcula precio e impuestos del catálogo, comprueba el total cobrado y registra venta, pagos, salida de inventario y auditoría atómicamente. La respuesta queda con `fiscalStatus: NOT_ISSUED`: todavía no es una factura electrónica ni reemplaza la emisión/homologación ARCA. Los cierres de caja, cuentas corrientes y conciliación de pagos siguen pendientes.
 
