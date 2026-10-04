@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { UserEntity } from '../../users/entities/user.entity';
 import { TenantEntity } from './tenant.entity';
+import { BranchEntity } from '../../branches/entities/branch.entity';
 
 export enum TenantRole {
   OWNER = 'OWNER',
@@ -40,6 +41,13 @@ export class TenantMembershipEntity {
 
   @Column({ name: 'user_id', type: 'varchar', length: 36 })
   userId!: string;
+
+  @Column({ name: 'branch_id', type: 'varchar', length: 36, nullable: true })
+  branchId?: string | null;
+
+  @ManyToOne(() => BranchEntity, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
+  branch?: BranchEntity | null;
 
   @Column({ type: 'enum', enum: TenantRole })
   role!: TenantRole;
