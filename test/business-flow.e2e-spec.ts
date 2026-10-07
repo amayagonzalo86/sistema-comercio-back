@@ -114,7 +114,7 @@ describe('Flujo comercial completo (e2e)', () => {
       vatCondition: 'RESPONSABLE_INSCRIPTO',
     });
     expectStatus(supplier, 201);
-    const customersList = await api('get', '/persons?role=customers');
+    const customersList = await api('get', '/persons?role=customers&search=Inscripto');
     expectStatus(customersList, 200);
     expect(customersList.body.total).toBe(1);
 
