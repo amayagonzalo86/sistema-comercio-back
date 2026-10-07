@@ -28,6 +28,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: TEMP pkginfo
+        run: echo "::error title=pkginfo::$(npm view @nestjs/mapped-types@2 version dist.integrity peerDependencies dependencies --json | tail -c 3000 | tr -d '\n')"
 
       # Errores de TypeScript como anotaciones visibles en GitHub (archivo, línea y mensaje).
       - name: Type check
