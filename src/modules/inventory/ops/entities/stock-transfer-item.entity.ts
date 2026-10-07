@@ -1,4 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { ProductEntity } from '../../../inventory/product/entities/product.entity';
 import { StockTransferEntity } from './stock-transfer.entity';
 
 @Entity('stock_transfer_items')
@@ -15,11 +16,15 @@ export class StockTransferItemEntity {
   transferId!: string;
 
   @ManyToOne(() => StockTransferEntity, (transfer) => transfer.items, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'transfer_id' })
+  @JoinColumn({ name: 'transfer_id', foreignKeyConstraintName: 'FK_stock_transfer_items_transfer' })
   transfer!: StockTransferEntity;
 
   @Column({ name: 'product_id', type: 'varchar', length: 36 })
   productId!: string;
+
+  @ManyToOne(() => ProductEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'product_id', foreignKeyConstraintName: 'FK_stock_transfer_items_product' })
+  product?: ProductEntity;
 
   @Column({ name: 'sku_snapshot', type: 'varchar', length: 50 })
   skuSnapshot!: string;

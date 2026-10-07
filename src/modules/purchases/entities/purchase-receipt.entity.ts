@@ -1,4 +1,5 @@
-import { CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { PurchaseOrderEntity } from './purchase-order.entity';
 
 @Entity('purchase_receipts')
 @Index('UQ_purchase_receipts_tenant_id', ['tenantId', 'id'], { unique: true })
@@ -20,6 +21,10 @@ export class PurchaseReceiptEntity {
 
   @Column({ name: 'purchase_order_id', type: 'varchar', length: 36, nullable: true })
   purchaseOrderId?: string | null;
+
+  @ManyToOne(() => PurchaseOrderEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'purchase_order_id', foreignKeyConstraintName: 'FK_purchase_receipts_order' })
+  purchaseOrder?: PurchaseOrderEntity;
 
   @Column({ type: 'char', length: 3 })
   currency!: string;

@@ -1,4 +1,7 @@
-import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { TenantEntity } from '../../platform/entities/tenant.entity';
+import { BranchEntity } from '../../branches/entities/branch.entity';
+import { PersonEntity } from '../../persons/entities/person.entity';
 import { PurchaseOrderItemEntity } from './purchase-order-item.entity';
 
 export enum PurchaseOrderStatus {
@@ -23,15 +26,27 @@ export class PurchaseOrderEntity {
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
   tenantId!: string;
 
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'tenant_id', foreignKeyConstraintName: 'FK_purchase_orders_tenant' })
+  tenant?: TenantEntity;
+
   @Column({ type: 'int', unsigned: true })
   number!: number;
 
   @Column({ name: 'supplier_person_id', type: 'varchar', length: 36 })
   supplierPersonId!: string;
 
+  @ManyToOne(() => PersonEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'supplier_person_id', foreignKeyConstraintName: 'FK_purchase_orders_supplier' })
+  supplier?: PersonEntity;
+
   /** Sucursal donde se recibirá la mercadería. */
   @Column({ name: 'branch_id', type: 'varchar', length: 36 })
   branchId!: string;
+
+  @ManyToOne(() => BranchEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'branch_id', foreignKeyConstraintName: 'FK_purchase_orders_branch' })
+  branch?: BranchEntity;
 
   @Column({ type: 'enum', enum: PurchaseOrderStatus, default: PurchaseOrderStatus.DRAFT })
   status!: PurchaseOrderStatus;

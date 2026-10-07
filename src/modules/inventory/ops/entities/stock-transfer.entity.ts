@@ -1,4 +1,6 @@
-import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { TenantEntity } from '../../../platform/entities/tenant.entity';
+import { BranchEntity } from '../../../branches/entities/branch.entity';
 import { StockTransferItemEntity } from './stock-transfer-item.entity';
 
 export enum StockTransferStatus {
@@ -22,6 +24,10 @@ export class StockTransferEntity {
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
   tenantId!: string;
 
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'tenant_id', foreignKeyConstraintName: 'FK_stock_transfers_tenant' })
+  tenant?: TenantEntity;
+
   /** Número correlativo legible por empresa (remito interno). */
   @Column({ type: 'int', unsigned: true })
   number!: number;
@@ -29,8 +35,16 @@ export class StockTransferEntity {
   @Column({ name: 'origin_branch_id', type: 'varchar', length: 36 })
   originBranchId!: string;
 
+  @ManyToOne(() => BranchEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'origin_branch_id', foreignKeyConstraintName: 'FK_stock_transfers_origin' })
+  originBranch?: BranchEntity;
+
   @Column({ name: 'destination_branch_id', type: 'varchar', length: 36 })
   destinationBranchId!: string;
+
+  @ManyToOne(() => BranchEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'destination_branch_id', foreignKeyConstraintName: 'FK_stock_transfers_destination' })
+  destinationBranch?: BranchEntity;
 
   @Column({ type: 'enum', enum: StockTransferStatus, default: StockTransferStatus.SENT })
   status!: StockTransferStatus;

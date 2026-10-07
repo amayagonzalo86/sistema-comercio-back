@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { TenantEntity } from '../../platform/entities/tenant.entity';
 import { PromotionType } from '../domain/promotions';
 
 /** Promoción automática aplicada en las ventas (no acumulable: gana la mejor para cada línea). */
@@ -10,6 +11,10 @@ export class PromotionEntity {
 
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
   tenantId!: string;
+
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'tenant_id', foreignKeyConstraintName: 'FK_promotions_tenant' })
+  tenant?: TenantEntity;
 
   @Column({ type: 'varchar', length: 120 })
   name!: string;

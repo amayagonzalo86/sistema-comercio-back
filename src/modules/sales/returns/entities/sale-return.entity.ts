@@ -1,4 +1,6 @@
-import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { TenantEntity } from '../../../platform/entities/tenant.entity';
+import { SaleEntity } from '../../entities/sale.entity';
 import { SaleReturnItemEntity } from './sale-return-item.entity';
 
 export enum RefundMethod {
@@ -22,11 +24,19 @@ export class SaleReturnEntity {
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
   tenantId!: string;
 
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'tenant_id', foreignKeyConstraintName: 'FK_sale_returns_tenant' })
+  tenant?: TenantEntity;
+
   @Column({ type: 'int', unsigned: true })
   number!: number;
 
   @Column({ name: 'sale_id', type: 'varchar', length: 36 })
   saleId!: string;
+
+  @ManyToOne(() => SaleEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'sale_id', foreignKeyConstraintName: 'FK_sale_returns_sale' })
+  sale?: SaleEntity;
 
   @Column({ name: 'branch_id', type: 'varchar', length: 36 })
   branchId!: string;

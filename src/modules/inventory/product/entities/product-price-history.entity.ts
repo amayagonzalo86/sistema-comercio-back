@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { TenantEntity } from '../../../platform/entities/tenant.entity';
 
 /** Historial de cambios de costo y precio por producto y sucursal (útil para analizar inflación y márgenes). */
 @Entity('product_price_history')
@@ -10,6 +11,10 @@ export class ProductPriceHistoryEntity {
 
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
   tenantId!: string;
+
+  @ManyToOne(() => TenantEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'tenant_id', foreignKeyConstraintName: 'FK_price_history_tenant' })
+  tenant?: TenantEntity;
 
   @Column({ name: 'product_id', type: 'varchar', length: 36 })
   productId!: string;

@@ -1,4 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { SaleItemEntity } from '../../entities/sale-item.entity';
 import { SaleReturnEntity } from './sale-return.entity';
 
 @Entity('sale_return_items')
@@ -15,11 +16,15 @@ export class SaleReturnItemEntity {
   saleReturnId!: string;
 
   @ManyToOne(() => SaleReturnEntity, (saleReturn) => saleReturn.items, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'sale_return_id' })
+  @JoinColumn({ name: 'sale_return_id', foreignKeyConstraintName: 'FK_sale_return_items_return' })
   saleReturn!: SaleReturnEntity;
 
   @Column({ name: 'sale_item_id', type: 'varchar', length: 36 })
   saleItemId!: string;
+
+  @ManyToOne(() => SaleItemEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'sale_item_id', foreignKeyConstraintName: 'FK_sale_return_items_sale_item' })
+  saleItem?: SaleItemEntity;
 
   @Column({ name: 'product_id', type: 'varchar', length: 36 })
   productId!: string;
