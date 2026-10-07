@@ -2,9 +2,9 @@ name: Build
 
 on:
   pull_request:
-    branches: [main, 'codex/**']
-  push:
     branches: [main]
+  push:
+    branches: ['**']
 
 jobs:
   build:
@@ -16,6 +16,36 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm audit --audit-level=high
-      - run: npm test -- --runInBand
+
+      # Errores de TypeScript como anotaciones visibles en GitHub (archivo, línea y mensaje).
+      - name: Type check
+        run: |
+          npx tsc --noEmit -p tsconfig.build.json --pretty false > tsc.log 2>&1 || true
+          cat tsc.log
+          if grep -q 'error TS' tsc.log; then
+            echo "::error title=TypeScript::$(grep 'error TS' tsc.log | head -60 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: |
+          npx jest --runInBand --json --outputFile=jest.json || status=$?
+          node -e "
+            const r = require('./jest.json');
+            for (const s of r.testResults) {
+              if (s.status !== 'passed' && s.message) console.log('::error file=' + s.name.replace(process.cwd() + '/', '') + '::' + s.message.replace(/\u001b\[[0-9;]*m/g, '').replace(/\r?\n/g, '%0A').slice(0, 3000));
+              for (const t of s.assertionResults) if (t.status === 'failed') console.log('::error file=' + s.name.replace(process.cwd() + '/', '') + '::' + t.fullName + ': ' + t.failureMessages.join(' ').replace(/\u001b\[[0-9;]*m/g, '').replace(/\r?\n/g, '%0A').slice(0, 1500));
+            }
+          "
+          exit ${status:-0}
+
       - run: npm run build
+
+      # Vulnerabilidades en dependencias que llegan a producción: bloquean.
+      - name: Audit (producción)
+        run: npm audit --omit=dev --audit-level=high
+
+      # Vulnerabilidades en herramientas de desarrollo: se informan sin bloquear.
+      - name: Audit (desarrollo)
+        continue-on-error: true
+        run: npm audit --audit-level=high
