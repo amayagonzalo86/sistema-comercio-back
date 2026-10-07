@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsIn,
@@ -78,4 +79,9 @@ export class CreatePersonDto {
   @IsString()
   @MaxLength(255)
   address?: string | null;
+
+  /** El cliente aceptó recibir promociones (registrar solo con aceptación expresa). */
+  @IsOptional()
+  @IsBoolean()
+  marketingConsent?: boolean;
 }

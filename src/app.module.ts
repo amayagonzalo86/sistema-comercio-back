@@ -21,6 +21,7 @@ import { CashModule } from './modules/cash/cash.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { InventoryOpsModule } from './modules/inventory/ops/inventory-ops.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { MarketingModule } from './modules/marketing/marketing.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { ReportsModule } from './modules/reports/reports.module';
     CashModule,
     InventoryOpsModule,
     ReportsModule,
+    MarketingModule,
   ],
   controllers: [AppController],
   providers: [

@@ -100,6 +100,8 @@ export class PersonsService {
         ...createPersonDto,
         ...fiscal,
         email: createPersonDto.email || null,
+        marketingConsent: createPersonDto.marketingConsent ?? false,
+        marketingConsentAt: createPersonDto.marketingConsent ? new Date() : null,
         tenantId,
       });
       return await this.personRepository.save(personNew);
@@ -169,8 +171,12 @@ export class PersonsService {
           dto.vatCondition ?? person.vatCondition,
         )
       : {};
+    const consentBefore = person.marketingConsent;
     Object.assign(person, dto, fiscal);
     if (dto.email !== undefined) person.email = dto.email || null;
+    if (dto.marketingConsent !== undefined && dto.marketingConsent !== consentBefore) {
+      person.marketingConsentAt = dto.marketingConsent ? new Date() : null;
+    }
     try {
       return await this.personRepository.save(person);
     } catch (error) {

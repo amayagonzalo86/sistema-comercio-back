@@ -7,6 +7,7 @@ import { SalePaymentEntity } from './entities/sale-payment.entity';
 import { SaleReturnEntity } from './returns/entities/sale-return.entity';
 import { SaleReturnItemEntity } from './returns/entities/sale-return-item.entity';
 import { SaleReturnsService } from './returns/sale-returns.service';
+import { PromotionEntity } from '../marketing/entities/promotion.entity';
 import { SalesController } from './sales.controller';
 import { SalesQueryService } from './sales-query.service';
 import { SalesService } from './sales.service';
@@ -20,6 +21,7 @@ import { SalesService } from './sales.service';
       SaleReturnEntity,
       SaleReturnItemEntity,
       DocumentSequenceEntity,
+      PromotionEntity,
     ]),
   ],
   controllers: [SalesController],

@@ -48,6 +48,10 @@ export class SaleEntity {
   @Column({ name: 'net_taxed_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
   netTaxedTotal!: string;
 
+  /** Total de descuentos por promociones. */
+  @Column({ name: 'discount_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  discountTotal!: string;
+
   @Column({ name: 'exempt_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
   exemptTotal!: string;
 

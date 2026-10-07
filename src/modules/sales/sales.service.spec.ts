@@ -70,6 +70,8 @@ function setup() {
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
     getOne: jest.fn().mockResolvedValue(result),
+    // Promociones vigentes: ninguna en este escenario.
+    getMany: jest.fn().mockResolvedValue([]),
   });
   const stockBuilder = queryBuilder(stock);
   const cashBuilder = queryBuilder(cashSession);

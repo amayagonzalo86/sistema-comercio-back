@@ -1,4 +1,4 @@
-import { buildPeriod, growthPercent, marginPercent, periodDays, previousPeriod, timeZoneOffset } from './period';
+import { buildPeriod, localWeekday, growthPercent, marginPercent, periodDays, previousPeriod, timeZoneOffset } from './period';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -42,5 +42,10 @@ describe('report period', () => {
     expect(growthPercent(50, 0)).toBe(null);
     expect(marginPercent(1000, 700)).toBe(30);
     expect(marginPercent(0, 10)).toBe(null);
+  });
+
+  it('obtiene el día de la semana local', () => {
+    // 2026-10-07 01:00 UTC es martes 6 a las 22:00 en Argentina.
+    expect(localWeekday(TZ, new Date('2026-10-07T01:00:00Z'))).toBe(2);
   });
 });

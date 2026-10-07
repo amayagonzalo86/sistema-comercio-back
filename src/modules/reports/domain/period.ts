@@ -34,6 +34,15 @@ export function localToday(timeZone: string, at: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** Día de la semana local (0 = domingo ... 6 = sábado). */
+export function localWeekday(timeZone: string, at: Date = new Date()): number {
+  const name = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(at);
+  const index = WEEKDAYS.indexOf(name);
+  return index < 0 ? at.getUTCDay() : index;
+}
+
 function addDays(date: string, days: number): string {
   const base = Date.parse(`${date}T00:00:00Z`);
   return new Date(base + days * DAY_MS).toISOString().slice(0, 10);

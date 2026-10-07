@@ -59,4 +59,14 @@ export class SaleItemEntity {
   /** Costo unitario del producto al momento de la venta (margen real en reportes). */
   @Column({ name: 'unit_cost', type: 'decimal', precision: 12, scale: 2, default: 0 })
   unitCost!: string;
+
+  /** Descuento por promoción aplicado a la línea (incluido en los importes de arriba). */
+  @Column({ name: 'discount_amount', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  discountAmount!: string;
+
+  @Column({ name: 'promotion_id', type: 'varchar', length: 36, nullable: true })
+  promotionId?: string | null;
+
+  @Column({ name: 'promotion_name', type: 'varchar', length: 120, nullable: true })
+  promotionName?: string | null;
 }

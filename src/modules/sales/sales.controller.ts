@@ -24,8 +24,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { UserRoleEnum } from '../roles/entities/role.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
-import { CreateSaleDto } from './dto/create-sale.dto';
-import { SalesService } from './sales.service';
+import { CreateSaleDto, QuoteSaleDto } from './dto/create-sale.dto';
+import { SaleQuote, SalesService } from './sales.service';
 import { SalesQueryService } from './sales-query.service';
 import { SaleQueryDto } from './dto/sale-query.dto';
 import { Paginated } from '../../common/dto/page-query.dto';
@@ -44,6 +44,16 @@ export class SalesController {
     private readonly salesQuery: SalesQueryService,
     private readonly saleReturns: SaleReturnsService,
   ) {}
+
+  /** Calcula la venta (promociones, IVA, clase de comprobante y total a cobrar) sin registrarla. */
+  @Post('quote')
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER)
+  @HttpCode(HttpStatus.OK)
+  quote(@GetTenantId() tenantId: string, @Req() request: Request, @Body() dto: QuoteSaleDto): Promise<SaleQuote> {
+    const actor = request.user as { branchId?: string | null; tenantRole?: string };
+    requireBranchAccess(actor, dto.branchId);
+    return this.salesService.quote(tenantId, dto, actor.branchId ?? null);
+  }
 
   /** Listado de ventas con filtros (sucursal, fechas, cliente, vendedor, medio de pago, comprobante). */
   @Get()
