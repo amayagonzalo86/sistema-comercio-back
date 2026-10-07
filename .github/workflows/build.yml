@@ -62,13 +62,11 @@ jobs:
           DB_PASSWORD: root
           DB_NAME: erp_test
         run: |
-          npx jest --config test/jest-e2e.json --runInBand --json --outputFile=e2e.json || status=$?
-          node -e "
-            const r = require('./e2e.json');
-            for (const s of r.testResults) {
-              if (s.status !== 'passed' && s.message) console.log('::error file=' + s.name.replace(process.cwd() + '/', '') + '::' + s.message.replace(/\u001b\[[0-9;]*m/g, '').replace(/\r?\n/g, '%0A').slice(0, 6000));
-            }
-          "
+          set -o pipefail
+          npx jest --config test/jest-e2e.json --runInBand --ci 2>&1 | tee e2e.log || status=$?
+          if [ "${status:-0}" != "0" ]; then
+            echo "::error title=Integración::$(sed -E 's/\x1b\[[0-9;]*m//g' e2e.log | grep -v '^\s*at ' | grep -E -B2 -A25 '●|Error|error' | head -120 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          fi
           exit ${status:-0}
 
       # Vulnerabilidades en dependencias que llegan a producción: bloquean.
