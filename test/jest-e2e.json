@@ -11,7 +11,7 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "setupFiles": [
-    "<rootDir>/test/setup-env.ts"
+    "<rootDir>/setup-env.ts"
   ],
   "testTimeout": 120000
 }
