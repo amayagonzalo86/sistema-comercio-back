@@ -60,6 +60,13 @@ export class FiscalProfileEntity {
   @Column({ name: 'is_active', type: 'boolean', default: false })
   isActive!: boolean;
 
+  /** Datos que deben figurar en el comprobante impreso. */
+  @Column({ name: 'activity_start_date', type: 'date', nullable: true })
+  activityStartDate?: string | null;
+
+  @Column({ name: 'commercial_address', type: 'varchar', length: 255, nullable: true })
+  commercialAddress?: string | null;
+
   @ManyToOne(() => TenantEntity, (tenant) => tenant.fiscalProfiles, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'tenant_id' })
   tenant!: TenantEntity;

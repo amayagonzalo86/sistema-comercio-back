@@ -22,6 +22,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { InventoryOpsModule } from './modules/inventory/ops/inventory-ops.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
+import { FiscalModule } from './modules/fiscal/fiscal.module';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { MarketingModule } from './modules/marketing/marketing.module';
     InventoryOpsModule,
     ReportsModule,
     MarketingModule,
+    FiscalModule,
   ],
   controllers: [AppController],
   providers: [

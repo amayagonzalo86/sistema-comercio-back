@@ -7,6 +7,35 @@ import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { AdminSeederService } from '../src/database/seeders/admin-seeder.service';
+import { ARCA_CLIENT, ArcaClient } from '../src/modules/fiscal/arca/arca-client';
+import { CaeRequest } from '../src/modules/fiscal/arca/wsfe';
+
+/** ARCA simulado: numera por tipo de comprobante y autoriza todo (las pruebas no llegan a ARCA real). */
+class FakeArcaClient implements ArcaClient {
+  readonly requests: CaeRequest[] = [];
+  private readonly last = new Map<string, number>();
+
+  async authenticate() {
+    return { token: 'TOKEN', sign: 'SIGN', expiresAt: new Date(Date.now() + 12 * 3600_000) };
+  }
+  async lastAuthorized(_env: unknown, _auth: unknown, pointOfSale: number, voucherType: number) {
+    return this.last.get(`${pointOfSale}:${voucherType}`) ?? 0;
+  }
+  async requestCae(_env: unknown, _auth: unknown, request: CaeRequest) {
+    this.requests.push(request);
+    this.last.set(`${request.pointOfSale}:${request.voucherType}`, request.number);
+    return { result: 'A', cae: `7${String(request.number).padStart(13, '0')}`, caeExpiration: '20261231', observations: [], errors: [] };
+  }
+  async consult() {
+    return { found: false, cae: null, caeExpiration: null, total: null };
+  }
+  async receiverConditions() {
+    return [{ id: 1, description: 'IVA Responsable Inscripto' }];
+  }
+  async health() {
+    return { app: 'OK', db: 'OK', auth: 'OK' };
+  }
+}
 
 /**
  * Prueba de integración contra MySQL real: recorre el día operativo de una empresa con dos sucursales
@@ -15,6 +44,7 @@ import { AdminSeederService } from '../src/database/seeders/admin-seeder.service
 describe('Flujo comercial completo (e2e)', () => {
   let app: INestApplication<App>;
   let token = '';
+  const arca = new FakeArcaClient();
 
   const api = (method: 'get' | 'post' | 'put' | 'patch', path: string, body?: object, idempotent = false) => {
     let call = request(app.getHttpServer())[method](`/api/v1${path}`).set('Authorization', `Bearer ${token}`);
@@ -29,7 +59,10 @@ describe('Flujo comercial completo (e2e)', () => {
   };
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(ARCA_CLIENT)
+      .useValue(arca)
+      .compile();
     app = moduleFixture.createNestApplication();
     app.use(cookieParser());
     app.setGlobalPrefix('api/v1');
@@ -174,6 +207,42 @@ describe('Flujo comercial completo (e2e)', () => {
     const returns = await api('get', `/sales/${sale.body.id}/returns`);
     expectStatus(returns, 200);
     expect(returns.body.length).toBe(1);
+
+    // Factura electrónica A (ARCA simulado) y nota de crédito asociada a la devolución
+    expectStatus(
+      await api('put', '/fiscal/profile', {
+        taxId: '30-71234567-1',
+        legalName: 'Comercio de Prueba SA',
+        vatConditionCode: 'RESPONSABLE_INSCRIPTO',
+        environment: 'HOMOLOGATION',
+        certificateSecretRef: 'env:ARCA_CERT',
+        privateKeySecretRef: 'env:ARCA_KEY',
+        activityStartDate: '2020-01-01',
+      }),
+      200,
+    );
+    expectStatus(await api('post', '/fiscal/points-of-sale', { branchId: A, number: 3 }), 201);
+    const invoice = await api('post', `/fiscal/sales/${sale.body.id}/invoice`);
+    expectStatus(invoice, 200);
+    expect(invoice.body.status).toBe('AUTHORIZED');
+    expect(invoice.body.voucherType).toBe(1);
+    expect(invoice.body.number).toBe(1);
+    expect(arca.requests[0].receiverConditionId).toBe(1);
+    expect(arca.requests[0].vatRates).toEqual([{ arcaId: 5, base: '2700.00', amount: '567.00' }]);
+    const again = await api('post', `/fiscal/sales/${sale.body.id}/invoice`);
+    expect(again.body.id).toBe(invoice.body.id);
+    expect(arca.requests.length).toBe(1);
+    const creditNote = await api('post', `/fiscal/returns/${saleReturn.body.id}/credit-note`);
+    expectStatus(creditNote, 200);
+    expect(creditNote.body.voucherType).toBe(3);
+    expect(arca.requests[1].associated?.number).toBe(1);
+    expect(arca.requests[1].total).toBe('1089.00');
+    const printable = await api('get', `/fiscal/documents/${invoice.body.id}`);
+    expectStatus(printable, 200);
+    expect(printable.body.formattedNumber).toBe('00003-00000001');
+    expect(printable.body.qrUrl).toContain('https://www.arca.gob.ar/fe/qr/?p=');
+    expectStatus(await api('get', '/fiscal/documents'), 200);
+    expectStatus(await api('get', '/fiscal/status'), 200);
 
     // Transferencia de 5 unidades de Centro a Norte
     const transfer = await api('post', '/stock-transfers', { originBranchId: A, destinationBranchId: B, lines: [{ productId, quantity: 5 }] }, true);
