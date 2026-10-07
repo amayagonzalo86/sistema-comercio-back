@@ -20,6 +20,7 @@ import { PurchasesModule } from './modules/purchases/purchases.module';
 import { CashModule } from './modules/cash/cash.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { InventoryOpsModule } from './modules/inventory/ops/inventory-ops.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { InventoryOpsModule } from './modules/inventory/ops/inventory-ops.module
     PurchasesModule,
     CashModule,
     InventoryOpsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [
