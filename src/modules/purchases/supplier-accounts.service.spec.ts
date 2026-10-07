@@ -8,6 +8,8 @@ import { SupplierPayableEntity } from './entities/supplier-payable.entity';
 import { SupplierPaymentAllocationEntity } from './entities/supplier-payment-allocation.entity';
 import { SupplierPaymentEntity, SupplierPaymentMethod } from './entities/supplier-payment.entity';
 import { SupplierAccountsService } from './supplier-accounts.service';
+import { CashMovementEntity, CashMovementDirection, CashMovementType } from '../cash/entities/cash-movement.entity';
+import { CashSessionEntity, CashSessionStatus } from '../cash/entities/cash-session.entity';
 
 const tenantId = 'tenant-1';
 const branchId = 'branch-1';
@@ -22,6 +24,7 @@ function setup() {
     isActive: true,
     personType: PersonType.SUPPLIER,
   } as PersonEntity;
+  const cashSession = { id: 'cash-session-1', tenantId, branchId, currency: 'ARS', status: CashSessionStatus.OPEN, expectedAmount: '100.00' } as CashSessionEntity;
   const payable = {
     id: payableId,
     tenantId,
@@ -47,6 +50,10 @@ function setup() {
       return savedPayment;
     }),
   };
+  const cashMovementRepo = {
+    create: jest.fn((value: Partial<CashMovementEntity>) => value),
+    save: jest.fn(async (value: Partial<CashMovementEntity>) => ({ ...value, id: 'cash-movement-1' })),
+  };
   const allocationRepo = {
     create: jest.fn((value: Partial<SupplierPaymentAllocationEntity>) => value),
     save: jest.fn(async (value: SupplierPaymentAllocationEntity[]) => {
@@ -70,13 +77,14 @@ function setup() {
         where: jest.fn(() => builder),
         andWhere: jest.fn(() => builder),
         select: jest.fn(() => builder),
-        getOne: jest.fn(async () => entity === SupplierPayableEntity ? payable : null),
+        getOne: jest.fn(async () => entity === SupplierPayableEntity ? payable : entity === CashSessionEntity ? cashSession : null),
       };
       return builder;
     }),
     getRepository: jest.fn((entity: Function) => {
       if (entity === SupplierPaymentEntity) return paymentRepo;
       if (entity === SupplierPaymentAllocationEntity) return allocationRepo;
+      if (entity === CashMovementEntity) return cashMovementRepo;
       throw new Error('Repositorio no esperado en la prueba');
     }),
     create: jest.fn((_entity: Function, value: Record<string, unknown>) => value),
@@ -102,7 +110,7 @@ function setup() {
     paymentRepository as never,
     payableRepository as never,
   );
-  return { service, dataSource, queryRunner, paymentRepo, payable, getPayment: () => savedPayment, getAllocations: () => savedAllocations };
+  return { service, dataSource, queryRunner, paymentRepo, allocationRepo, cashMovementRepo, cashSession, payable, getPayment: () => savedPayment, getAllocations: () => savedAllocations };
 }
 
 const dto: CreateSupplierPaymentDto = {
@@ -125,6 +133,47 @@ describe('SupplierAccountsService', () => {
     expect(h.payable.amountPaid).toBe('75.00');
     expect(h.queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     expect(h.queryRunner.rollbackTransaction).not.toHaveBeenCalled();
+  });
+
+  it('registre un pago en efectivo y descuenta la sesión de caja en la misma transacción', async () => {
+    const h = setup();
+    const cashPayment: CreateSupplierPaymentDto = {
+      ...dto,
+      method: SupplierPaymentMethod.CASH,
+      cashSessionId: 'cash-session-1',
+    };
+
+    await h.service.createPayment(tenantId, 'actor-1', 'pay-key-cash', cashPayment, branchId);
+
+    expect(h.cashMovementRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      branchId,
+      cashSessionId: 'cash-session-1',
+      type: CashMovementType.EXPENSE,
+      direction: CashMovementDirection.OUT,
+      amount: '50.00',
+      sourceType: 'SUPPLIER_PAYMENT',
+      sourceId: 'payment-1',
+    }));
+    expect(h.cashSession.expectedAmount).toBe('50.00');
+    expect(h.queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechaza un pago en efectivo mayor que el saldo de caja disponible', async () => {
+    const h = setup();
+    h.cashSession.expectedAmount = '49.99';
+    const cashPayment: CreateSupplierPaymentDto = {
+      ...dto,
+      method: SupplierPaymentMethod.CASH,
+      cashSessionId: 'cash-session-1',
+    };
+
+    await expect(h.service.createPayment(tenantId, 'actor-1', 'pay-key-cash', cashPayment, branchId))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    expect(h.paymentRepo.save).not.toHaveBeenCalled();
+    expect(h.cashMovementRepo.save).not.toHaveBeenCalled();
+    expect(h.queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
   });
 
   it('rechaza pagar por encima del saldo pendiente', async () => {

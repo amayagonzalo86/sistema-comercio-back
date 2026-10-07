@@ -16,6 +16,7 @@ export enum CashSessionStatus {
 @Index('UQ_cash_sessions_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('UQ_cash_sessions_tenant_branch_id', ['tenantId', 'branchId', 'id'], { unique: true })
 @Index('UQ_cash_sessions_tenant_opening_key', ['tenantId', 'openingIdempotencyKey'], { unique: true })
+@Index('UQ_cash_sessions_tenant_close_key', ['tenantId', 'closeIdempotencyKey'], { unique: true })
 @Index('UQ_cash_sessions_one_open_per_register', ['tenantId', 'openRegisterId'], { unique: true })
 @Index('IDX_cash_sessions_tenant_branch_status', ['tenantId', 'branchId', 'status', 'openedAt'])
 @Index('IDX_cash_sessions_tenant_register_opened', ['tenantId', 'cashRegisterId', 'openedAt'])
@@ -53,8 +54,8 @@ export class CashSessionEntity {
   @Column({ name: 'opening_amount', type: 'decimal', precision: 14, scale: 2 })
   openingAmount!: string;
 
-  @Column({ name: 'expected_amount', type: 'decimal', precision: 14, scale: 2, nullable: true })
-  expectedAmount?: string | null;
+  @Column({ name: 'expected_amount', type: 'decimal', precision: 14, scale: 2 })
+  expectedAmount!: string;
 
   @Column({ name: 'counted_amount', type: 'decimal', precision: 14, scale: 2, nullable: true })
   countedAmount?: string | null;
@@ -65,8 +66,17 @@ export class CashSessionEntity {
   @Column({ name: 'opening_idempotency_key', type: 'varchar', length: 100 })
   openingIdempotencyKey!: string;
 
+  @Column({ name: 'opening_request_fingerprint', type: 'char', length: 64 })
+  openingRequestFingerprint!: string;
+
   @Column({ name: 'opened_by_user_id', type: 'varchar', length: 36 })
   openedByUserId!: string;
+
+  @Column({ name: 'close_idempotency_key', type: 'varchar', length: 100, nullable: true })
+  closeIdempotencyKey?: string | null;
+
+  @Column({ name: 'close_request_fingerprint', type: 'char', length: 64, nullable: true })
+  closeRequestFingerprint?: string | null;
 
   @Column({ name: 'closed_by_user_id', type: 'varchar', length: 36, nullable: true })
   closedByUserId?: string | null;
