@@ -166,7 +166,7 @@ export class MarketingService {
     const since = new Date(Date.now() - query.days * 86_400_000);
     const consentSql = query.onlyWithConsent ? ' AND p.marketing_consent = 1' : '';
     const base = `FROM sales s
-         JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id AND p.is_active = 1
+         JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id AND p.isActive = 1
         WHERE s.tenant_id = ? AND s.customer_person_id IS NOT NULL${consentSql}
         GROUP BY s.customer_person_id
        HAVING MAX(s.created_at) < ?`;
@@ -252,7 +252,7 @@ export class MarketingService {
     const rows = (await this.dataSource.query(
       `SELECT first_name AS firstName, last_name AS lastName, email, phone, marketing_consent_at AS consentAt
          FROM persons
-        WHERE tenant_id = ? AND is_active = 1 AND marketing_consent = 1 AND (email IS NOT NULL OR phone IS NOT NULL)
+        WHERE tenant_id = ? AND isActive = 1 AND marketing_consent = 1 AND (email IS NOT NULL OR phone IS NOT NULL)
           AND person_type IN ('CUSTOMER', 'BOTH')
         ORDER BY last_name, first_name
         LIMIT 50000`,
