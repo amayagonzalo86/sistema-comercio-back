@@ -12,10 +12,17 @@ export interface StandardErrorResponse {
   statusCode: number;
   timestamp: string;
   path: string;
-  message: string;
-  details: any;
+  requestId: string | null;
+  message: string | string[];
+  details: unknown;
 }
 
+/**
+ * Filtro global de errores.
+ * - Errores esperados (4xx): devuelve el mensaje de negocio/validación.
+ * - Errores inesperados (5xx, errores de MySQL, bugs): mensaje genérico, sin stack ni SQL,
+ *   y se registra el detalle en el log del servidor con el requestId para rastrearlo.
+ */
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -23,29 +30,34 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<Request>();
+    const request = ctx.getRequest<Request & { requestId?: string }>();
 
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
+    const isServerError = status >= HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const exceptionResponse =
-      exception instanceof HttpException ? exception.getResponse() : null;
+    let message: string | string[] = 'Error interno del servidor';
+    let details: unknown = null;
 
-    let message = 'Error interno del servidor';
-    let details: any = null;
-
-    if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-      message = (exceptionResponse as any).message || message;
-      details = (exceptionResponse as any).error || (exceptionResponse as any).message || null;
-    } else if (typeof exceptionResponse === 'string') {
-      message = exceptionResponse;
+    if (exception instanceof HttpException && !isServerError) {
+      const exceptionResponse = exception.getResponse();
+      if (typeof exceptionResponse === 'string') {
+        message = exceptionResponse;
+      } else if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        const body = exceptionResponse as { message?: string | string[]; error?: string };
+        message = body.message ?? exception.message;
+        details = body.error ?? null;
+      }
     }
 
-    if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
+    // Ruta sin query string: evita reflejar parámetros (que podrían contener datos sensibles).
+    const path = (request.originalUrl ?? request.url ?? '').split('?')[0];
+
+    if (isServerError) {
       this.logger.error(
-        `[${request.method}] ${request.url} - Error Stack: ${
+        `[${request.requestId ?? '-'}] ${request.method} ${path} -> ${status}: ${
           exception instanceof Error ? exception.stack : JSON.stringify(exception)
         }`,
       );
@@ -54,9 +66,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const payload: StandardErrorResponse = {
       statusCode: status,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path,
+      requestId: request.requestId ?? null,
       message,
-      details: status === HttpStatus.INTERNAL_SERVER_ERROR ? null : details,
+      details,
     };
 
     response.status(status).json(payload);

@@ -12,7 +12,8 @@ async function bootstrap() {
         await seeder.seed();
         logger.log('Proceso de sembrado finalizado correctamente.');
     } catch (error) {
-        logger.error('Error durante la ejecución del seeder', error);
+        logger.error(`Error durante la ejecución del seeder: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
     } finally {
         await appContext.close();
     }

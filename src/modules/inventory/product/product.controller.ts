@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Req, UseGuards, BadRequestException, Query, ForbiddenException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards, BadRequestException, Query, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
+import { buildAuditContext } from '../../../common/http/request-context';
+import { UpdateProductVatDto } from './dto/update-product-vat.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../../common/guards/roles.guard';
@@ -53,11 +55,26 @@ export class ProductsController {
   }
 
   private auditContext(request: Request): InventoryAuditContext {
-    return {
-      requestId: (request as Request & { requestId?: string }).requestId,
-      ipAddress: request.socket.remoteAddress ?? null,
-      userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
-    };
+    return buildAuditContext(request);
+  }
+
+  /**
+   * Asigna o quita el IVA de un producto. Solo titulares, administradores y gerentes.
+   * Ejemplos de cuerpo:
+   *  { "vatTreatment": "TAXED", "taxRate": 10.5, "priceIncludesVat": true, "reason": "Alimento canasta básica" }
+   *  { "vatTreatment": "EXEMPT", "reason": "Libro - exento art. 7 Ley de IVA" }
+   */
+  @Patch(':id/vat')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  @HttpCode(HttpStatus.OK)
+  async updateVat(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Body() dto: UpdateProductVatDto,
+  ): Promise<ProductEntity> {
+    const actor = request.user as { id: string };
+    return this.productsService.updateVat(tenantId, actor.id, productId, dto, this.auditContext(request));
   }
 
   @Get(':productId/branches/:branchId/stock-movements')

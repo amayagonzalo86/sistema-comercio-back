@@ -32,11 +32,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_ACCESS_SECRET')!,
+      // Solo se acepta el algoritmo con el que firmamos: bloquea ataques de "algorithm confusion"/alg=none.
+      algorithms: ['HS256'],
     });
   }
 
   validate(payload: JwtCustomPayload): AuthenticatedUser {
-    if (!payload || !payload.sub) {
+    if (!payload || typeof payload.sub !== 'string' || !payload.sub) {
       throw new UnauthorizedException('Payload de autenticación inválido.');
     }
 

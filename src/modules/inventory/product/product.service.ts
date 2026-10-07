@@ -10,6 +10,8 @@ import { AuditEventEntity } from '../../platform/entities/audit-event.entity';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
 import { InventoryAuditContext } from './inventory-audit-context';
+import { UpdateProductVatDto } from './dto/update-product-vat.dto';
+import { normalizeProductVat, VatTreatment } from '../../fiscal/vat/vat';
 
 @Injectable()
 export class ProductsService {
@@ -28,7 +30,8 @@ export class ProductsService {
   
   //Registra un producto y su matriz de precios/stock inicial por sucursal en una transacción atómica.
   async create(tenantId: string, actorUserId: string, createProductDto: CreateProductDto, auditContext: InventoryAuditContext = {}): Promise<ProductEntity> {
-    const { sku, barcode, branchSettings, ...productData } = createProductDto;
+    const { sku, barcode, branchSettings, taxRate, vatTreatment, priceIncludesVat, ...productData } = createProductDto;
+    const vat = this.normalizeVat(vatTreatment ?? VatTreatment.TAXED, taxRate);
 
     // 1. Validar duplicados dentro de la empresa para SKU y código de barras
     const existingSku = await this.productRepository.findOne({ where: { sku: sku.trim().toUpperCase(), tenantId } });
@@ -49,6 +52,9 @@ export class ProductsService {
       // a. Guardar Cabecera del Producto
       const newProduct = queryRunner.manager.create(ProductEntity, {
         ...productData,
+        taxRate: vat.percent,
+        vatTreatment: vat.treatment,
+        priceIncludesVat: priceIncludesVat ?? false,
         tenantId,
         sku: sku.trim().toUpperCase(),
         barcode: barcode?.trim() || null,
@@ -339,6 +345,84 @@ export class ProductsService {
   };
 
   //Obtiene la ficha completa de un producto con la matriz de todas sus sucursales.
+  /**
+   * Asigna o quita el IVA de un producto (gravado con alícuota, exento o no gravado)
+   * y registra el cambio con valores anteriores y nuevos en la auditoría, en la misma transacción.
+   */
+  async updateVat(
+    tenantId: string,
+    actorUserId: string,
+    productId: string,
+    dto: UpdateProductVatDto,
+    auditContext: InventoryAuditContext = {},
+  ): Promise<ProductEntity> {
+    const vat = this.normalizeVat(dto.vatTreatment, dto.taxRate);
+    const reason = dto.reason.trim();
+    if (reason.length < 5) {
+      throw new BadRequestException('Indicá el motivo del cambio de IVA.');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const product = await manager
+        .createQueryBuilder(ProductEntity, 'product')
+        .setLock('pessimistic_write')
+        .where('product.id = :productId', { productId })
+        .andWhere('product.tenantId = :tenantId', { tenantId })
+        .getOne();
+      if (!product) {
+        throw new NotFoundException('Producto no encontrado en esta empresa.');
+      }
+
+      const before = {
+        vatTreatment: product.vatTreatment,
+        taxRate: Number(product.taxRate),
+        priceIncludesVat: product.priceIncludesVat,
+      };
+      const after = {
+        vatTreatment: vat.treatment,
+        taxRate: vat.percent,
+        priceIncludesVat: dto.priceIncludesVat ?? product.priceIncludesVat,
+      };
+      if (
+        before.vatTreatment === after.vatTreatment &&
+        before.taxRate === after.taxRate &&
+        before.priceIncludesVat === after.priceIncludesVat
+      ) {
+        return;
+      }
+
+      await manager.update(
+        ProductEntity,
+        { id: productId, tenantId },
+        { vatTreatment: after.vatTreatment, taxRate: after.taxRate, priceIncludesVat: after.priceIncludesVat },
+      );
+      await manager.save(
+        AuditEventEntity,
+        manager.create(AuditEventEntity, {
+          tenantId,
+          actorUserId,
+          requestId: auditContext.requestId,
+          ipAddress: auditContext.ipAddress,
+          userAgent: auditContext.userAgent,
+          eventType: 'PRODUCT_VAT_UPDATED',
+          aggregateType: 'PRODUCT',
+          aggregateId: productId,
+          metadata: { before, after, reason },
+        }),
+      );
+    });
+
+    return this.findOne(productId, tenantId);
+  }
+
+  private normalizeVat(treatment: VatTreatment, taxRate: number | undefined): { treatment: VatTreatment; percent: number } {
+    try {
+      return normalizeProductVat(treatment, taxRate);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Alícuota de IVA inválida.');
+    }
+  }
+
   async findOne(id: string, tenantId: string, branchScope: string | null = null): Promise<ProductEntity> {
     try{
       const product = await this.productRepository.findOne({ where: { id, tenantId }, relations: { branchSettings: { branch: true } } });

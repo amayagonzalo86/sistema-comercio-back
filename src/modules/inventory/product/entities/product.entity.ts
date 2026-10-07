@@ -13,6 +13,7 @@ import {
 import { ProductPriceListEntity } from '../../../sales/price-list/entities/product-price-list.entity';
 import { ProductBranchEntity } from './product-branch.entity';
 import { TenantEntity } from '../../../platform/entities/tenant.entity';
+import { VatTreatment } from '../../../fiscal/vat/vat';
 
 export enum UnitOfMeasure {
   UNIT = 'UNIT',
@@ -65,8 +66,16 @@ export class ProductEntity {
   @Column({ name: 'unit_of_measure', type: 'enum', enum: UnitOfMeasure, default: UnitOfMeasure.UNIT })
   unitOfMeasure!: UnitOfMeasure;
 
+  // Alícuota de IVA en porcentaje (0, 2.5, 5, 10.5, 21 o 27). Siempre 0 si el producto es exento o no gravado.
   @Column({ name: 'tax_rate', type: 'decimal', precision: 5, scale: 2, default: 21.0, transformer: columnNumericTransformer })
   taxRate!: number;
+
+  @Column({ name: 'vat_treatment', type: 'enum', enum: VatTreatment, default: VatTreatment.TAXED })
+  vatTreatment!: VatTreatment;
+
+  // true: el precio de venta cargado es final (IVA incluido). false: el precio es neto y el IVA se suma.
+  @Column({ name: 'price_includes_vat', type: 'boolean', default: false })
+  priceIncludesVat!: boolean;
 
   @Column({ type: 'boolean', default: true })
   status!: boolean;

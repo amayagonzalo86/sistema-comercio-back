@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -58,6 +59,7 @@ export class UsersService {
       if (roles.length !== roleIds.length) {
         throw new NotFoundException('Uno o más roles especificados no existen en el sistema');
       }
+      this.assertAssignableRoles(roles);
 
       // 4. Validar sucursal opcional
       let branch: BranchEntity | null = null;
@@ -93,7 +95,7 @@ export class UsersService {
       delete (savedUser as Partial<UserEntity>).currentHashedRefreshToken;
       return savedUser;
     } catch (error) {
-      if ( error instanceof NotFoundException || error instanceof ConflictException || error instanceof BadRequestException ) {
+      if ( error instanceof NotFoundException || error instanceof ConflictException || error instanceof BadRequestException || error instanceof ForbiddenException ) {
         throw error;
       }
       this.logger.error(`Error al crear el usuario: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined );
@@ -171,6 +173,7 @@ export class UsersService {
           'Uno o más roles especificados no existen en el sistema',
         );
       }
+      this.assertAssignableRoles(roles);
       await this.membershipRepository.update(
         { userId: user.id, tenantId, status: MembershipStatus.ACTIVE },
         { role: this.toTenantRole(roles[0].name) },
@@ -313,6 +316,17 @@ export class UsersService {
       user.branchId = assignment?.branchId ?? null;
     }
     return users;
+  }
+
+  /**
+   * SEGURIDAD (escalada de privilegios): desde la administración de una empresa no se puede
+   * otorgar el rol global SUPER_ADMIN (operador de plataforma), que además se mapearía a OWNER.
+   * Los operadores de plataforma se crean solo con el bootstrap manual (npm run seed).
+   */
+  private assertAssignableRoles(roles: RoleEntity[]): void {
+    if (roles.some((role) => role.name === UserRoleEnum.SUPER_ADMIN)) {
+      throw new ForbiddenException('El rol SUPER_ADMIN no puede asignarse desde la administración de la empresa.');
+    }
   }
 
   private toTenantRole(role: UserRoleEnum): TenantRole {

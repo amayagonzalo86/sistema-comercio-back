@@ -2,6 +2,8 @@
   "recommendations": [
     "dbaeumer.vscode-eslint",
     "mikestead.dotenv",
-    "eamodio.gitlens"
+    "eamodio.gitlens",
+    "orta.vscode-jest",
+    "humao.rest-client"
   ]
 }

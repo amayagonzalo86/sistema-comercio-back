@@ -9,6 +9,7 @@ import {
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { UserEntity } from '../../users/entities/user.entity';
 import { TenantEntity } from '../../platform/entities/tenant.entity';
+import { IdentificationTypeEnum, TaxConditionEnum } from '../../../common/enums/afip.enum';
 
 export enum PersonType {
   CUSTOMER = 'CUSTOMER',
@@ -33,8 +34,22 @@ export class PersonEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 100, nullable: false, name: 'last_name' })
   lastName!: string;
 
+  // Número de documento sin puntos ni guiones (DNI, CUIT o CUIL según documentType).
   @Column({ type: 'varchar', length: 20, nullable: true, name: 'national_id' })
   nationalId?: string | null;
+
+  // Código ARCA del tipo de documento: 80 CUIT, 86 CUIL, 96 DNI, 94 Pasaporte, 99 Sin identificar.
+  @Column({ name: 'document_type', type: 'smallint', unsigned: true, nullable: true })
+  documentType?: IdentificationTypeEnum | null;
+
+  // Condición frente al IVA: define la clase de comprobante (A/B/C) y si se discrimina el IVA.
+  @Column({
+    name: 'vat_condition',
+    type: 'varchar',
+    length: 40,
+    default: TaxConditionEnum.CONSUMIDOR_FINAL,
+  })
+  vatCondition!: TaxConditionEnum;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
   email?: string | null;

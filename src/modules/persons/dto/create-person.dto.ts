@@ -1,33 +1,81 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
-import { PersonType } from "../entities/person.entity";
+import { Transform } from 'class-transformer';
+import {
+  IsEmail,
+  IsEnum,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+import { PersonType } from '../entities/person.entity';
+import { IdentificationTypeEnum, TaxConditionEnum } from '../../../common/enums/afip.enum';
 
+const trim = ({ value }: { value: unknown }): unknown => (typeof value === 'string' ? value.trim() : value);
+
+const DOCUMENT_TYPES = [
+  IdentificationTypeEnum.CUIT,
+  IdentificationTypeEnum.CUIL,
+  IdentificationTypeEnum.DNI,
+  IdentificationTypeEnum.PASAPORTE,
+  IdentificationTypeEnum.CONSUMIDOR_FINAL,
+];
+
+/**
+ * Alta de clientes/proveedores.
+ * La coherencia documento ↔ condición de IVA (por ejemplo, un Responsable Inscripto necesita CUIT válida)
+ * se valida en PersonsService para devolver un mensaje claro.
+ */
 export class CreatePersonDto {
+  @IsOptional()
+  @IsEnum(PersonType)
+  personType?: PersonType;
 
-    @IsOptional()
-    @IsEnum(PersonType)
-    personType?: PersonType;
+  @Transform(trim)
+  @IsString({ message: 'El nombre o razón social debe ser texto' })
+  @IsNotEmpty({ message: 'El nombre o razón social no puede estar vacío' })
+  @MinLength(2, { message: 'El nombre debe tener al menos 2 caracteres' })
+  @MaxLength(100, { message: 'El nombre admite hasta 100 caracteres' })
+  firstName!: string;
 
-    @IsString( { message: 'el Primer nombre debe ser String'})
-    @MinLength(3, { message: 'El Primer Nombre debe contener mínimo 3 (tres) letras'})
-    @MaxLength(250, { message: 'El Primer Nombre debe contener como máximo 250 caracteres'})
-    @IsNotEmpty({ message: ' El Primer Nombre no puede estar vacio' })
-    firstName!: string;
+  @Transform(trim)
+  @IsString({ message: 'El apellido debe ser texto' })
+  @IsNotEmpty({ message: 'El apellido no puede estar vacío (para empresas repetí la razón social o usá "-")' })
+  @MaxLength(100, { message: 'El apellido admite hasta 100 caracteres' })
+  lastName!: string;
 
-    @IsString( { message: 'el Apellido debe ser String'})
-    @MinLength(3, { message: 'El Apellido debe contener mínimo 3 (tres) letras'})
-    @MaxLength(250, { message: 'El Apellido debe contener como máximo 250 caracteres'})
-    @IsNotEmpty({ message: 'El Apellido no puede ser vacio' })
-    lastName!: string;
+  @IsOptional()
+  @IsIn(DOCUMENT_TYPES, { message: 'Tipo de documento inválido (80 CUIT, 86 CUIL, 96 DNI, 94 Pasaporte, 99 Sin identificar)' })
+  documentType?: IdentificationTypeEnum | null;
 
-    @IsOptional({ message: 'La nacionalidad puede ser opcional'})
-    nationalId?: string | null;
-    
-    @IsOptional({ message: 'el email puede ser opcional'})
-    email?: string | null;
+  @IsOptional()
+  @Transform(trim)
+  @IsString({ message: 'El número de documento debe ser texto' })
+  @Matches(/^[0-9A-Za-z.-]{5,20}$/, { message: 'El número de documento tiene un formato inválido' })
+  nationalId?: string | null;
 
-    @IsOptional({ message: 'El teléfono puede ser opcional'})
-    phone?: string | null;
+  @IsOptional()
+  @IsEnum(TaxConditionEnum, { message: 'Condición frente al IVA inválida' })
+  vatCondition?: TaxConditionEnum;
 
-    @IsOptional({ message: 'La dirección puede ser opcional'})
-    address?: string | null;   
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @IsEmail({}, { message: 'El email no es válido' })
+  @MaxLength(150)
+  email?: string | null;
+
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(30)
+  @Matches(/^[0-9+()\s-]+$/, { message: 'El teléfono solo admite números, espacios, +, (, ) y guiones' })
+  phone?: string | null;
+
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
+  address?: string | null;
 }

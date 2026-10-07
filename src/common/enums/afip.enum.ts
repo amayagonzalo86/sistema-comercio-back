@@ -4,6 +4,23 @@ export enum TaxConditionEnum {
   EXENTO = 'EXENTO',
   CONSUMIDOR_FINAL = 'CONSUMIDOR_FINAL',
   NO_RESPONSABLE = 'NO_RESPONSABLE',
+  SUJETO_NO_CATEGORIZADO = 'SUJETO_NO_CATEGORIZADO',
+  CLIENTE_DEL_EXTERIOR = 'CLIENTE_DEL_EXTERIOR',
+}
+
+/** Condiciones que exigen identificar al receptor con CUIT. */
+export const CUIT_REQUIRED_CONDITIONS: ReadonlySet<TaxConditionEnum> = new Set([
+  TaxConditionEnum.RESPONSABLE_INSCRIPTO,
+  TaxConditionEnum.MONOTRIBUTO,
+  TaxConditionEnum.EXENTO,
+]);
+
+/** Convierte el código guardado en el perfil fiscal a la condición tipada; null si no es válido. */
+export function parseTaxCondition(value: string | null | undefined): TaxConditionEnum | null {
+  const normalized = (value ?? '').trim().toUpperCase();
+  return (Object.values(TaxConditionEnum) as string[]).includes(normalized)
+    ? (normalized as TaxConditionEnum)
+    : null;
 }
 
 export enum VoucherTypeEnum {

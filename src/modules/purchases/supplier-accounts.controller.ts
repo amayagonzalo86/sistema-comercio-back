@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
+import { buildAuditContext } from '../../common/http/request-context';
 import { GetTenantId } from '../../common/decorators/get-tenant.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -81,11 +82,7 @@ export class SupplierAccountsController {
       idempotencyKey,
       dto,
       actor.branchId ?? null,
-      {
-        requestId: (request as Request & { requestId?: string }).requestId,
-        ipAddress: request.socket.remoteAddress ?? null,
-        userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
-      },
+      buildAuditContext(request),
     );
   }
 }

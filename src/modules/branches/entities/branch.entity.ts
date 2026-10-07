@@ -30,6 +30,11 @@ export class BranchEntity extends BaseAuditEntity {
     @Column({ type: 'boolean', default: true, name: 'status' })
     status!: boolean;
 
+    // Lista blanca opcional de IP/CIDR desde donde pueden operar los usuarios asignados a la sucursal.
+    // Null o vacío = sin restricción.
+    @Column({ name: 'allowed_ip_ranges', type: 'json', nullable: true })
+    allowedIpRanges?: string[] | null;
+
     @OneToMany(() => UserEntity, (user) => user.branch)
     users!: UserEntity[];
 

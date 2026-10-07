@@ -1,4 +1,5 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { VatTreatment } from '../../fiscal/vat/vat';
 
 @Entity('sale_items')
 @Index('IDX_sale_items_tenant_sale', ['tenantId', 'saleId'])
@@ -35,6 +36,22 @@ export class SaleItemEntity {
 
   @Column({ name: 'tax_amount', type: 'decimal', precision: 14, scale: 2 })
   taxAmount!: string;
+
+  @Column({ name: 'vat_treatment', type: 'varchar', length: 20, nullable: true })
+  vatTreatment?: VatTreatment | null;
+
+  // Id ARCA de la alícuota aplicada (5 = 21 %, 4 = 10,5 %, ...). Null si no se cobró IVA.
+  @Column({ name: 'arca_vat_rate_id', type: 'smallint', unsigned: true, nullable: true })
+  arcaVatRateId?: number | null;
+
+  @Column({ name: 'price_includes_vat', type: 'boolean', default: false })
+  priceIncludesVat!: boolean;
+
+  @Column({ name: 'exempt_amount', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  exemptAmount!: string;
+
+  @Column({ name: 'not_taxed_amount', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  notTaxedAmount!: string;
 
   @Column({ type: 'decimal', precision: 14, scale: 2 })
   total!: string;

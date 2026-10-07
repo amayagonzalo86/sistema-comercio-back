@@ -33,10 +33,17 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+export const ACCESS_TOKEN_TTL = '15m';
+export const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const JWT_ALGORITHM = 'HS256' as const;
+
 @Injectable()
 export class AuthService {
   private lastRateLimitCleanupAt = 0;
   private readonly logger = new Logger(AuthService.name);
+  // Hash señuelo: se verifica cuando el usuario no existe para que el tiempo de respuesta
+  // no revele qué nombres de usuario son válidos (enumeración por timing).
+  private dummyHash: Promise<string> | null = null;
 
   constructor(
     @InjectRepository(UserEntity)
@@ -71,19 +78,18 @@ export class AuthService {
       },
     });
 
-    // Diagnóstico de existencia y estado del usuario
-    if (!user) {
-      throw new UnauthorizedException('Credenciales inválidas o cuenta desactivada');
-    }
-
-    if (!user.isActive) {
-      throw new UnauthorizedException('Credenciales inválidas o cuenta desactivada');
+    // Diagnóstico de existencia y estado del usuario. Siempre se ejecuta una verificación
+    // Argon2 (real o señuelo) para que todas las respuestas fallidas tarden lo mismo.
+    if (!user || !user.isActive) {
+      await this.verifyAgainstDummyHash(loginDto.password);
+      throw new UnauthorizedException('Credenciales inválidas');
     }
 
     // 3. Control defensivo contra hashes de contraseña nulos o inválidos
     if (!user.passwordHash || typeof user.passwordHash !== 'string' || user.passwordHash.trim() === '') {
       this.logger.error(`Error de integridad: El usuario ID [${user.id}] posee un hash de contraseña no válido o nulo.`);
-      throw new UnauthorizedException('Credenciales inválidas o cuenta desactivada');
+      await this.verifyAgainstDummyHash(loginDto.password);
+      throw new UnauthorizedException('Credenciales inválidas');
     }
 
     // 4. Verificar Hash con Argon2
@@ -116,9 +122,7 @@ export class AuthService {
       !membership.tenant ||
       ![TenantStatus.ACTIVE, TenantStatus.TRIAL].includes(membership.tenant.status)
     ) {
-      throw new UnauthorizedException(
-        'Empresa no asignada o inactiva. Verifique el tenantId de acceso.',
-      );
+      throw new UnauthorizedException('Credenciales inválidas o empresa inactiva.');
     }
 
     // Branch assignment is scoped to the selected tenant membership.
@@ -139,15 +143,7 @@ export class AuthService {
       jti: sessionTokenId,
     };
 
-    const accessToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_ACCESS_SECRET!,
-      expiresIn: '15m',
-    });
-
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET!,
-      expiresIn: '7d',
-    });
+    const { accessToken, refreshToken } = this.signTokens(payload);
 
     // 6. Hashear Refresh Token
     const refreshTokenHash = await argon2.hash(refreshToken);
@@ -158,8 +154,7 @@ export class AuthService {
     await queryRunner.startTransaction();
 
     try {
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
 
       const sessionInstance = queryRunner.manager.create(SessionEntity, {
         userId: user.id,
@@ -270,6 +265,19 @@ export class AuthService {
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {
     const payload = this.verifyRefreshToken(refreshToken);
 
+    // Detección de reutilización: un refresh token firmado y vigente cuyo jti ya no existe
+    // fue rotado antes, es decir, alguien lo está reutilizando (posible robo). Se revocan
+    // todas las sesiones del usuario para cortar el acceso del atacante (OWASP).
+    const knownSession = await this.sessionRepository.findOne({
+      where: { userId: payload.sub, tokenId: payload.jti! },
+      select: { id: true },
+    });
+    if (!knownSession) {
+      await this.sessionRepository.update({ userId: payload.sub, isValid: true }, { isValid: false });
+      this.logger.warn(`Reutilización de refresh token detectada. Sesiones revocadas para el usuario ${payload.sub}.`);
+      throw new UnauthorizedException('Sesión inválida. Iniciá sesión nuevamente.');
+    }
+
     const [user, session, membership] = await Promise.all([
       this.userRepository.findOne({
         where: { id: payload.sub, isActive: true },
@@ -320,16 +328,9 @@ export class AuthService {
       tenantRole: membership.role,
       jti: nextTokenId,
     };
-    const accessToken = this.jwtService.sign(nextPayload, {
-      secret: process.env.JWT_ACCESS_SECRET!,
-      expiresIn: '15m',
-    });
-    const nextRefreshToken = this.jwtService.sign(nextPayload, {
-      secret: process.env.JWT_REFRESH_SECRET!,
-      expiresIn: '7d',
-    });
+    const { accessToken, refreshToken: nextRefreshToken } = this.signTokens(nextPayload);
     const nextRefreshTokenHash = await argon2.hash(nextRefreshToken);
-    const nextExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const nextExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
 
     // Conditional update makes refresh-token rotation single-use under concurrent requests.
     const rotation = await this.sessionRepository.update(
@@ -360,6 +361,7 @@ export class AuthService {
     try {
       const payload = this.jwtService.verify<JwtPayload>(refreshToken, {
         secret: process.env.JWT_REFRESH_SECRET!,
+        algorithms: [JWT_ALGORITHM],
       });
       if (!payload.sub || !payload.jti || !payload.tenantId) {
         throw new UnauthorizedException('Token de refresco incompleto');
@@ -367,6 +369,29 @@ export class AuthService {
       return payload;
     } catch {
       throw new UnauthorizedException('Token de refresco inválido o expirado');
+    }
+  }
+
+  private signTokens(payload: JwtPayload): AuthTokens {
+    const accessToken = this.jwtService.sign(payload, {
+      secret: process.env.JWT_ACCESS_SECRET!,
+      expiresIn: ACCESS_TOKEN_TTL,
+      algorithm: JWT_ALGORITHM,
+    });
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: process.env.JWT_REFRESH_SECRET!,
+      expiresIn: Math.floor(REFRESH_TOKEN_TTL_MS / 1000),
+      algorithm: JWT_ALGORITHM,
+    });
+    return { accessToken, refreshToken };
+  }
+
+  private async verifyAgainstDummyHash(password: string): Promise<void> {
+    this.dummyHash ??= argon2.hash(`dummy:${randomUUID()}`);
+    try {
+      await argon2.verify(await this.dummyHash, password);
+    } catch {
+      // El resultado no importa: solo iguala el tiempo de respuesta.
     }
   }
 

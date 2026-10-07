@@ -28,6 +28,7 @@ export class BranchesService {
         name: createBranchDto.name.trim(),
         address: createBranchDto.address?.trim(),
         phone: createBranchDto.phone?.trim(),
+        allowedIpRanges: normalizeRanges(createBranchDto.allowedIpRanges),
         status: true,
       });
 
@@ -90,7 +91,11 @@ export class BranchesService {
         }
       }
   
-      Object.assign(branch, restUpdateData);
+      const { allowedIpRanges, ...otherUpdates } = restUpdateData;
+      Object.assign(branch, otherUpdates);
+      if (allowedIpRanges !== undefined) {
+        branch.allowedIpRanges = normalizeRanges(allowedIpRanges);
+      }
       return await this.branchRepository.save(branch);
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof ConflictException) {
@@ -117,4 +122,11 @@ export class BranchesService {
       throw new InternalServerErrorException('Error interno al deshabilitar la sucursal');
     }
   };
+}
+
+function normalizeRanges(ranges: string[] | null | undefined): string[] | null {
+  if (!ranges || ranges.length === 0) {
+    return null;
+  }
+  return [...new Set(ranges.map((range) => range.trim()))];
 }
