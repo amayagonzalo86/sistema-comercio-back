@@ -20,8 +20,16 @@ export function resolveSecret(reference: string | null | undefined, env: NodeJS.
   } else if (scheme === 'file') {
     const baseDir = env.FISCAL_SECRETS_DIR;
     if (!baseDir) throw new Error('Para usar "file:" configurá FISCAL_SECRETS_DIR.');
+    if (!/^[\w./-]{1,200}$/.test(target) || target.split(/[\\/]/).includes('..') || isAbsolute(target)) {
+      throw new Error('La ruta del secreto debe ser relativa a FISCAL_SECRETS_DIR y no puede contener "..".');
+    }
     const base = realpathSync(baseDir);
-    const full = realpathSync(resolve(base, target));
+    let full: string;
+    try {
+      full = realpathSync(resolve(base, target));
+    } catch {
+      throw new Error(`No se encontró el archivo de secreto "${target}" en FISCAL_SECRETS_DIR.`);
+    }
     const rel = relative(base, full);
     if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('La ruta del secreto debe estar dentro de FISCAL_SECRETS_DIR.');
     value = readFileSync(full, 'utf8');
