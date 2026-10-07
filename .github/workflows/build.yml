@@ -16,8 +16,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: TEMP info proxy-addr
-        run: echo "::error title=pkginfo::$(npm view proxy-addr@latest version dependencies dist.integrity dist.tarball engines --json | tr -d '\n')"
 
       # Errores de TypeScript como anotaciones visibles en GitHub (archivo, línea y mensaje).
       - name: Type check
