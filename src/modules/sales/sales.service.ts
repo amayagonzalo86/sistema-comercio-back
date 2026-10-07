@@ -309,6 +309,7 @@ export class SalesService {
           arcaVatRateId: vat.arcaVatRateId,
           priceIncludesVat: Boolean(stock.product.priceIncludesVat),
           total: formatCents(vat.totalCents),
+          unitCost: formatCents(costSnapshotCents(stock.costPrice)),
         }),
       );
       await itemRepository.save(items);
@@ -565,6 +566,12 @@ function buildFiscalNotes(sale: SaleEntity): Record<string, unknown> {
     notes.vatExemption = { reason: sale.vatExemptionReason, note: sale.vatExemptionNote ?? null };
   }
   return notes;
+}
+
+/** Costo para el snapshot de margen: un costo no cargado o inválido no debe impedir vender. */
+function costSnapshotCents(value: unknown): bigint {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) && numeric >= 0 ? toMinorUnits(numeric) : 0n;
 }
 
 function toMinorUnits(value: number): bigint {

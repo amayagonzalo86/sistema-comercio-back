@@ -55,4 +55,8 @@ export class SaleItemEntity {
 
   @Column({ type: 'decimal', precision: 14, scale: 2 })
   total!: string;
+
+  /** Costo unitario del producto al momento de la venta (margen real en reportes). */
+  @Column({ name: 'unit_cost', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  unitCost!: string;
 }
