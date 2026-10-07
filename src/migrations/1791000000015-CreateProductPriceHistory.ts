@@ -23,7 +23,7 @@ export class CreateProductPriceHistory1791000000015 implements MigrationInterfac
         KEY IDX_price_history_product (tenant_id, product_id, created_at),
         KEY IDX_price_history_batch (tenant_id, batch_id),
         CONSTRAINT FK_price_history_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
     // Búsquedas del catálogo por categoría y marca.
     await queryRunner.query('CREATE INDEX IDX_products_tenant_category ON products (tenant_id, category)');

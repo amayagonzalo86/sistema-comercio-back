@@ -48,7 +48,7 @@ export class CreateSaleReturns1791000000018 implements MigrationInterface {
         KEY IDX_sale_returns_branch_created (tenant_id, branch_id, created_at),
         CONSTRAINT FK_sale_returns_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT,
         CONSTRAINT FK_sale_returns_sale FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE RESTRICT
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
     await queryRunner.query(`
       CREATE TABLE sale_return_items (
@@ -70,7 +70,7 @@ export class CreateSaleReturns1791000000018 implements MigrationInterface {
         CONSTRAINT FK_sale_return_items_return FOREIGN KEY (sale_return_id) REFERENCES sale_returns (id) ON DELETE CASCADE,
         CONSTRAINT FK_sale_return_items_sale_item FOREIGN KEY (sale_item_id) REFERENCES sale_items (id) ON DELETE RESTRICT,
         CONSTRAINT CK_sale_return_items_quantity CHECK (quantity > 0)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
   }
 

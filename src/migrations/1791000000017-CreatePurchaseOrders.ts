@@ -31,7 +31,7 @@ export class CreatePurchaseOrders1791000000017 implements MigrationInterface {
         CONSTRAINT FK_purchase_orders_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT,
         CONSTRAINT FK_purchase_orders_supplier FOREIGN KEY (supplier_person_id) REFERENCES persons (id) ON DELETE RESTRICT,
         CONSTRAINT FK_purchase_orders_branch FOREIGN KEY (branch_id) REFERENCES branches (id) ON DELETE RESTRICT
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
     await queryRunner.query(`
       CREATE TABLE purchase_order_items (
@@ -51,7 +51,7 @@ export class CreatePurchaseOrders1791000000017 implements MigrationInterface {
         CONSTRAINT FK_purchase_order_items_order FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders (id) ON DELETE CASCADE,
         CONSTRAINT FK_purchase_order_items_product FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE RESTRICT,
         CONSTRAINT CK_purchase_order_items_quantities CHECK (quantity_ordered > 0 AND quantity_received >= 0)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
     await queryRunner.query('ALTER TABLE purchase_receipts ADD COLUMN purchase_order_id VARCHAR(36) NULL AFTER supplier_person_id');
     await queryRunner.query('CREATE INDEX IDX_purchase_receipts_order ON purchase_receipts (tenant_id, purchase_order_id)');

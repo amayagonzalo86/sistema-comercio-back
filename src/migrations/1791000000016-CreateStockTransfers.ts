@@ -12,7 +12,7 @@ export class CreateStockTransfers1791000000016 implements MigrationInterface {
         value INT UNSIGNED NOT NULL DEFAULT 0,
         PRIMARY KEY (tenant_id, name),
         CONSTRAINT FK_document_sequences_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
     await queryRunner.query(`
       CREATE TABLE stock_transfers (
@@ -43,7 +43,7 @@ export class CreateStockTransfers1791000000016 implements MigrationInterface {
         CONSTRAINT FK_stock_transfers_origin FOREIGN KEY (origin_branch_id) REFERENCES branches (id) ON DELETE RESTRICT,
         CONSTRAINT FK_stock_transfers_destination FOREIGN KEY (destination_branch_id) REFERENCES branches (id) ON DELETE RESTRICT,
         CONSTRAINT CK_stock_transfers_distinct_branches CHECK (origin_branch_id <> destination_branch_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
     await queryRunner.query(`
       CREATE TABLE stock_transfer_items (
@@ -62,7 +62,7 @@ export class CreateStockTransfers1791000000016 implements MigrationInterface {
         CONSTRAINT FK_stock_transfer_items_transfer FOREIGN KEY (transfer_id) REFERENCES stock_transfers (id) ON DELETE CASCADE,
         CONSTRAINT FK_stock_transfer_items_product FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE RESTRICT,
         CONSTRAINT CK_stock_transfer_items_quantities CHECK (quantity_sent > 0 AND (quantity_received IS NULL OR (quantity_received >= 0 AND quantity_received <= quantity_sent)))
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
   }
 

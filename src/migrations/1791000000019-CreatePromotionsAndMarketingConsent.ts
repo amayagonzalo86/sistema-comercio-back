@@ -34,7 +34,7 @@ export class CreatePromotionsAndMarketingConsent1791000000019 implements Migrati
           (type = 'PERCENTAGE' AND percent_basis_points BETWEEN 1 AND 10000)
           OR (type = 'BUY_X_PAY_Y' AND buy_quantity > pay_quantity AND pay_quantity >= 1)
         )
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
     await queryRunner.query(`
       ALTER TABLE sale_items
