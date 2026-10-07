@@ -43,7 +43,17 @@ jobs:
 
       # Vulnerabilidades en dependencias que llegan a producción: bloquean.
       - name: Audit (producción)
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          node -e "
+            const a = require('./audit.json');
+            const v = Object.values(a.vulnerabilities || {}).filter(x => ['high', 'critical'].includes(x.severity));
+            if (v.length) {
+              const lines = v.map(x => x.name + ' ' + x.range + ' [' + x.severity + '] via ' + x.via.map(y => typeof y === 'string' ? y : (y.title + ' ' + (y.url || ''))).join(' | ') + ' fix: ' + JSON.stringify(x.fixAvailable));
+              console.log('::error title=npm audit::' + lines.join('%0A'));
+              process.exit(1);
+            }
+          "
 
       # Vulnerabilidades en herramientas de desarrollo: se informan sin bloquear.
       - name: Audit (desarrollo)
