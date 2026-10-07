@@ -1,4 +1,5 @@
 import { IsOptional, IsString, IsUUID, Length, Matches } from 'class-validator';
+import { IsCuit } from '../../../common/validators/decorators';
 
 export class CreateTenantDto {
   @IsString()
@@ -17,7 +18,8 @@ export class CreateTenantDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^\d{11}$/)
+  @Matches(/^\d{11}$/, { message: 'La CUIT debe tener 11 dígitos, sin guiones.' })
+  @IsCuit()
   taxId?: string;
 
   @IsUUID('4')

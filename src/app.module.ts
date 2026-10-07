@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -16,6 +18,7 @@ import { validateEnv } from './config/env.validation';
 import { PlatformModule } from './modules/platform/platform.module';
 import { PurchasesModule } from './modules/purchases/purchases.module';
 import { CashModule } from './modules/cash/cash.module';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 @Module({
   imports: [
@@ -24,18 +27,43 @@ import { CashModule } from './modules/cash/cash.module';
       envFilePath: '.env',
       validate: validateEnv,
     }),
+    // Límite global de peticiones por IP (complementa el límite persistente del login y el WAF de Cloudflare).
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => [
+        {
+          name: 'default',
+          ttl: configService.get<number>('THROTTLE_TTL', 60) * 1000,
+          limit: configService.get<number>('THROTTLE_LIMIT', 300),
+        },
+      ],
+    }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'mysql',
-        host: configService.get<string>('DB_HOST', 'localhost'),
-        port: configService.get<number>('DB_PORT', 3306),
-        username: configService.get<string>('DB_USER'),
-        password: configService.get<string>('DB_PASSWORD', ''),
-        database: configService.get<string>('DB_NAME'),
-        autoLoadEntities: true, // Carga automáticamente las entidades registradas con forFeature()
-        synchronize: configService.get<string>('NODE_ENV') === 'development', // true solo en desarrollo
-      }),
+      useFactory: (configService: ConfigService) => {
+        const isDevelopment = configService.get<string>('NODE_ENV') === 'development';
+        const useSsl = configService.get<string>('DB_SSL') === 'true';
+        return {
+          type: 'mysql' as const,
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 3306),
+          username: configService.get<string>('DB_USER'),
+          password: configService.get<string>('DB_PASSWORD', ''),
+          database: configService.get<string>('DB_NAME'),
+          autoLoadEntities: true, // Carga automáticamente las entidades registradas con forFeature()
+          // Solo en desarrollo. En producción el esquema cambia únicamente con migraciones revisadas.
+          synchronize: isDevelopment,
+          timezone: 'Z',
+          charset: 'utf8mb4_unicode_ci',
+          // Pool acotado: protege a MySQL de saturarse en un VPS chico.
+          poolSize: configService.get<number>('DB_POOL_SIZE', 10),
+          // Corta consultas colgadas en lugar de retener conexiones indefinidamente.
+          connectTimeout: 10_000,
+          ...(useSsl ? { ssl: { rejectUnauthorized: true } } : {}),
+          // Nunca permitir múltiples sentencias por consulta (reduce el impacto de una inyección SQL).
+          extra: { multipleStatements: false },
+        };
+      },
     }),
     UserModule,
     AuthModule,
@@ -51,6 +79,10 @@ import { CashModule } from './modules/cash/cash.module';
     CashModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_FILTER, useClass: HttpExceptionFilter },
+  ],
 })
 export class AppModule { }

@@ -22,7 +22,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const secret = configService.get<string>('JWT_ACCESS_SECRET');
-        const expiresIn = configService.get<string>('JWT_EXPIRES_IN', '45m');
+        const expiresIn = configService.get<string>('JWT_EXPIRES_IN', '15m');
 
         if (!secret) {
           throw new Error(
@@ -34,6 +34,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
           secret,
           signOptions: {
             expiresIn: expiresIn as StringValue,
+            algorithm: 'HS256',
+          },
+          verifyOptions: {
+            algorithms: ['HS256'],
           },
         };
       },

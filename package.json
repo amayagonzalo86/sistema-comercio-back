@@ -1,7 +1,7 @@
 {
   "name": "sistema-comercio-back",
   "version": "0.0.1",
-  "description": "",
+  "description": "ERP comercial SaaS multiempresa para Argentina (NestJS + TypeORM + MySQL)",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -18,8 +18,11 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-  "migration:run": "npm run build && typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
-  "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts"
+    "migration:run": "npm run build && typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
+    "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "seed:prod": "node dist/seed",
+    "migration:run:prod": "typeorm migration:run -d dist/database/data-source.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -83,5 +86,8 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "engines": {
+    "node": ">=20.11"
   }
 }

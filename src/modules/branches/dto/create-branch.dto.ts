@@ -1,11 +1,16 @@
 import {
+    ArrayMaxSize,
+    IsArray,
     IsBoolean,
     IsNotEmpty,
     IsOptional,
     IsString,
     Length,
-    Matches
+    Matches,
+    MaxLength
 } from 'class-validator';
+import { IsIpOrCidr } from '../../../common/validators/decorators';
+import { MAX_ALLOWED_IP_RANGES } from '../../../common/security/ip-allowlist';
 
 export class CreateBranchDto {
     @IsString({ message: 'El código debe ser una cadena de texto' })
@@ -28,7 +33,15 @@ export class CreateBranchDto {
 
     @IsString({ message: 'El teléfono debe ser una cadena de texto' })
     @IsOptional()
+    @MaxLength(30, { message: 'El teléfono debe tener como máximo 30 caracteres' })
+    @Matches(/^[0-9+()\s-]+$/, { message: 'El teléfono solo admite números, espacios, +, (, ) y guiones' })
     readonly phone?: string;
+
+    @IsOptional()
+    @IsArray({ message: 'allowedIpRanges debe ser una lista' })
+    @ArrayMaxSize(MAX_ALLOWED_IP_RANGES, { message: `Se admiten hasta ${MAX_ALLOWED_IP_RANGES} rangos IP` })
+    @IsIpOrCidr({ each: true })
+    readonly allowedIpRanges?: string[] | null;
 
     @IsBoolean({ message: 'El estado debe ser un valor booleano' })
     @IsOptional()

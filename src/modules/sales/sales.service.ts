@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { TenantEntity } from '../platform/entities/tenant.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
@@ -23,6 +23,21 @@ import { SalePaymentEntity } from './entities/sale-payment.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { CashMovementDirection, CashMovementEntity, CashMovementType } from '../cash/entities/cash-movement.entity';
 import { CashSessionEntity, CashSessionStatus } from '../cash/entities/cash-session.entity';
+import { FiscalProfileEntity } from '../platform/entities/fiscal-profile.entity';
+import { parseTaxCondition, TaxConditionEnum } from '../../common/enums/afip.enum';
+import { isValidCuit } from '../../common/validators/argentina-id';
+import {
+  computeVatLine,
+  FISCAL_TRANSPARENCY_TITLE,
+  MONOTRIBUTO_CREDIT_LEGEND,
+  percentToBasisPoints,
+  resolveVatPolicy,
+  summarizeVat,
+  VatLineResult,
+  VatPolicy,
+  VatTreatment,
+  VoucherClass,
+} from '../fiscal/vat/vat';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 
@@ -31,10 +46,8 @@ type PricedLine = {
   stock: ProductBranchEntity;
   quantityMilli: bigint;
   unitPriceCents: bigint;
-  taxRateHundredths: bigint;
-  netCents: bigint;
-  taxCents: bigint;
-  totalCents: bigint;
+  vatTreatment: VatTreatment;
+  vat: VatLineResult;
 };
 
 @Injectable()
@@ -83,6 +96,9 @@ export class SalesService {
         customerPersonId: dto.customerPersonId ?? null,
         lines: normalizedLines,
         payments: normalizedPayments,
+        vatExemption: dto.vatExemption
+          ? { reason: dto.vatExemption.reason, note: dto.vatExemption.note.trim() }
+          : null,
       }))
       .digest('hex');
 
@@ -119,14 +135,26 @@ export class SalesService {
         throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
       }
 
+      let customerCondition = TaxConditionEnum.CONSUMIDOR_FINAL;
+      let customerTaxId: string | null = null;
       if (dto.customerPersonId) {
         const customer = await queryRunner.manager.findOne(PersonEntity, {
           where: { id: dto.customerPersonId, tenantId, isActive: true },
-          select: { id: true, tenantId: true, isActive: true, personType: true },
+          select: { id: true, tenantId: true, isActive: true, personType: true, vatCondition: true, nationalId: true },
         });
         if (!customer || customer.personType === PersonType.SUPPLIER) {
           throw new NotFoundException('El cliente no existe, no está activo o no está habilitado para ventas en esta empresa.');
         }
+        customerCondition = parseTaxCondition(customer.vatCondition) ?? TaxConditionEnum.CONSUMIDOR_FINAL;
+        customerTaxId = customer.nationalId ?? null;
+      }
+
+      const issuerCondition = await this.resolveIssuerCondition(queryRunner.manager, tenantId);
+      const policy = this.resolvePolicy(issuerCondition, customerCondition, dto);
+      if (policy.requiresCustomerCuit && !isValidCuit(customerTaxId)) {
+        throw new BadRequestException(
+          `Un comprobante ${policy.voucherClass} requiere que el cliente tenga una CUIT válida cargada.`,
+        );
       }
 
       const pricedLines: PricedLine[] = [];
@@ -147,11 +175,26 @@ export class SalesService {
 
         const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
         const unitPriceCents = toMinorUnits(Number(stock.sellingPrice));
-        const taxRateHundredths = toMinorUnits(Number(stock.product.taxRate));
-        const netCents = roundDivide(unitPriceCents * quantityMilli, 1000n);
-        const taxCents = roundDivide(netCents * taxRateHundredths, 10000n);
-        const totalCents = netCents + taxCents;
-        if (totalCents > MAX_MONEY_CENTS) {
+        const vatTreatment = stock.product.vatTreatment ?? VatTreatment.TAXED;
+        let vat: VatLineResult;
+        try {
+          vat = computeVatLine({
+            unitPriceCents,
+            quantityMilli,
+            treatment: vatTreatment,
+            rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
+            priceIncludesVat: Boolean(stock.product.priceIncludesVat),
+            chargeMode: policy.chargeMode,
+          });
+        } catch (error) {
+          if (error instanceof RangeError) {
+            throw new BadRequestException(
+              `El producto ${stock.product.sku} tiene una configuración de IVA inválida: ${error.message}`,
+            );
+          }
+          throw error;
+        }
+        if (vat.totalCents > MAX_MONEY_CENTS) {
           throw new BadRequestException('El importe de una línea excede el máximo admitido.');
         }
         pricedLines.push({
@@ -159,10 +202,8 @@ export class SalesService {
           stock,
           quantityMilli,
           unitPriceCents,
-          taxRateHundredths,
-          netCents,
-          taxCents,
-          totalCents,
+          vatTreatment,
+          vat,
         });
       }
 
@@ -179,9 +220,10 @@ export class SalesService {
         return this.loadSale(tenantId, concurrentSale.id);
       }
 
-      const subtotalCents = pricedLines.reduce((sum, line) => sum + line.netCents, 0n);
-      const taxTotalCents = pricedLines.reduce((sum, line) => sum + line.taxCents, 0n);
-      const totalCents = subtotalCents + taxTotalCents;
+      const vatSummary = summarizeVat(pricedLines.map((line) => line.vat));
+      const taxTotalCents = vatSummary.vatCents;
+      const subtotalCents = vatSummary.netCents + vatSummary.exemptCents + vatSummary.notTaxedCents;
+      const totalCents = vatSummary.totalCents;
       if (totalCents <= 0n || totalCents > MAX_MONEY_CENTS) {
         throw new BadRequestException('El total de la venta está fuera del rango admitido.');
       }
@@ -233,6 +275,15 @@ export class SalesService {
         subtotal: formatCents(subtotalCents),
         taxTotal: formatCents(taxTotalCents),
         total: formatCents(totalCents),
+        netTaxedTotal: formatCents(vatSummary.netCents),
+        exemptTotal: formatCents(vatSummary.exemptCents),
+        notTaxedTotal: formatCents(vatSummary.notTaxedCents),
+        voucherClass: policy.voucherClass,
+        vatChargeMode: policy.chargeMode,
+        issuerVatCondition: issuerCondition,
+        customerVatCondition: customerCondition,
+        vatExemptionReason: dto.vatExemption?.reason ?? null,
+        vatExemptionNote: dto.vatExemption?.note.trim() ?? null,
         fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
@@ -240,7 +291,7 @@ export class SalesService {
       }));
 
       const itemRepository = queryRunner.manager.getRepository(SaleItemEntity);
-      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, taxRateHundredths, netCents, taxCents, totalCents: lineTotal }) =>
+      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, vatTreatment, vat }) =>
         itemRepository.create({
           tenantId,
           saleId: sale.id,
@@ -249,10 +300,15 @@ export class SalesService {
           nameSnapshot: stock.product.name,
           quantity: formatMilli(quantityMilli),
           unitPrice: formatCents(unitPriceCents),
-          taxRate: formatCents(taxRateHundredths),
-          netAmount: formatCents(netCents),
-          taxAmount: formatCents(taxCents),
-          total: formatCents(lineTotal),
+          taxRate: formatCents(vat.appliedRateBasisPoints),
+          netAmount: formatCents(vat.netCents),
+          taxAmount: formatCents(vat.vatCents),
+          exemptAmount: formatCents(vat.exemptCents),
+          notTaxedAmount: formatCents(vat.notTaxedCents),
+          vatTreatment,
+          arcaVatRateId: vat.arcaVatRateId,
+          priceIncludesVat: Boolean(stock.product.priceIncludesVat),
+          total: formatCents(vat.totalCents),
         }),
       );
       await itemRepository.save(items);
@@ -361,6 +417,10 @@ export class SalesService {
           lineCount: items.length,
           paymentCount: payments.length,
           fiscalStatus: sale.fiscalStatus,
+          voucherClass: policy.voucherClass,
+          vatChargeMode: policy.chargeMode,
+          vatExemptionReason: sale.vatExemptionReason ?? null,
+          vatExemptionNote: sale.vatExemptionNote ?? null,
         },
       }));
 
@@ -378,6 +438,9 @@ export class SalesService {
         error instanceof NotFoundException
       ) {
         throw error;
+      }
+      if (error instanceof RangeError) {
+        throw new BadRequestException(error.message);
       }
       if (
         typeof error === 'object' &&
@@ -433,8 +496,75 @@ export class SalesService {
         order: { createdAt: 'ASC' },
       }),
     ]);
-    return { ...sale, items, payments };
+    return { ...sale, items, payments, fiscalNotes: buildFiscalNotes(sale) };
   }
+
+  /**
+   * Condición frente al IVA del emisor (la empresa), tomada del perfil fiscal activo.
+   * Sin perfil fiscal se asume Responsable Inscripto para conservar el comportamiento previo
+   * (el IVA se agrega según el producto). Configurar el perfil fiscal antes de operar en producción.
+   */
+  private async resolveIssuerCondition(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<TaxConditionEnum> {
+    const profile = await manager.findOne(FiscalProfileEntity, {
+      where: { tenantId, isActive: true },
+      order: { updatedAt: 'DESC' },
+      select: { id: true, vatConditionCode: true },
+    });
+    if (!profile) {
+      return TaxConditionEnum.RESPONSABLE_INSCRIPTO;
+    }
+    const condition = parseTaxCondition(profile.vatConditionCode);
+    if (!condition) {
+      throw new BadRequestException(
+        'La condición frente al IVA del perfil fiscal de la empresa no es válida. Revisá la configuración fiscal.',
+      );
+    }
+    return condition;
+  }
+
+  private resolvePolicy(
+    issuer: TaxConditionEnum,
+    customer: TaxConditionEnum,
+    dto: CreateSaleDto,
+  ): VatPolicy {
+    try {
+      return resolveVatPolicy(issuer, customer, dto.vatExemption?.reason ?? null);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * Notas fiscales que el comprobante debe mostrar según la normativa vigente:
+ * - Comprobante B: "IVA contenido" (Régimen de Transparencia Fiscal al Consumidor, Ley 27.743).
+ * - Comprobante A a monotributista: leyenda de la RG 5003/2021.
+ */
+function buildFiscalNotes(sale: SaleEntity): Record<string, unknown> {
+  const notes: Record<string, unknown> = {};
+  if (sale.voucherClass === VoucherClass.B && Number(sale.taxTotal) > 0) {
+    notes.fiscalTransparency = {
+      title: FISCAL_TRANSPARENCY_TITLE,
+      vatContained: sale.taxTotal,
+      otherNationalIndirectTaxes: '0.00',
+    };
+  }
+  if (
+    sale.voucherClass === VoucherClass.A &&
+    sale.customerVatCondition === TaxConditionEnum.MONOTRIBUTO
+  ) {
+    notes.legend = MONOTRIBUTO_CREDIT_LEGEND;
+  }
+  if (sale.vatExemptionReason) {
+    notes.vatExemption = { reason: sale.vatExemptionReason, note: sale.vatExemptionNote ?? null };
+  }
+  return notes;
 }
 
 function toMinorUnits(value: number): bigint {
@@ -452,10 +582,6 @@ function parseDecimalCents(value: string): bigint {
   }
   const [whole, fraction] = value.split('.');
   return BigInt(whole) * 100n + BigInt(fraction);
-}
-
-function roundDivide(numerator: bigint, denominator: bigint): bigint {
-  return (numerator + denominator / 2n) / denominator;
 }
 
 function formatCents(cents: bigint): string {

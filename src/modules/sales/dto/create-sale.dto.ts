@@ -6,12 +6,30 @@ import {
   IsEnum,
   IsNumber,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { SalePaymentMethod } from '../entities/sale-payment.entity';
+import { VatExemptionReason } from '../../fiscal/vat/vat';
+
+/**
+ * Quita el IVA de toda la venta por una causa legal. Solo OWNER/ADMIN de la empresa; queda auditado.
+ * Ej.: { "reason": "EXPORT", "note": "Permiso de embarque 26 001 EC01 123456 X" }
+ */
+export class SaleVatExemptionDto {
+  @IsEnum(VatExemptionReason, { message: 'Motivo de exención inválido (EXPORT, TIERRA_DEL_FUEGO, DIPLOMATIC, OTHER_LEGAL)' })
+  reason!: VatExemptionReason;
+
+  @IsString()
+  @MinLength(5, { message: 'Detallá el respaldo de la exención (mínimo 5 caracteres).' })
+  @MaxLength(200)
+  note!: string;
+}
 
 export class CreateSaleLineDto {
   @IsUUID('4')
@@ -58,4 +76,9 @@ export class CreateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSalePaymentDto)
   payments!: CreateSalePaymentDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SaleVatExemptionDto)
+  vatExemption?: SaleVatExemptionDto;
 }
