@@ -87,3 +87,59 @@ jobs:
       - name: Audit (desarrollo)
         continue-on-error: true
         run: npm audit --audit-level=high
+
+  # Migraciones: parte del esquema de main y aplica las migraciones nuevas, como en un despliegue real.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: erp_migrations
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: erp_migrations
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Esquema base (main)
+        run: |
+          git worktree add ../base origin/main
+          (cd ../base && npm ci --no-audit --no-fund && npx tsc -p tsconfig.build.json)
+          node scripts/ci/sync-base-schema.js ../base
+      - run: npm ci
+      - run: npm run build
+      - name: Aplicar migraciones nuevas
+        run: |
+          set -o pipefail
+          npx typeorm migration:run -d dist/database/data-source.js 2>&1 | tee migrate.log || status=$?
+          if [ "${status:-0}" != "0" ]; then
+            echo "::error title=Migraciones::$(grep -v '^\s*at ' migrate.log | tail -40 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          fi
+          exit ${status:-0}
+      - name: Esquema resultante vs. entidades
+        run: |
+          npx typeorm schema:log -d dist/database/data-source.js > schema.log 2>&1 || true
+          if grep -q 'Your schema is up to date' schema.log; then
+            echo "Esquema sincronizado con las entidades."
+          else
+            echo "::error title=Diferencias de esquema::$(grep -v '^\s*at ' schema.log | head -80 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+
