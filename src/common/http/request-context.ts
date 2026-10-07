@@ -2,7 +2,7 @@ import { Request } from 'express';
 import { normalizeIp } from '../security/ip-allowlist';
 
 export interface RequestAuditContext {
-  requestId?: string;
+  requestId?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
 }

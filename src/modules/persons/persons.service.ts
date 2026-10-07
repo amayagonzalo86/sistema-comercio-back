@@ -2,7 +2,11 @@ import { BadRequestException, ConflictException, Injectable, InternalServerError
 import { CreatePersonDto } from './dto/create-person.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PersonEntity } from './entities/person.entity';
-import { Repository } from 'typeorm';
+import { Brackets, In, Repository } from 'typeorm';
+import { UpdatePersonDto } from './dto/update-person.dto';
+import { PersonListQueryDto, PersonRoleFilter, PersonStatusFilter } from './dto/person-query.dto';
+import { likePattern, Paginated, paginated } from '../../common/dto/page-query.dto';
+import { PersonType } from './entities/person.entity';
 import {
   CUIT_REQUIRED_CONDITIONS,
   IdentificationTypeEnum,
@@ -110,4 +114,82 @@ export class PersonsService {
       throw new InternalServerErrorException('No se pudo crear a la persona nueva');
     }
   };
+
+  async findAll(tenantId: string, query: PersonListQueryDto): Promise<Paginated<PersonEntity>> {
+    const qb = this.personRepository
+      .createQueryBuilder('person')
+      .where('person.tenantId = :tenantId', { tenantId });
+    if (query.status === PersonStatusFilter.ACTIVE) qb.andWhere('person.isActive = true');
+    if (query.status === PersonStatusFilter.INACTIVE) qb.andWhere('person.isActive = false');
+    if (query.role === PersonRoleFilter.CUSTOMERS) {
+      qb.andWhere('person.personType IN (:...types)', { types: [PersonType.CUSTOMER, PersonType.BOTH] });
+    }
+    if (query.role === PersonRoleFilter.SUPPLIERS) {
+      qb.andWhere('person.personType IN (:...types)', { types: [PersonType.SUPPLIER, PersonType.BOTH] });
+    }
+    if (query.search) {
+      const pattern = likePattern(query.search);
+      const digits = query.search.replace(/[\s.-]/g, '');
+      qb.andWhere(
+        new Brackets((where) => {
+          where
+            .where('person.firstName LIKE :pattern', { pattern })
+            .orWhere('person.lastName LIKE :pattern', { pattern })
+            .orWhere('person.email LIKE :pattern', { pattern })
+            .orWhere('person.phone LIKE :pattern', { pattern })
+            .orWhere('person.nationalId = :digits', { digits });
+        }),
+      );
+    }
+    const [items, total] = await qb
+      .orderBy('person.lastName', 'ASC')
+      .addOrderBy('person.firstName', 'ASC')
+      .addOrderBy('person.id', 'ASC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getManyAndCount();
+    return paginated(items, total, query.page, query.limit);
+  }
+
+  async findOne(tenantId: string, id: string): Promise<PersonEntity> {
+    const person = await this.personRepository.findOne({ where: { id, tenantId } });
+    if (!person) {
+      throw new NotFoundException('La persona no existe en esta empresa.');
+    }
+    return person;
+  }
+
+  async update(tenantId: string, id: string, dto: UpdatePersonDto): Promise<PersonEntity> {
+    const person = await this.findOne(tenantId, id);
+    const touchesFiscal = dto.documentType !== undefined || dto.nationalId !== undefined || dto.vatCondition !== undefined;
+    const fiscal = touchesFiscal
+      ? normalizeFiscalIdentity(
+          dto.documentType !== undefined ? dto.documentType : person.documentType,
+          dto.nationalId !== undefined ? dto.nationalId : person.nationalId,
+          dto.vatCondition ?? person.vatCondition,
+        )
+      : {};
+    Object.assign(person, dto, fiscal);
+    if (dto.email !== undefined) person.email = dto.email || null;
+    try {
+      return await this.personRepository.save(person);
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+        throw new ConflictException('Ya existe una persona con ese documento o email en esta empresa.');
+      }
+      this.logger.error(`Error al actualizar la persona: ${error instanceof Error ? error.message : String(error)}`);
+      throw new InternalServerErrorException('No se pudo actualizar la persona');
+    }
+  }
+
+  /** Baja lógica: se conserva por su historial de ventas, compras y cuenta corriente. */
+  async setActive(tenantId: string, id: string, isActive: boolean): Promise<PersonEntity> {
+    const person = await this.findOne(tenantId, id);
+    person.isActive = isActive;
+    return this.personRepository.save(person);
+  }
+
+  async findManyByIds(tenantId: string, ids: string[]): Promise<PersonEntity[]> {
+    return ids.length ? this.personRepository.find({ where: { tenantId, id: In(ids) } }) : [];
+  }
 }
