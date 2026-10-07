@@ -9,6 +9,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: erp_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,6 +52,24 @@ jobs:
           exit ${status:-0}
 
       - run: npm run build
+
+      # Integración contra MySQL real: recorre el flujo comercial completo por la API.
+      - name: Integration tests (MySQL)
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASSWORD: root
+          DB_NAME: erp_test
+        run: |
+          npx jest --config test/jest-e2e.json --runInBand --json --outputFile=e2e.json || status=$?
+          node -e "
+            const r = require('./e2e.json');
+            for (const s of r.testResults) {
+              if (s.status !== 'passed' && s.message) console.log('::error file=' + s.name.replace(process.cwd() + '/', '') + '::' + s.message.replace(/\u001b\[[0-9;]*m/g, '').replace(/\r?\n/g, '%0A').slice(0, 6000));
+            }
+          "
+          exit ${status:-0}
 
       # Vulnerabilidades en dependencias que llegan a producción: bloquean.
       - name: Audit (producción)
