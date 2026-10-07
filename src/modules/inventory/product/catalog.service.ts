@@ -442,7 +442,7 @@ export class CatalogService {
     }
 
     return this.dataSource.transaction(async (manager) => {
-      const qb = buildQuery(manager).setLock('pessimistic_write', undefined, ['pb']);
+      const qb = buildQuery(manager).setLock('pessimistic_write');
       const rows = await qb.getMany();
       this.assertBulkSize(rows.length);
       const { changes, unchanged } = compute(rows);

@@ -72,7 +72,7 @@ export async function lockStockRows(
     ? await manager
         .createQueryBuilder(ProductBranchEntity, 'pb')
         .innerJoinAndSelect('pb.product', 'p')
-        .setLock('pessimistic_write', undefined, ['pb'])
+        .setLock('pessimistic_write')
         .where('pb.tenantId = :tenantId', { tenantId })
         .andWhere('pb.branchId = :branchId', { branchId })
         .andWhere('pb.productId IN (:...productIds)', { productIds: sorted })
