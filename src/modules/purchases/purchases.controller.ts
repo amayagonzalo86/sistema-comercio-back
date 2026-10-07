@@ -9,6 +9,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +24,9 @@ import { requireAssignedBranch, requireBranchAccess } from '../../common/securit
 import { UserRoleEnum } from '../roles/entities/role.entity';
 import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
 import { PurchasesService } from './purchases.service';
+import { PurchaseReceiptQueryDto } from './dto/purchase-order.dto';
+import { Paginated } from '../../common/dto/page-query.dto';
+import { PurchaseReceiptEntity } from './entities/purchase-receipt.entity';
 
 @Controller('purchases/receipts')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -51,6 +55,18 @@ export class PurchasesController {
       actor.branchId ?? null,
       buildAuditContext(request),
     );
+  }
+
+  /** Listado de recepciones de compra. ?branchId&supplierPersonId&purchaseOrderId&from&to&page&limit */
+  @Get()
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE, UserRoleEnum.USER)
+  list(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Query() query: PurchaseReceiptQueryDto,
+  ): Promise<Paginated<PurchaseReceiptEntity>> {
+    const actor = request.user as { branchId?: string | null; tenantRole?: string };
+    return this.purchasesService.list(tenantId, query, requireAssignedBranch(actor) ?? actor.branchId ?? null);
   }
 
   @Get(':id')

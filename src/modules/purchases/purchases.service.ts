@@ -21,6 +21,11 @@ import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
 import { PurchaseReceiptEntity } from './entities/purchase-receipt.entity';
 import { PurchaseReceiptItemEntity } from './entities/purchase-receipt-item.entity';
 import { SupplierPayableEntity } from './entities/supplier-payable.entity';
+import { applyReceiptToOrder } from './purchase-orders.service';
+import { ProductPriceHistoryEntity } from '../inventory/product/entities/product-price-history.entity';
+import { priceFromMargin, PriceRounding } from '../inventory/product/domain/pricing';
+import { Paginated, paginated } from '../../common/dto/page-query.dto';
+import { PurchaseReceiptQueryDto } from './dto/purchase-order.dto';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 const MAX_STOCK_MILLI = 999_999_999_999n;
@@ -77,6 +82,8 @@ export class PurchasesService {
         sourceDocumentType: dto.sourceDocumentType?.trim() || null,
         sourceDocumentNumber: dto.sourceDocumentNumber?.trim() || null,
         dueDate: dto.dueDate ?? null,
+        purchaseOrderId: dto.purchaseOrderId ?? null,
+        updateSellingPrices: dto.updateSellingPrices ?? false,
         lines: normalizedLines,
       }))
       .digest('hex');
@@ -185,6 +192,7 @@ export class PurchasesService {
         currency: tenant.currencyCode,
         sourceDocumentType: dto.sourceDocumentType?.trim() || null,
         sourceDocumentNumber: dto.sourceDocumentNumber?.trim() || null,
+        purchaseOrderId: dto.purchaseOrderId ?? null,
         subtotal: formatCents(subtotalCents),
         taxTotal: formatCents(taxTotalCents),
         total: formatCents(totalCents),
@@ -233,6 +241,25 @@ export class PurchasesService {
           );
         line.stock.stock = Number(formatMilli(afterMilli));
         line.stock.costPrice = Number(formatCents(weightedCostCents));
+        if (dto.updateSellingPrices && weightedCostCents !== previousCostCents) {
+          // Mantiene el margen del producto en la sucursal ante el nuevo costo promedio.
+          const previousSellingCents = toMinorUnits(Number(line.stock.sellingPrice));
+          const marginBp = toMinorUnits(Number(line.stock.profitMargin));
+          const nextSellingCents = priceFromMargin(weightedCostCents, marginBp, PriceRounding.NONE);
+          line.stock.sellingPrice = Number(formatCents(nextSellingCents));
+          await queryRunner.manager.save(ProductPriceHistoryEntity, queryRunner.manager.create(ProductPriceHistoryEntity, {
+            tenantId,
+            productId: line.productId,
+            branchId: branch.id,
+            oldCostPrice: formatCents(previousCostCents),
+            newCostPrice: formatCents(weightedCostCents),
+            oldSellingPrice: formatCents(previousSellingCents),
+            newSellingPrice: formatCents(nextSellingCents),
+            reason: `Recepción de compra ${receipt.id.slice(0, 8)} (margen mantenido)`,
+            batchId: receipt.id,
+            actorUserId,
+          }));
+        }
         await queryRunner.manager.save(ProductBranchEntity, line.stock);
         await movementRepository.save(movementRepository.create({
           tenantId,
@@ -248,6 +275,17 @@ export class PurchasesService {
           idempotencyKey: `purchase:${receipt.id}:${line.productId}`,
           actorUserId,
         }));
+      }
+
+      if (dto.purchaseOrderId) {
+        await applyReceiptToOrder(
+          queryRunner.manager,
+          tenantId,
+          dto.purchaseOrderId,
+          supplier.id,
+          branch.id,
+          pricedLines.map((line) => ({ productId: line.productId, quantityMilli: line.quantityMilli })),
+        );
       }
 
       await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
@@ -324,6 +362,26 @@ export class PurchasesService {
       throw new NotFoundException('Recepción de compra no encontrada.');
     }
     return this.loadReceipt(tenantId, receipt.id, allowedBranchId);
+  }
+
+  async list(tenantId: string, query: PurchaseReceiptQueryDto, branchScope: string | null): Promise<Paginated<PurchaseReceiptEntity>> {
+    if (branchScope && query.branchId && query.branchId !== branchScope) {
+      throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
+    }
+    const branchId = branchScope ?? query.branchId;
+    const qb = this.receiptRepository.createQueryBuilder('r').where('r.tenantId = :tenantId', { tenantId });
+    if (branchId) qb.andWhere('r.branchId = :branchId', { branchId });
+    if (query.supplierPersonId) qb.andWhere('r.supplierPersonId = :supplierId', { supplierId: query.supplierPersonId });
+    if (query.purchaseOrderId) qb.andWhere('r.purchaseOrderId = :orderId', { orderId: query.purchaseOrderId });
+    if (query.from) qb.andWhere('r.createdAt >= :from', { from: new Date(query.from) });
+    if (query.to) qb.andWhere('r.createdAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to.slice(0, 10) });
+    const [items, total] = await qb
+      .orderBy('r.createdAt', 'DESC')
+      .addOrderBy('r.id', 'DESC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getManyAndCount();
+    return paginated(items, total, query.page, query.limit);
   }
 
   private async loadReceipt(

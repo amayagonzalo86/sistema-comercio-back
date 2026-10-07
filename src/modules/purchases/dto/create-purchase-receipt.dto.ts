@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
@@ -38,6 +39,19 @@ export class CreatePurchaseReceiptLineDto {
 export class CreatePurchaseReceiptDto {
   @IsUUID('4')
   branchId!: string;
+
+  /** Pedido de compra que esta recepción cumple (total o parcialmente). */
+  @IsOptional()
+  @IsUUID('4')
+  purchaseOrderId?: string;
+
+  /**
+   * true: si el costo cambia, el precio de venta se recalcula manteniendo el margen de cada producto
+   * (queda en el historial de precios).
+   */
+  @IsOptional()
+  @IsBoolean()
+  updateSellingPrices?: boolean;
 
   @IsUUID('4')
   supplierPersonId!: string;
