@@ -185,6 +185,11 @@ export interface VatLineInput {
   /** true si el precio de catálogo ya incluye IVA (precio final al consumidor). */
   readonly priceIncludesVat: boolean;
   readonly chargeMode: VatChargeMode;
+  /**
+   * Descuento de la línea en centavos (promociones). Se resta del importe al mismo nivel que el precio:
+   * si el precio incluye IVA, el descuento también; el IVA se calcula sobre el importe descontado.
+   */
+  readonly discountCents?: bigint;
 }
 
 export interface VatLineResult {
@@ -232,7 +237,12 @@ export function computeVatLine(input: VatLineInput): VatLineResult {
   if (input.treatment === VatTreatment.TAXED) {
     arcaIdForBasisPoints(rate);
   }
-  const amountCents = roundDivide(input.unitPriceCents * input.quantityMilli, 1000n);
+  const grossAmountCents = roundDivide(input.unitPriceCents * input.quantityMilli, 1000n);
+  const discountCents = input.discountCents ?? 0n;
+  if (discountCents < 0n || discountCents > grossAmountCents) {
+    throw new RangeError('El descuento debe estar entre cero y el importe de la línea.');
+  }
+  const amountCents = grossAmountCents - discountCents;
   const zero = { netCents: 0n, vatCents: 0n, exemptCents: 0n, notTaxedCents: 0n };
 
   // Emisor no inscripto (comprobante C): el precio es el importe final, sin IVA facturado.

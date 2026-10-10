@@ -2,13 +2,25 @@ name: Build
 
 on:
   pull_request:
-    branches: [main, 'codex/**']
-  push:
     branches: [main]
+  push:
+    branches: ['**']
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: erp_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,6 +28,118 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm audit --audit-level=high
-      - run: npm test -- --runInBand
+
+      # Errores de TypeScript como anotaciones visibles en GitHub (archivo, línea y mensaje).
+      - name: Type check
+        run: |
+          npx tsc --noEmit -p tsconfig.build.json --pretty false > tsc.log 2>&1 || true
+          cat tsc.log
+          if grep -q 'error TS' tsc.log; then
+            echo "::error title=TypeScript::$(grep 'error TS' tsc.log | head -60 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: |
+          npx jest --runInBand --json --outputFile=jest.json || status=$?
+          node -e "
+            const r = require('./jest.json');
+            for (const s of r.testResults) {
+              if (s.status !== 'passed' && s.message) console.log('::error file=' + s.name.replace(process.cwd() + '/', '') + '::' + s.message.replace(/\u001b\[[0-9;]*m/g, '').replace(/\r?\n/g, '%0A').slice(0, 3000));
+              for (const t of s.assertionResults) if (t.status === 'failed') console.log('::error file=' + s.name.replace(process.cwd() + '/', '') + '::' + t.fullName + ': ' + t.failureMessages.join(' ').replace(/\u001b\[[0-9;]*m/g, '').replace(/\r?\n/g, '%0A').slice(0, 1500));
+            }
+          "
+          exit ${status:-0}
+
       - run: npm run build
+
+      # Integración contra MySQL real: recorre el flujo comercial completo por la API.
+      - name: Integration tests (MySQL)
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASSWORD: root
+          DB_NAME: erp_test
+        run: |
+          set -o pipefail
+          npx jest --config test/jest-e2e.json --runInBand --ci 2>&1 | tee e2e.log || status=$?
+          if [ "${status:-0}" != "0" ]; then
+            echo "::error title=Integración::$(sed -E 's/\x1b\[[0-9;]*m//g' e2e.log | grep -v '^\s*at ' | grep -E -B2 -A25 '●|Error|error' | head -120 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          fi
+          exit ${status:-0}
+
+      # Vulnerabilidades en dependencias que llegan a producción: bloquean.
+      - name: Audit (producción)
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          node -e "
+            const a = require('./audit.json');
+            const v = Object.values(a.vulnerabilities || {}).filter(x => ['high', 'critical'].includes(x.severity));
+            if (v.length) {
+              const lines = v.map(x => x.name + ' ' + x.range + ' [' + x.severity + '] via ' + x.via.map(y => typeof y === 'string' ? y : (y.title + ' ' + (y.url || ''))).join(' | ') + ' fix: ' + JSON.stringify(x.fixAvailable));
+              console.log('::error title=npm audit::' + lines.join('%0A'));
+              process.exit(1);
+            }
+          "
+
+      # Vulnerabilidades en herramientas de desarrollo: se informan sin bloquear.
+      - name: Audit (desarrollo)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+  # Migraciones: parte del esquema de main y aplica las migraciones nuevas, como en un despliegue real.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: erp_migrations
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: erp_migrations
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Esquema base (main)
+        run: |
+          git worktree add ../base origin/main
+          (cd ../base && npm ci --no-audit --no-fund && npx tsc -p tsconfig.build.json)
+          node scripts/ci/sync-base-schema.js ../base
+      - run: npm ci
+      - run: npm run build
+      - name: Aplicar migraciones nuevas
+        run: |
+          set -o pipefail
+          npx typeorm migration:run -d dist/database/data-source.js 2>&1 | tee migrate.log || status=$?
+          if [ "${status:-0}" != "0" ]; then
+            echo "::error title=Migraciones::$(grep -v '^\s*at ' migrate.log | tail -40 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          fi
+          exit ${status:-0}
+      - name: Esquema resultante vs. entidades
+        run: |
+          npx typeorm schema:log -d dist/database/data-source.js > schema.log 2>&1 || true
+          if grep -q 'Your schema is up to date' schema.log; then
+            echo "Esquema sincronizado con las entidades."
+          else
+            echo "::error title=Diferencias de esquema::$(grep -v '^\s*at ' schema.log | head -80 | sed -E 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+

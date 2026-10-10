@@ -135,4 +135,14 @@ describe('vat', () => {
     expect(toCents('1234.5')).toBe(123_450n);
     expect(() => toCents(-1)).toThrow(RangeError);
   });
+
+  it('aplica el descuento antes de calcular el IVA', () => {
+    const net = computeVatLine({ ...base, discountCents: 2_000n });
+    expect(formatCents(net.netCents)).toBe('180.00');
+    expect(formatCents(net.vatCents)).toBe('37.80');
+    const final = computeVatLine({ ...base, unitPriceCents: 12_100n, priceIncludesVat: true, discountCents: 4_200n });
+    expect(formatCents(final.totalCents)).toBe('200.00');
+    expect(final.netCents + final.vatCents).toBe(final.totalCents);
+    expect(() => computeVatLine({ ...base, discountCents: 30_000n })).toThrow(RangeError);
+  });
 });

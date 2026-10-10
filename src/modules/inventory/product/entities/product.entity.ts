@@ -33,6 +33,8 @@ const columnNumericTransformer = {
 @Index('UQ_products_tenant_sku', ['tenantId', 'sku'], { unique: true })
 @Index('UQ_products_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('IDX_products_tenant_barcode', ['tenantId', 'barcode'])
+@Index('IDX_products_tenant_category', ['tenantId', 'category'])
+@Index('IDX_products_tenant_brand', ['tenantId', 'brand'])
 @Index(['barcode'])
 export class ProductEntity {
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })

@@ -1,6 +1,12 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 import { VatChargeMode, VatExemptionReason, VoucherClass } from '../../fiscal/vat/vat';
 
+export enum SaleReturnStatus {
+  NONE = 'NONE',
+  PARTIAL = 'PARTIAL',
+  FULL = 'FULL',
+}
+
 export enum SaleFiscalStatus {
   NOT_ISSUED = 'NOT_ISSUED',
   PENDING = 'PENDING',
@@ -13,6 +19,8 @@ export enum SaleFiscalStatus {
 @Index('UQ_sales_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('UQ_sales_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true })
 @Index('IDX_sales_tenant_branch_created', ['tenantId', 'branchId', 'createdAt'])
+@Index('IDX_sales_tenant_created', ['tenantId', 'createdAt'])
+@Index('IDX_sales_tenant_customer', ['tenantId', 'customerPersonId', 'createdAt'])
 export class SaleEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -39,6 +47,10 @@ export class SaleEntity {
 
   @Column({ name: 'net_taxed_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
   netTaxedTotal!: string;
+
+  /** Total de descuentos por promociones. */
+  @Column({ name: 'discount_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  discountTotal!: string;
 
   @Column({ name: 'exempt_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
   exemptTotal!: string;
@@ -71,6 +83,12 @@ export class SaleEntity {
 
   @Column({ name: 'fiscal_status', type: 'enum', enum: SaleFiscalStatus, default: SaleFiscalStatus.NOT_ISSUED })
   fiscalStatus!: SaleFiscalStatus;
+
+  @Column({ name: 'return_status', type: 'enum', enum: SaleReturnStatus, default: SaleReturnStatus.NONE })
+  returnStatus!: SaleReturnStatus;
+
+  @Column({ name: 'refunded_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  refundedTotal!: string;
 
   @Column({ name: 'idempotency_key', type: 'varchar', length: 100 })
   idempotencyKey!: string;

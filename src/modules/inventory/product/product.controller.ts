@@ -1,7 +1,18 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards, BadRequestException, Query, ForbiddenException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Req, UseGuards, BadRequestException, Query, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { buildAuditContext } from '../../../common/http/request-context';
 import { UpdateProductVatDto } from './dto/update-product-vat.dto';
+import { BranchPriceView, BulkPriceResult, CatalogService, ProductListItem } from './catalog.service';
+import {
+  BulkPriceUpdateDto,
+  EditProductDto,
+  PriceHistoryQueryDto,
+  ProductListQueryDto,
+  UpdateProductStatusDto,
+  UpsertBranchPriceDto,
+} from './dto/catalog.dto';
+import { Paginated } from '../../../common/dto/page-query.dto';
+import { ProductPriceHistoryEntity } from './entities/product-price-history.entity';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../../common/guards/roles.guard';
@@ -21,7 +32,101 @@ import { requireAssignedBranch, requireBranchAccess } from '../../../common/secu
 @Controller('products')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly catalogService: CatalogService,
+  ) {}
+
+  /** Catálogo paginado con búsqueda (nombre, SKU, código de barras) y filtros. */
+  @Get()
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE, UserRoleEnum.USER)
+  async list(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Query() query: ProductListQueryDto,
+  ): Promise<Paginated<ProductListItem>> {
+    const actor = request.user as { branchId?: string | null; tenantRole?: string };
+    return this.catalogService.list(tenantId, query, requireAssignedBranch(actor));
+  }
+
+  /** Categorías y marcas existentes, para armar filtros. */
+  @Get('facets')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE, UserRoleEnum.USER)
+  facets(@GetTenantId() tenantId: string) {
+    return this.catalogService.facets(tenantId);
+  }
+
+  /**
+   * Ajuste masivo de precios por porcentaje (por categoría, marca, productos y/o sucursales).
+   * Enviar primero con "dryRun": true para ver la vista previa y luego con false para aplicar.
+   */
+  @Post('price-updates')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  @HttpCode(HttpStatus.OK)
+  bulkPriceUpdate(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Body() dto: BulkPriceUpdateDto,
+  ): Promise<BulkPriceResult> {
+    const actor = request.user as { id: string; branchId?: string | null };
+    return this.catalogService.bulkPriceUpdate(tenantId, actor.id, dto, actor.branchId ?? null, this.auditContext(request));
+  }
+
+  /** Edita los datos generales del producto (nombre, SKU, categoría, marca, etc.). */
+  @Patch(':id')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  edit(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Body() dto: EditProductDto,
+  ): Promise<ProductEntity> {
+    const actor = request.user as { id: string };
+    return this.catalogService.edit(tenantId, actor.id, productId, dto, this.auditContext(request));
+  }
+
+  /** Activa o desactiva un producto (no se borra: conserva el historial de ventas). */
+  @Patch(':id/status')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  setStatus(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Body() dto: UpdateProductStatusDto,
+  ): Promise<ProductEntity> {
+    const actor = request.user as { id: string };
+    return this.catalogService.setStatus(tenantId, actor.id, productId, dto, this.auditContext(request));
+  }
+
+  /** Precio, costo, margen y stock mínimo en una sucursal (la habilita si no estaba). */
+  @Put(':id/branches/:branchId')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  upsertBranchPrice(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: UpsertBranchPriceDto,
+  ): Promise<BranchPriceView> {
+    const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
+    if (actor.branchId && actor.branchId !== branchId) {
+      throw new ForbiddenException('Solo puede modificar precios de su sucursal.');
+    }
+    return this.catalogService.upsertBranchPrice(tenantId, actor.id, productId, branchId, dto, this.auditContext(request));
+  }
+
+  /** Historial de cambios de costo y precio de un producto. */
+  @Get(':id/price-history')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.USER)
+  priceHistory(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) productId: string,
+    @Query() query: PriceHistoryQueryDto,
+  ): Promise<Paginated<ProductPriceHistoryEntity>> {
+    const actor = request.user as { branchId?: string | null };
+    return this.catalogService.priceHistory(tenantId, productId, query, actor.branchId ?? null);
+  }
 
   @Post()
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK)

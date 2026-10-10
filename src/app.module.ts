@@ -19,6 +19,10 @@ import { PlatformModule } from './modules/platform/platform.module';
 import { PurchasesModule } from './modules/purchases/purchases.module';
 import { CashModule } from './modules/cash/cash.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { InventoryOpsModule } from './modules/inventory/ops/inventory-ops.module';
+import { ReportsModule } from './modules/reports/reports.module';
+import { MarketingModule } from './modules/marketing/marketing.module';
+import { FiscalModule } from './modules/fiscal/fiscal.module';
 
 @Module({
   imports: [
@@ -77,6 +81,10 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     PlatformModule,
     PurchasesModule,
     CashModule,
+    InventoryOpsModule,
+    ReportsModule,
+    MarketingModule,
+    FiscalModule,
   ],
   controllers: [AppController],
   providers: [

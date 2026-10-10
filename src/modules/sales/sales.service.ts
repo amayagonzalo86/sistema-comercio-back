@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { TenantEntity } from '../platform/entities/tenant.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
@@ -20,7 +20,7 @@ import { InventoryAuditContext } from '../inventory/product/inventory-audit-cont
 import { SaleEntity, SaleFiscalStatus } from './entities/sale.entity';
 import { SaleItemEntity } from './entities/sale-item.entity';
 import { SalePaymentEntity } from './entities/sale-payment.entity';
-import { CreateSaleDto } from './dto/create-sale.dto';
+import { CreateSaleDto, QuoteSaleDto } from './dto/create-sale.dto';
 import { CashMovementDirection, CashMovementEntity, CashMovementType } from '../cash/entities/cash-movement.entity';
 import { CashSessionEntity, CashSessionStatus } from '../cash/entities/cash-session.entity';
 import { FiscalProfileEntity } from '../platform/entities/fiscal-profile.entity';
@@ -38,8 +38,25 @@ import {
   VatTreatment,
   VoucherClass,
 } from '../fiscal/vat/vat';
+import { loadActivePromotions } from '../marketing/promotion-loader';
+import { AppliedPromotion, bestPromotion } from '../marketing/domain/promotions';
+import { localToday, localWeekday } from '../reports/domain/period';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
+
+export interface SaleQuote {
+  voucherClass: VoucherClass;
+  vatChargeMode: string;
+  requiresCustomerCuit: boolean;
+  customerCuitValid: boolean;
+  lines: Array<Record<string, unknown>>;
+  subtotal: string;
+  taxTotal: string;
+  discountTotal: string;
+  total: string;
+  vatBreakdown: Array<{ arcaVatRateId: number; rate: string; base: string; vat: string }>;
+  fiscalNotes: Record<string, unknown>;
+}
 
 type PricedLine = {
   line: CreateSaleDto['lines'][number];
@@ -48,6 +65,7 @@ type PricedLine = {
   unitPriceCents: bigint;
   vatTreatment: VatTreatment;
   vat: VatLineResult;
+  promotion: AppliedPromotion | null;
 };
 
 @Injectable()
@@ -157,6 +175,11 @@ export class SalesService {
         );
       }
 
+      // Promociones vigentes hoy (fecha y día de la semana en la zona horaria de la empresa).
+      const timeZone = tenant.timeZone || 'America/Argentina/Buenos_Aires';
+      const promotions = await loadActivePromotions(queryRunner.manager, tenantId, localToday(timeZone));
+      const weekday = localWeekday(timeZone);
+
       const pricedLines: PricedLine[] = [];
       for (const line of normalizedLines) {
         const stock = await queryRunner.manager
@@ -176,9 +199,22 @@ export class SalesService {
         const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
         const unitPriceCents = toMinorUnits(Number(stock.sellingPrice));
         const vatTreatment = stock.product.vatTreatment ?? VatTreatment.TAXED;
+        const promotion = bestPromotion(
+          promotions,
+          {
+            productId: line.productId,
+            category: stock.product.category ?? null,
+            brand: stock.product.brand ?? null,
+            branchId: branch.id,
+            quantityMilli,
+            unitPriceCents,
+          },
+          weekday,
+        );
         let vat: VatLineResult;
         try {
           vat = computeVatLine({
+            discountCents: promotion?.discountCents ?? 0n,
             unitPriceCents,
             quantityMilli,
             treatment: vatTreatment,
@@ -204,6 +240,7 @@ export class SalesService {
           unitPriceCents,
           vatTreatment,
           vat,
+          promotion,
         });
       }
 
@@ -276,6 +313,7 @@ export class SalesService {
         taxTotal: formatCents(taxTotalCents),
         total: formatCents(totalCents),
         netTaxedTotal: formatCents(vatSummary.netCents),
+        discountTotal: formatCents(pricedLines.reduce((sum, item) => sum + (item.promotion?.discountCents ?? 0n), 0n)),
         exemptTotal: formatCents(vatSummary.exemptCents),
         notTaxedTotal: formatCents(vatSummary.notTaxedCents),
         voucherClass: policy.voucherClass,
@@ -291,7 +329,7 @@ export class SalesService {
       }));
 
       const itemRepository = queryRunner.manager.getRepository(SaleItemEntity);
-      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, vatTreatment, vat }) =>
+      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, vatTreatment, vat, promotion }) =>
         itemRepository.create({
           tenantId,
           saleId: sale.id,
@@ -309,6 +347,10 @@ export class SalesService {
           arcaVatRateId: vat.arcaVatRateId,
           priceIncludesVat: Boolean(stock.product.priceIncludesVat),
           total: formatCents(vat.totalCents),
+          unitCost: formatCents(costSnapshotCents(stock.costPrice)),
+          discountAmount: formatCents(promotion?.discountCents ?? 0n),
+          promotionId: promotion?.promotionId ?? null,
+          promotionName: promotion?.name.slice(0, 120) ?? null,
         }),
       );
       await itemRepository.save(items);
@@ -463,6 +505,138 @@ export class SalesService {
     }
   }
 
+  /**
+   * Cotiza una venta con las mismas reglas que create(): precio de la sucursal, promociones vigentes,
+   * IVA según emisor/cliente y clase de comprobante. No reserva stock ni registra nada.
+   */
+  async quote(tenantId: string, dto: QuoteSaleDto, allowedBranchId: string | null = null): Promise<SaleQuote> {
+    if (allowedBranchId && allowedBranchId !== dto.branchId) {
+      throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
+    }
+    if (new Set(dto.lines.map((line) => line.productId)).size !== dto.lines.length) {
+      throw new BadRequestException('Cada producto debe aparecer una sola vez en la venta.');
+    }
+    const manager = this.dataSource.manager;
+    const [tenant, branch] = await Promise.all([
+      manager.findOne(TenantEntity, { where: { id: tenantId } }),
+      manager.findOne(BranchEntity, { where: { id: dto.branchId, tenantId, status: true } }),
+    ]);
+    if (!tenant || !branch) {
+      throw new NotFoundException('La sucursal no existe o no está activa en esta empresa.');
+    }
+
+    let customerCondition = TaxConditionEnum.CONSUMIDOR_FINAL;
+    let customerTaxId: string | null = null;
+    if (dto.customerPersonId) {
+      const customer = await manager.findOne(PersonEntity, {
+        where: { id: dto.customerPersonId, tenantId, isActive: true },
+        select: { id: true, personType: true, vatCondition: true, nationalId: true },
+      });
+      if (!customer || customer.personType === PersonType.SUPPLIER) {
+        throw new NotFoundException('El cliente no existe, no está activo o no está habilitado para ventas.');
+      }
+      customerCondition = parseTaxCondition(customer.vatCondition) ?? TaxConditionEnum.CONSUMIDOR_FINAL;
+      customerTaxId = customer.nationalId ?? null;
+    }
+    const issuerCondition = await this.resolveIssuerCondition(manager, tenantId);
+    const policy = this.resolvePolicy(issuerCondition, customerCondition, dto as CreateSaleDto);
+
+    const timeZone = tenant.timeZone || 'America/Argentina/Buenos_Aires';
+    const promotions = await loadActivePromotions(manager, tenantId, localToday(timeZone));
+    const weekday = localWeekday(timeZone);
+
+    const stocks = await manager.find(ProductBranchEntity, {
+      where: { tenantId, branchId: dto.branchId, productId: In(dto.lines.map((line) => line.productId)), isActive: true },
+      relations: { product: true },
+    });
+    const byProduct = new Map(stocks.map((stock) => [stock.productId, stock]));
+
+    const lines = dto.lines.map((line) => {
+      const stock = byProduct.get(line.productId);
+      if (!stock?.product?.status) {
+        throw new NotFoundException(`El producto ${line.productId} no está activo en esta sucursal.`);
+      }
+      const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
+      const unitPriceCents = toMinorUnits(Number(stock.sellingPrice));
+      const promotion = bestPromotion(
+        promotions,
+        {
+          productId: line.productId,
+          category: stock.product.category ?? null,
+          brand: stock.product.brand ?? null,
+          branchId: branch.id,
+          quantityMilli,
+          unitPriceCents,
+        },
+        weekday,
+      );
+      let vat: VatLineResult;
+      try {
+        vat = computeVatLine({
+          discountCents: promotion?.discountCents ?? 0n,
+          unitPriceCents,
+          quantityMilli,
+          treatment: stock.product.vatTreatment ?? VatTreatment.TAXED,
+          rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
+          priceIncludesVat: Boolean(stock.product.priceIncludesVat),
+          chargeMode: policy.chargeMode,
+        });
+      } catch (error) {
+        if (error instanceof RangeError) {
+          throw new BadRequestException(`El producto ${stock.product.sku} tiene una configuración de IVA inválida: ${error.message}`);
+        }
+        throw error;
+      }
+      const availableMilli = BigInt(Math.round(Number(stock.stock) * 1000));
+      return {
+        productId: line.productId,
+        sku: stock.product.sku,
+        name: stock.product.name,
+        quantity: formatMilli(quantityMilli),
+        unitPrice: formatCents(unitPriceCents),
+        discount: formatCents(promotion?.discountCents ?? 0n),
+        promotion: promotion ? { id: promotion.promotionId, name: promotion.name } : null,
+        netAmount: formatCents(vat.netCents),
+        taxAmount: formatCents(vat.vatCents),
+        exemptAmount: formatCents(vat.exemptCents),
+        notTaxedAmount: formatCents(vat.notTaxedCents),
+        total: formatCents(vat.totalCents),
+        availableStock: formatMilli(availableMilli),
+        stockSufficient: availableMilli >= quantityMilli,
+        vat,
+        discountCents: promotion?.discountCents ?? 0n,
+      };
+    });
+
+    const summary = summarizeVat(lines.map((line) => line.vat));
+    const discountCents = lines.reduce((sum, line) => sum + line.discountCents, 0n);
+    const draft = {
+      voucherClass: policy.voucherClass,
+      taxTotal: formatCents(summary.vatCents),
+      customerVatCondition: customerCondition,
+      vatExemptionReason: dto.vatExemption?.reason ?? null,
+      vatExemptionNote: dto.vatExemption?.note ?? null,
+    } as SaleEntity;
+    return {
+      voucherClass: policy.voucherClass,
+      vatChargeMode: policy.chargeMode,
+      requiresCustomerCuit: policy.requiresCustomerCuit,
+      customerCuitValid: isValidCuit(customerTaxId),
+      lines: lines.map(({ vat: _vat, discountCents: _discount, ...rest }) => rest),
+      subtotal: formatCents(summary.netCents + summary.exemptCents + summary.notTaxedCents),
+      taxTotal: formatCents(summary.vatCents),
+      discountTotal: formatCents(discountCents),
+      total: formatCents(summary.totalCents),
+      vatBreakdown: summary.byRate.map((rate) => ({
+        arcaVatRateId: rate.arcaVatRateId,
+        rate: formatCents(rate.rateBasisPoints),
+        base: formatCents(rate.baseCents),
+        vat: formatCents(rate.vatCents),
+      })),
+      fiscalNotes: buildFiscalNotes(draft),
+    };
+  }
+
   async findOne(
     tenantId: string,
     saleId: string,
@@ -565,6 +739,12 @@ function buildFiscalNotes(sale: SaleEntity): Record<string, unknown> {
     notes.vatExemption = { reason: sale.vatExemptionReason, note: sale.vatExemptionNote ?? null };
   }
   return notes;
+}
+
+/** Costo para el snapshot de margen: un costo no cargado o inválido no debe impedir vender. */
+function costSnapshotCents(value: unknown): bigint {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) && numeric >= 0 ? toMinorUnits(numeric) : 0n;
 }
 
 function toMinorUnits(value: number): bigint {

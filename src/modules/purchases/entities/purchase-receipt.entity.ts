@@ -1,9 +1,11 @@
-import { CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { PurchaseOrderEntity } from './purchase-order.entity';
 
 @Entity('purchase_receipts')
 @Index('UQ_purchase_receipts_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('UQ_purchase_receipts_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true })
 @Index('IDX_purchase_receipts_tenant_branch_created', ['tenantId', 'branchId', 'createdAt'])
+@Index('IDX_purchase_receipts_order', ['tenantId', 'purchaseOrderId'])
 export class PurchaseReceiptEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -16,6 +18,13 @@ export class PurchaseReceiptEntity {
 
   @Column({ name: 'supplier_person_id', type: 'varchar', length: 36 })
   supplierPersonId!: string;
+
+  @Column({ name: 'purchase_order_id', type: 'varchar', length: 36, nullable: true })
+  purchaseOrderId?: string | null;
+
+  @ManyToOne(() => PurchaseOrderEntity, { onDelete: 'RESTRICT', createForeignKeyConstraints: true })
+  @JoinColumn({ name: 'purchase_order_id', foreignKeyConstraintName: 'FK_purchase_receipts_order' })
+  purchaseOrder?: PurchaseOrderEntity;
 
   @Column({ type: 'char', length: 3 })
   currency!: string;

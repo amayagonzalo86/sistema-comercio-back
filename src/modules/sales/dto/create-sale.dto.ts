@@ -82,3 +82,25 @@ export class CreateSaleDto {
   @Type(() => SaleVatExemptionDto)
   vatExemption?: SaleVatExemptionDto;
 }
+
+/** POST /sales/quote — calcula la venta (promociones, IVA y total) sin registrarla. */
+export class QuoteSaleDto {
+  @IsUUID('4')
+  branchId!: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  customerPersonId?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => CreateSaleLineDto)
+  lines!: CreateSaleLineDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SaleVatExemptionDto)
+  vatExemption?: SaleVatExemptionDto;
+}

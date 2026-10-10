@@ -93,6 +93,17 @@ export class EnvironmentVariables {
   /** Tamaño máximo del cuerpo JSON. Evita ataques de agotamiento de memoria. */
   @IsString()
   BODY_LIMIT: string = '200kb';
+
+  /** Clave para cifrar el ticket de ARCA guardado en la base. Si falta se deriva de JWT_ACCESS_SECRET. */
+  @IsOptional()
+  @IsString()
+  @MinLength(32, { message: 'FISCAL_ENCRYPTION_KEY debe tener al menos 32 caracteres aleatorios.' })
+  FISCAL_ENCRYPTION_KEY?: string;
+
+  /** Carpeta del servidor con certificados/claves de ARCA referenciados como "file:archivo". */
+  @IsOptional()
+  @IsString()
+  FISCAL_SECRETS_DIR?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

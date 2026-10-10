@@ -38,18 +38,15 @@ POST /api/v1/sales   (Idempotency-Key obligatorio)
   "vatExemption": { "reason": "EXPORT", "note": "Permiso de embarque 26001EC01123456X" } }
 ```
 
-### Pendiente para emitir comprobantes válidos
+### Factura electrónica
 
-Las ventas quedan con `fiscalStatus = NOT_ISSUED`: **todavía no son facturas**. Para emitir facturas electrónicas falta:
+La emisión ante ARCA está implementada (WSAA + WSFEv1): facturas y notas de crédito A, B y C con CAE, numeración
+serializada por punto de venta, condición frente al IVA del receptor (obligatoria — rechazo automático desde el
+1/12/2026), comprobante asociado en notas de crédito y QR según la especificación de ARCA. La puesta en marcha
+(certificado, puntos de venta y pruebas en homologación) está en [alta en ARCA](../operations/alta-arca.md).
 
-1. Adaptador WSAA (autenticación con certificado digital) + WSFEv1 (solicitud de CAE) en homologación.
-2. Puntos de venta y numeración correlativa por CUIT / punto de venta / tipo de comprobante, con bloqueo transaccional.
-3. Guardar CAE, vencimiento y respuesta de ARCA; generar el PDF con QR obligatorio.
-4. Notas de crédito/débito vinculadas al comprobante original.
-5. Certificados en un gestor de secretos (el modelo ya guarda solo referencias, nunca el contenido).
-
-Los datos que WSFEv1 necesita ya se guardan: clase de comprobante, neto gravado, IVA por alícuota (`arca_vat_rate_id`),
-exento, no gravado y la condición de IVA del receptor.
+Pendiente: facturas E de exportación (WSFEX), Factura de Crédito Electrónica MiPyME, percepciones en el comprobante
+y exportación del Libro IVA Digital.
 
 ## 2. Precios al consumidor (Ley 24.240 de Defensa del Consumidor)
 

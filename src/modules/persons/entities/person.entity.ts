@@ -69,6 +69,13 @@ export class PersonEntity extends BaseAuditEntity {
   @Column({ type: 'boolean', nullable: false, default: true})
   isActive!: boolean;
 
+  /** Consentimiento para recibir comunicaciones comerciales (Ley 25.326, art. 27). */
+  @Column({ name: 'marketing_consent', type: 'boolean', default: false })
+  marketingConsent!: boolean;
+
+  @Column({ name: 'marketing_consent_at', type: 'timestamp', precision: 6, nullable: true })
+  marketingConsentAt?: Date | null;
+
   constructor(partial?: Partial<PersonEntity>) {
     super(partial);
     if (partial) {
