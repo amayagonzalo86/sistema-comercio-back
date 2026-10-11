@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { BranchEntity } from '../branches/entities/branch.entity';
 import { UserEntity } from '../users/entities/user.entity';
 import { MembershipStatus, TenantMembershipEntity, TenantRole } from '../platform/entities/tenant-membership.entity';
@@ -34,6 +34,18 @@ import { CashRegisterEntity } from './entities/cash-register.entity';
 import { CashSessionEntity, CashSessionStatus } from './entities/cash-session.entity';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
+
+/** Caja con su sesión abierta (si la hay), para que el frontend sepa dónde imputar el efectivo. */
+export type CashRegisterWithSession = CashRegisterEntity & {
+  openSession: {
+    id: string;
+    currency: string;
+    openingAmount: string;
+    expectedAmount: string;
+    openedByUserId: string;
+    openedAt: Date;
+  } | null;
+};
 
 @Injectable()
 export class CashService {
@@ -117,15 +129,37 @@ export class CashService {
     tenantId: string,
     allowedBranchId: string | null,
     requestedBranchId?: string,
-  ): Promise<CashRegisterEntity[]> {
+  ): Promise<CashRegisterWithSession[]> {
     if (allowedBranchId && requestedBranchId && allowedBranchId !== requestedBranchId) {
       throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
     }
     const branchId = allowedBranchId ?? requestedBranchId;
-    return this.registerRepository.find({
+    const registers = await this.registerRepository.find({
       where: { tenantId, isActive: true, ...(branchId ? { branchId } : {}) },
       order: { branchId: 'ASC', code: 'ASC' },
       take: 100,
+    });
+    if (registers.length === 0) return [];
+    // La sesión abierta de cada caja permite al punto de venta cobrar en efectivo sin pasos extra.
+    const openSessions = await this.sessionRepository.find({
+      where: { tenantId, status: CashSessionStatus.OPEN, cashRegisterId: In(registers.map((register) => register.id)) },
+    });
+    const byRegister = new Map(openSessions.map((session) => [session.cashRegisterId, session]));
+    return registers.map((register) => {
+      const session = byRegister.get(register.id);
+      return {
+        ...register,
+        openSession: session
+          ? {
+              id: session.id,
+              currency: session.currency,
+              openingAmount: session.openingAmount,
+              expectedAmount: session.expectedAmount,
+              openedByUserId: session.openedByUserId,
+              openedAt: session.openedAt,
+            }
+          : null,
+      };
     });
   }
 
