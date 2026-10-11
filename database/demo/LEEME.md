@@ -1,5 +1,20 @@
 # Datos de demostración
 
+## Opción rápida: `base-completa.sql` (todo en un archivo)
+
+Crea la base `sistema_comercio`, **todas las tablas**, el usuario administrador y los datos demo.
+No hace falta `npm run seed` ni arrancar la API antes. **Borra y recrea todas las tablas.**
+
+```powershell
+mysql -u root -p --default-character-set=utf8mb4 -e "source database/demo/base-completa.sql"
+```
+
+Ingreso: usuario `admin`, contraseña `Admin-Comercio-2026!` (cambiala después de entrar).
+Para regenerarlo cuando cambien las entidades: esquema con `synchronize` + `npm run seed` + `datos-demo.sql`,
+y volcado con `mysqldump` (esquema, tablas del administrador y luego `datos-demo.sql`).
+
+## Opción sobre una base existente: `datos-demo.sql`
+
 `datos-demo.sql` carga la empresa ficticia **Almacenes del Centro SRL** para probar el frontend:
 4 locales + depósito, 37 productos, 32 clientes, 4 proveedores, ~3.700 ventas de los últimos 90 días,
 cajas abiertas hoy, pedidos de compra, deuda con proveedores (una vencida), transferencias y promociones.
