@@ -56,17 +56,17 @@ class Raw:
 
 
 def at(seconds_from_today_midnight: int) -> Raw:
-    """Instante UTC relativo a la medianoche de hoy en Argentina (@base)."""
-    return Raw(f"TIMESTAMPADD(SECOND,{seconds_from_today_midnight},@base)")
+    """Instante UTC relativo a la medianoche de hoy en Argentina (sin variables de sesión)."""
+    return Raw(f"TIMESTAMPADD(SECOND,{seconds_from_today_midnight},(TIMESTAMP(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','-03:00')))+INTERVAL 3 HOUR))")
 
 
 def at_past(seconds_from_today_midnight: int, rank: int) -> Raw:
     """Igual que at() pero nunca en el futuro (ventas de hoy)."""
-    return Raw(f"LEAST(TIMESTAMPADD(SECOND,{seconds_from_today_midnight},@base),TIMESTAMPADD(SECOND,{-(rank * 300 + 120)},UTC_TIMESTAMP(6)))")
+    return Raw(f"LEAST(TIMESTAMPADD(SECOND,{seconds_from_today_midnight},(TIMESTAMP(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','-03:00')))+INTERVAL 3 HOUR)),TIMESTAMPADD(SECOND,{-(rank * 300 + 120)},UTC_TIMESTAMP(6)))")
 
 
 def day_date(days_offset: int) -> Raw:
-    return Raw(f"DATE_ADD(@today, INTERVAL {days_offset} DAY)")
+    return Raw(f"DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','-03:00')), INTERVAL {days_offset} DAY)")
 
 
 lines: list[str] = []
@@ -85,7 +85,9 @@ def insert(table: str, columns: list[str], rows: list[list], batch: int = 250) -
 
 # ── Identificadores fijos ───────────────────────────────────────
 TENANT = "9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f"
-ACTOR = Raw("@admin_id")
+ADMIN_USERNAME = "admin"  # usuario creado por npm run seed (ADMIN_BOOTSTRAP_USERNAME)
+ADMIN_ID_SQL = f"(SELECT id FROM users WHERE username = '{ADMIN_USERNAME}' LIMIT 1)"
+ACTOR = Raw(ADMIN_ID_SQL)
 
 BRANCHES = [
     # id, code, name, address, phone, sells, weight
@@ -221,7 +223,7 @@ emit("""-- ═══════════════════════
 --  REQUISITOS
 --   1. Esquema creado (arrancar la API una vez con NODE_ENV=development).
 --   2. Usuario administrador creado con:  npm run seed
---      Si usaste otro ADMIN_BOOTSTRAP_USERNAME, cambialo en @admin_username.
+--      Si usaste otro ADMIN_BOOTSTRAP_USERNAME, reemplazá username = 'admin' por el tuyo.
 --
 --  EJECUCIÓN:  mysql -u <usuario> -p <base> < database/demo/datos-demo.sql
 --
@@ -231,30 +233,12 @@ emit("""-- ═══════════════════════
 -- ═══════════════════════════════════════════════════════════════════════════
 
 SET NAMES utf8mb4;
--- La conexión usa la MISMA intercalación (collation) que tus tablas: evita el error 1267
--- "Illegal mix of collations" sin importar si la base es utf8mb4_unicode_ci o utf8mb4_0900_ai_ci.
-SET @erp_collation = (SELECT COLLATION_NAME FROM information_schema.COLUMNS
-                       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username' LIMIT 1);
-SET @erp_set_names = CONCAT('SET NAMES utf8mb4 COLLATE ', COALESCE(@erp_collation, 'utf8mb4_unicode_ci'));
-PREPARE erp_stmt FROM @erp_set_names;
-EXECUTE erp_stmt;
-DEALLOCATE PREPARE erp_stmt;
-
-SET @admin_username = 'admin';
-SET @admin_id = (SELECT id FROM users WHERE username = @admin_username LIMIT 1);
-SET @admin_hash = (SELECT password_hash FROM users WHERE username = @admin_username LIMIT 1);
-
--- Si no existe el administrador, el script se detiene acá con un error claro.
-DROP TEMPORARY TABLE IF EXISTS _falta_usuario_admin_ejecutar_npm_run_seed;
-CREATE TEMPORARY TABLE _falta_usuario_admin_ejecutar_npm_run_seed (admin_id VARCHAR(36) NOT NULL);
-INSERT INTO _falta_usuario_admin_ejecutar_npm_run_seed VALUES (@admin_id);
-DROP TEMPORARY TABLE _falta_usuario_admin_ejecutar_npm_run_seed;
-
--- Fechas relativas a HOY en Argentina (UTC-3): los datos siempre quedan recientes.
-SET @today = DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '-03:00'));
-SET @base = TIMESTAMP(@today) + INTERVAL 3 HOUR;  -- medianoche de hoy en Argentina, expresada en UTC
+-- MySQL Workbench trae activado el "modo seguro" (error 1175 en DELETE): se desactiva solo en esta sesión.
+SET SQL_SAFE_UPDATES = 0;
+-- Sin variables de sesión (@...): funciona igual en mysql, Workbench (cualquier modo de ejecución) y DBeaver.
+-- Si el administrador no existe (falta npm run seed), la primera inserción falla con "user_id cannot be null".
 """)
-emit(f"SET @demo = '{TENANT}';")
+
 emit("""
 START TRANSACTION;
 
@@ -264,14 +248,14 @@ for table in ["supplier_payment_allocations", "supplier_payments", "supplier_pay
               "fiscal_documents", "sale_payments", "sale_items", "sales", "cash_movements", "cash_sessions", "cash_registers",
               "inventory_movements", "product_price_history", "product_price_lists", "price_lists", "product_branches", "products",
               "promotions", "fiscal_points_of_sale", "arca_tickets", "fiscal_profiles", "document_sequences", "audit_events"]:
-    emit(f"DELETE FROM `{table}` WHERE tenant_id = @demo;")
+    emit(f"DELETE FROM `{table}` WHERE tenant_id = '{TENANT}';")
 emit("DELETE ur FROM users_roles ur JOIN users u ON u.id = ur.user_id WHERE u.username LIKE 'demo.%';")
 emit("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE username LIKE 'demo.%');")
-emit("DELETE FROM tenant_memberships WHERE tenant_id = @demo OR user_id IN (SELECT id FROM (SELECT id FROM users WHERE username LIKE 'demo.%') x);")
+emit(f"DELETE FROM tenant_memberships WHERE tenant_id = '{TENANT}' OR user_id IN (SELECT id FROM (SELECT id FROM users WHERE username LIKE 'demo.%') x);")
 emit("DELETE FROM users WHERE username LIKE 'demo.%';")
-emit("DELETE FROM persons WHERE tenant_id = @demo;")
-emit("DELETE FROM branches WHERE tenant_id = @demo;")
-emit("DELETE FROM tenants WHERE id = @demo;")
+emit(f"DELETE FROM persons WHERE tenant_id = '{TENANT}';")
+emit(f"DELETE FROM branches WHERE tenant_id = '{TENANT}';")
+emit(f"DELETE FROM tenants WHERE id = '{TENANT}';")
 
 # ── Empresa, sucursales, perfil fiscal ──────────────────────────
 emit("\n-- ── Empresa y sucursales ─────────────────────────────────────────────────────")
@@ -295,16 +279,17 @@ emit("INSERT INTO roles (id, name, description) SELECT UUID(), r.name, r.descrip
      "SELECT 'ADMIN', 'Administración') r WHERE NOT EXISTS (SELECT 1 FROM roles x WHERE x.name = r.name);")
 # Membresía del administrador con fecha antigua: la empresa demo queda como predeterminada al ingresar.
 emit("INSERT INTO tenant_memberships (id, tenant_id, user_id, branch_id, role, status, accepted_at, created_at, updated_at) "
-     f"VALUES ('{uid()}', @demo, @admin_id, NULL, 'OWNER', 'ACTIVE', '2020-01-01 00:00:00', '2020-01-01 00:00:00', '2020-01-01 00:00:00');")
+     f"VALUES ('{uid()}', '{TENANT}', {ADMIN_ID_SQL}, NULL, 'OWNER', 'ACTIVE', '2020-01-01 00:00:00', '2020-01-01 00:00:00', '2020-01-01 00:00:00');")
 insert("persons", ["id", "tenant_id", "first_name", "last_name", "vat_condition", "person_type", "isActive", "marketing_consent"],
        [[USER_PERSON_IDS[u[0]], TENANT, u[1], u[2], "CONSUMIDOR_FINAL", "BOTH", True, False] for u in DEMO_USERS])
 for username, first, last, tenant_role, global_role, branch_index in DEMO_USERS:
     branch_id = BRANCHES[branch_index][0] if branch_index is not None else None
     emit("INSERT INTO users (id, username, password_hash, isActive, person_id, branch_id) "
-         f"VALUES ('{USER_IDS[username]}', '{username}', @admin_hash, 1, '{USER_PERSON_IDS[username]}', {q(branch_id)});")
+         f"SELECT '{USER_IDS[username]}', '{username}', password_hash, 1, '{USER_PERSON_IDS[username]}', {q(branch_id)} "
+         f"FROM users WHERE username = '{ADMIN_USERNAME}' LIMIT 1;")
     emit(f"INSERT INTO users_roles (user_id, role_id) SELECT '{USER_IDS[username]}', id FROM roles WHERE name = '{global_role}' LIMIT 1;")
     emit("INSERT INTO tenant_memberships (id, tenant_id, user_id, branch_id, role, status, accepted_at) "
-         f"VALUES ('{uid()}', @demo, '{USER_IDS[username]}', {q(branch_id)}, '{tenant_role}', 'ACTIVE', UTC_TIMESTAMP(6));")
+         f"VALUES ('{uid()}', '{TENANT}', '{USER_IDS[username]}', {q(branch_id)}, '{tenant_role}', 'ACTIVE', UTC_TIMESTAMP(6));")
 
 # ── Clientes y proveedores ──────────────────────────────────────
 emit("\n-- ── Clientes y proveedores ───────────────────────────────────────────────────")
@@ -585,16 +570,16 @@ insert("promotions", ["id", "tenant_id", "name", "description", "type", "percent
      json.dumps([BRANCHES[3][0]]), None, None, day_date(5), day_date(35), True, ACTOR],
 ])
 
-emit("""
+emit(f"""
 COMMIT;
 
 -- Resumen de lo cargado
-SELECT 'Empresa' AS dato, legal_name AS valor FROM tenants WHERE id = @demo
-UNION ALL SELECT 'Sucursales', COUNT(*) FROM branches WHERE tenant_id = @demo
-UNION ALL SELECT 'Productos', COUNT(*) FROM products WHERE tenant_id = @demo
-UNION ALL SELECT 'Clientes y proveedores', COUNT(*) FROM persons WHERE tenant_id = @demo
-UNION ALL SELECT 'Ventas', COUNT(*) FROM sales WHERE tenant_id = @demo
-UNION ALL SELECT 'Facturación total', CONCAT('$ ', FORMAT(SUM(total), 2, 'es_AR')) FROM sales WHERE tenant_id = @demo
+SELECT 'Empresa' AS dato, legal_name AS valor FROM tenants WHERE id = '{TENANT}'
+UNION ALL SELECT 'Sucursales', COUNT(*) FROM branches WHERE tenant_id = '{TENANT}'
+UNION ALL SELECT 'Productos', COUNT(*) FROM products WHERE tenant_id = '{TENANT}'
+UNION ALL SELECT 'Clientes y proveedores', COUNT(*) FROM persons WHERE tenant_id = '{TENANT}'
+UNION ALL SELECT 'Ventas', COUNT(*) FROM sales WHERE tenant_id = '{TENANT}'
+UNION ALL SELECT 'Facturación total', CONCAT('$ ', FORMAT(SUM(total), 2, 'es_AR')) FROM sales WHERE tenant_id = '{TENANT}'
 UNION ALL SELECT 'Usuarios demo', GROUP_CONCAT(username) FROM users WHERE username LIKE 'demo.%';
 """)
 

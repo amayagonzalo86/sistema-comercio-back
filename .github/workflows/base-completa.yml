@@ -1,17 +1,16 @@
-name: Generar base completa (temporal, no mergear)
+name: Validar base completa (temporal, no mergear)
 on:
   push:
     branches: ['tmp/base-completa-no-mergear']
-permissions:
-  contents: write
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
     services:
       mysql:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root
+          TZ: America/Argentina/Buenos_Aires
         ports: ['3306:3306']
         options: >-
           --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-timeout=5s --health-retries=20
@@ -32,42 +31,35 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci && npm run build
-      - name: Esquema real (synchronize) + administrador
+      - name: Cargar base completa (dos veces) y comparar esquema
         run: |
           M="mysql -h127.0.0.1 -uroot -proot"
-          $M -e "CREATE DATABASE sistema_comercio CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-          node dist/main.js > api.log 2>&1 &
-          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
-          kill %1; sleep 2
-          node dist/seed.js
-      - name: Componer base-completa.sql
-        run: |
-          D="mysqldump -h127.0.0.1 -uroot -proot --skip-comments --skip-dump-date --set-gtid-purged=OFF"
-          mkdir out
-          {
-            cat database/demo/encabezado-base-completa.sql
-            $D --no-data --add-drop-table sistema_comercio
-            echo "-- ── Administrador inicial (usuario: admin) ──"
-            $D --no-create-info --skip-extended-insert sistema_comercio roles tenants persons users users_roles tenant_memberships typeorm_metadata
-            echo "-- ── Datos de demostración ──"
-            cat database/demo/datos-demo.sql
-          } > out/base-completa.sql
-          ls -la out
-      - name: Validar en un servidor MySQL vacío
-        run: |
-          M="mysql -h127.0.0.1 -uroot -proot"
-          $M -e "DROP DATABASE sistema_comercio"
-          $M --default-character-set=utf8mb4 -e "source out/base-completa.sql"
-          $M --default-character-set=utf8mb4 -e "source out/base-completa.sql"
+          $M -e "SELECT @@global.time_zone, @@system_time_zone, NOW(), UTC_TIMESTAMP()"
+          $M --default-character-set=utf8mb4 -e "source database/demo/base-completa.sql"
+          $M --default-character-set=utf8mb4 -e "source database/demo/base-completa.sql"
           npx typeorm schema:log -d dist/database/data-source.js > schema.log 2>&1 || true
-          cat schema.log | tail -20
-          grep -q 'Your schema is up to date' schema.log
+          tail -5 schema.log; grep -q 'Your schema is up to date' schema.log
+      - name: Datos demo sentencia por sentencia en conexiones separadas (sin estado de sesión)
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          sql = open('database/demo/datos-demo.sql', encoding='utf-8').read()
+          stmts, buf = [], []
+          for line in sql.split('\n'):
+              if not buf and (line.startswith('--') or not line.strip()):
+                  continue
+              buf.append(line)
+              if line.rstrip().endswith(';'):
+                  stmts.append('\n'.join(buf)); buf = []
+          print('sentencias', len(stmts))
+          for i, st in enumerate(stmts):
+              r = subprocess.run(['mysql','-h127.0.0.1','-uroot','-proot','--default-character-set=utf8mb4','sistema_comercio'], input=st.encode(), capture_output=True)
+              if r.returncode:
+                  print('FALLA', i, st[:200], r.stderr.decode()[:300]); raise SystemExit(1)
+          print('OK todas')
+          PY
       - name: Prueba de humo contra la API
         run: |
-          node dist/main.js > api2.log 2>&1 &
+          node dist/main.js > api.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
-          node scripts/ci/smoke-demo.mjs || (tail -60 api2.log; exit 1)
-          grep -i "alter table\|error" api2.log | head -5 || true
-      - name: Publicar
-        run: |
-          cd out && git init -q -b tmp-base-completa-resultado && git config user.name bot && git config user.email bot@users.noreply.github.com && git add -A && git commit -qm sql && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" tmp-base-completa-resultado
+          node scripts/ci/smoke-demo.mjs || (tail -60 api.log; exit 1)
