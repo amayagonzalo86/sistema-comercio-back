@@ -8,8 +8,8 @@
 --  Ejecución (PowerShell, desde la carpeta del backend):
 --    mysql -u root -p --default-character-set=utf8mb4 -e "source database/demo/base-completa.sql"
 --
---  Acceso al sistema:
---    Usuario administrador:  admin            Contraseña: Admin-Comercio-2026!
+--  Acceso al sistema (super administrador, se crea en este mismo archivo):
+--    Usuario:  admin            Contraseña: Admin-Comercio-2026!
 --    Usuarios por rol (misma contraseña): demo.encargado, demo.cajero,
 --    demo.vendedor, demo.deposito, demo.contador
 --    ➜ Cambiá la contraseña del administrador después de ingresar.
@@ -878,53 +878,40 @@ CREATE TABLE `users_roles` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
--- ── Administrador inicial (usuario: admin) ──
+-- ═══════════════════════════════════════════════════════════════════════════
+--  SUPER ADMINISTRADOR (equivale a "npm run seed")
+--    Usuario:     admin
+--    Contraseña:  Admin-Comercio-2026!
+--    Rol global SUPER_ADMIN + titular (OWNER) de la empresa "plataforma" y de la empresa demo.
+-- ═══════════════════════════════════════════════════════════════════════════
+INSERT INTO roles (id, name, description, is_active)
+VALUES ('b861dd16-09f1-4e77-aefa-c84e9e05d68f', 'SUPER_ADMIN', 'Operador de plataforma', 1)
+ON DUPLICATE KEY UPDATE description = VALUES(description), is_active = 1;
 
-/*!50503 SET NAMES utf8mb4 */;
-/*!40103 SET TIME_ZONE='+00:00' */;
+INSERT INTO tenants (id, slug, legal_name, status, time_zone, currency_code)
+VALUES ('ee32bb31-a19a-4f8a-b1de-670ff6741b9c', 'plataforma', 'Operación de plataforma', 'ACTIVE', 'America/Argentina/Buenos_Aires', 'ARS')
+ON DUPLICATE KEY UPDATE status = 'ACTIVE';
 
-LOCK TABLES `roles` WRITE;
-/*!40000 ALTER TABLE `roles` DISABLE KEYS */;
-INSERT INTO `roles` VALUES ('b861dd16-09f1-4e77-aefa-c84e9e05d68f','SUPER_ADMIN','Operador de plataforma','2026-10-11 03:49:25.482942','2026-10-11 03:49:25.482942',NULL,1);
-/*!40000 ALTER TABLE `roles` ENABLE KEYS */;
-UNLOCK TABLES;
+INSERT INTO persons (id, tenant_id, first_name, last_name, vat_condition, person_type, isActive, marketing_consent)
+VALUES ('87b1e4f3-5349-4a97-95b9-883e4eb87c13', 'ee32bb31-a19a-4f8a-b1de-670ff6741b9c', 'Administrador', 'Plataforma', 'CONSUMIDOR_FINAL', 'BOTH', 1, 0)
+ON DUPLICATE KEY UPDATE isActive = 1;
 
-LOCK TABLES `tenants` WRITE;
-/*!40000 ALTER TABLE `tenants` DISABLE KEYS */;
-INSERT INTO `tenants` VALUES ('ee32bb31-a19a-4f8a-b1de-670ff6741b9c','plataforma','Operación de plataforma',NULL,NULL,'ACTIVE','America/Argentina/Buenos_Aires','ARS','2026-10-11 03:49:25.487654','2026-10-11 03:49:25.487654');
-/*!40000 ALTER TABLE `tenants` ENABLE KEYS */;
-UNLOCK TABLES;
+INSERT INTO users (id, username, password_hash, isActive, person_id, branch_id)
+VALUES ('0e68b323-7e5f-4791-b5e9-a613675e419b', 'admin', '$argon2id$v=19$m=65536,p=1,t=3$fcIg/RBkf9UQxNRm1k0G0w$5sGaRgoyvJpHQiiwxHexntxmyb0AXa1iucAuJwbXaYQ', 1, '87b1e4f3-5349-4a97-95b9-883e4eb87c13', NULL)
+ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), isActive = 1;
 
-LOCK TABLES `persons` WRITE;
-/*!40000 ALTER TABLE `persons` DISABLE KEYS */;
-INSERT INTO `persons` VALUES ('87b1e4f3-5349-4a97-95b9-883e4eb87c13','2026-10-11 03:49:25.489763','2026-10-11 03:49:25.489763',NULL,'ee32bb31-a19a-4f8a-b1de-670ff6741b9c','Administrador','Plataforma',NULL,NULL,'CONSUMIDOR_FINAL',NULL,NULL,NULL,'BOTH',1,0,NULL);
-/*!40000 ALTER TABLE `persons` ENABLE KEYS */;
-UNLOCK TABLES;
+INSERT INTO users_roles (user_id, role_id)
+SELECT u.id, r.id FROM users u JOIN roles r ON r.name = 'SUPER_ADMIN'
+WHERE u.username = 'admin'
+  AND NOT EXISTS (SELECT 1 FROM users_roles x WHERE x.user_id = u.id AND x.role_id = r.id);
 
-LOCK TABLES `users` WRITE;
-/*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES ('0e68b323-7e5f-4791-b5e9-a613675e419b','2026-10-11 03:49:25.589326','2026-10-11 03:49:25.589326',NULL,'admin','$argon2id$v=19$m=65536,p=1,t=3$fcIg/RBkf9UQxNRm1k0G0w$5sGaRgoyvJpHQiiwxHexntxmyb0AXa1iucAuJwbXaYQ',1,NULL,'87b1e4f3-5349-4a97-95b9-883e4eb87c13',NULL);
-/*!40000 ALTER TABLE `users` ENABLE KEYS */;
-UNLOCK TABLES;
+INSERT INTO tenant_memberships (id, tenant_id, user_id, branch_id, role, status, accepted_at)
+VALUES ('ba8c896e-1c5e-42dd-a679-519a5d6f2d41', 'ee32bb31-a19a-4f8a-b1de-670ff6741b9c', '0e68b323-7e5f-4791-b5e9-a613675e419b', NULL, 'OWNER', 'ACTIVE', UTC_TIMESTAMP(6))
+ON DUPLICATE KEY UPDATE status = 'ACTIVE', role = 'OWNER';
 
-LOCK TABLES `users_roles` WRITE;
-/*!40000 ALTER TABLE `users_roles` DISABLE KEYS */;
-INSERT INTO `users_roles` VALUES ('0e68b323-7e5f-4791-b5e9-a613675e419b','b861dd16-09f1-4e77-aefa-c84e9e05d68f');
-/*!40000 ALTER TABLE `users_roles` ENABLE KEYS */;
-UNLOCK TABLES;
-
-LOCK TABLES `tenant_memberships` WRITE;
-/*!40000 ALTER TABLE `tenant_memberships` DISABLE KEYS */;
-INSERT INTO `tenant_memberships` VALUES ('ba8c896e-1c5e-42dd-a679-519a5d6f2d41','ee32bb31-a19a-4f8a-b1de-670ff6741b9c','0e68b323-7e5f-4791-b5e9-a613675e419b',NULL,'OWNER','ACTIVE','2026-10-11 03:49:25.591000','2026-10-11 03:49:25.592142','2026-10-11 03:49:25.592142');
-/*!40000 ALTER TABLE `tenant_memberships` ENABLE KEYS */;
-UNLOCK TABLES;
-
-LOCK TABLES `typeorm_metadata` WRITE;
-/*!40000 ALTER TABLE `typeorm_metadata` DISABLE KEYS */;
-INSERT INTO `typeorm_metadata` VALUES ('GENERATED_COLUMN',NULL,'sistema_comercio','cash_sessions','open_register_id','CASE WHEN `status` = \'OPEN\' THEN `cash_register_id` ELSE NULL END');
-/*!40000 ALTER TABLE `typeorm_metadata` ENABLE KEYS */;
-UNLOCK TABLES;
-
+-- Metadato que TypeORM usa para la columna generada de cash_sessions (evita que la API intente alterar la tabla).
+INSERT INTO typeorm_metadata (`type`, `database`, `schema`, `table`, `name`, `value`)
+VALUES ('GENERATED_COLUMN', NULL, 'sistema_comercio', 'cash_sessions', 'open_register_id', 'CASE WHEN `status` = ''OPEN'' THEN `cash_register_id` ELSE NULL END');
 
 -- ── Datos de demostración ──
 -- Misma zona horaria de sesión que usa la API al leer y escribir (la del servidor MySQL).
@@ -20887,5 +20874,6 @@ UNION ALL SELECT 'Productos', COUNT(*) FROM products WHERE tenant_id = '9f1c2d3e
 UNION ALL SELECT 'Clientes y proveedores', COUNT(*) FROM persons WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
 UNION ALL SELECT 'Ventas', COUNT(*) FROM sales WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
 UNION ALL SELECT 'Facturación total', CONCAT('$ ', FORMAT(SUM(total), 2, 'es_AR')) FROM sales WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
-UNION ALL SELECT 'Usuarios demo', GROUP_CONCAT(username) FROM users WHERE username LIKE 'demo.%';
+UNION ALL SELECT 'Usuarios demo', GROUP_CONCAT(username) FROM users WHERE username LIKE 'demo.%'
+UNION ALL SELECT 'Super administrador', CONCAT(u.username, ' (', GROUP_CONCAT(r.name), ')') FROM users u JOIN users_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id WHERE u.username = 'admin' GROUP BY u.username;
 
