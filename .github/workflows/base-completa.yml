@@ -1,0 +1,73 @@
+name: Generar base completa (temporal, no mergear)
+on:
+  push:
+    branches: ['tmp/base-completa-no-mergear']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      NODE_ENV: development
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: sistema_comercio
+      PORT: '3000'
+      ALLOWED_ORIGINS: http://localhost:3001
+      JWT_ACCESS_SECRET: test-access-secret-0123456789-abcdefghijklmnop
+      JWT_REFRESH_SECRET: test-refresh-secret-0123456789-abcdefghijklmno
+      ADMIN_BOOTSTRAP_PASSWORD: Admin-Comercio-2026!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run build
+      - name: Esquema real (synchronize) + administrador
+        run: |
+          M="mysql -h127.0.0.1 -uroot -proot"
+          $M -e "CREATE DATABASE sistema_comercio CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+          node dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
+          kill %1; sleep 2
+          node dist/seed.js
+      - name: Componer base-completa.sql
+        run: |
+          D="mysqldump -h127.0.0.1 -uroot -proot --skip-comments --skip-dump-date --set-gtid-purged=OFF"
+          mkdir out
+          {
+            cat database/demo/encabezado-base-completa.sql
+            $D --no-data --add-drop-table sistema_comercio
+            echo "-- ── Administrador inicial (usuario: admin) ──"
+            $D --no-create-info --skip-extended-insert sistema_comercio roles tenants persons users users_roles tenant_memberships typeorm_metadata
+            echo "-- ── Datos de demostración ──"
+            cat database/demo/datos-demo.sql
+          } > out/base-completa.sql
+          ls -la out
+      - name: Validar en un servidor MySQL vacío
+        run: |
+          M="mysql -h127.0.0.1 -uroot -proot"
+          $M -e "DROP DATABASE sistema_comercio"
+          $M --default-character-set=utf8mb4 -e "source out/base-completa.sql"
+          $M --default-character-set=utf8mb4 -e "source out/base-completa.sql"
+          npx typeorm schema:log -d dist/database/data-source.js > schema.log 2>&1 || true
+          cat schema.log | tail -20
+          grep -q 'Your schema is up to date' schema.log
+      - name: Prueba de humo contra la API
+        run: |
+          node dist/main.js > api2.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
+          node scripts/ci/smoke-demo.mjs || (tail -60 api2.log; exit 1)
+          grep -i "alter table\|error" api2.log | head -5 || true
+      - name: Publicar
+        run: |
+          cd out && git init -q -b tmp-base-completa-resultado && git config user.name bot && git config user.email bot@users.noreply.github.com && git add -A && git commit -qm sql && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" tmp-base-completa-resultado
