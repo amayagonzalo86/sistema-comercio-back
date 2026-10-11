@@ -39,10 +39,19 @@ jobs:
           for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health && break; sleep 2; done
           kill %1 || true
           node dist/seed.js
+      - name: Cargar datos demo (dos veces, debe ser re-ejecutable)
+        run: |
+          mysql -h127.0.0.1 -uroot -proot erp_dev < database/demo/datos-demo.sql
+          mysql -h127.0.0.1 -uroot -proot erp_dev < database/demo/datos-demo.sql
+      - name: Prueba de humo contra la API
+        run: |
+          node dist/main.js > api2.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
+          node scripts/ci/smoke-demo.mjs || (tail -60 api2.log; exit 1)
       - name: Volcar esquema
         run: |
           mkdir out
           mysqldump -h127.0.0.1 -uroot -proot --no-data --skip-comments erp_dev > out/schema.sql
           mysqldump -h127.0.0.1 -uroot -proot --no-create-info --skip-comments erp_dev roles tenants persons users user_roles tenant_memberships > out/seed-data.sql || mysqldump -h127.0.0.1 -uroot -proot --no-create-info --skip-comments erp_dev > out/seed-data.sql
-          cp api.log out/
+          cp api.log out/; cp api2.log out/ || true
           cd out && git init -q -b ci-schema && git config user.name bot && git config user.email bot@users.noreply.github.com && git add -A && git commit -qm dump && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-schema
