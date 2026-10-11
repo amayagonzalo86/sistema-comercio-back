@@ -294,6 +294,17 @@ export class FiscalService {
       document.sourceType === FiscalSourceType.SALE
         ? await this.dataSource.getRepository(SaleItemEntity).find({ where: { tenantId, saleId: document.sourceId }, order: { id: 'ASC' } })
         : await this.dataSource.getRepository(SaleReturnItemEntity).find({ where: { tenantId, saleReturnId: document.sourceId }, order: { id: 'ASC' } });
+    // Receptor (RG 1415: apellido y nombre o razón social y domicilio en comprobantes identificados).
+    const sourceSale =
+      document.sourceType === FiscalSourceType.SALE
+        ? await this.dataSource.getRepository(SaleEntity).findOne({ where: { id: document.sourceId, tenantId } })
+        : await this.dataSource
+            .getRepository(SaleReturnEntity)
+            .findOne({ where: { id: document.sourceId, tenantId } })
+            .then((saleReturn) => (saleReturn ? this.dataSource.getRepository(SaleEntity).findOne({ where: { id: saleReturn.saleId, tenantId } }) : null));
+    const customer = sourceSale?.customerPersonId
+      ? await this.dataSource.getRepository(PersonEntity).findOne({ where: { id: sourceSale.customerPersonId, tenantId } })
+      : null;
     const associated = document.associatedDocumentId
       ? await this.dataSource.getRepository(FiscalDocumentEntity).findOne({ where: { id: document.associatedDocumentId, tenantId } })
       : null;
@@ -308,6 +319,9 @@ export class FiscalService {
             activityStartDate: profile.activityStartDate ?? null,
             commercialAddress: profile.commercialAddress ?? null,
           }
+        : null,
+      receiver: customer
+        ? { name: `${customer.firstName} ${customer.lastName}`.replace(/\s+-$/, '').trim(), address: customer.address ?? null }
         : null,
       associated: associated
         ? { voucherType: associated.voucherType, pointOfSale: associated.pointOfSale, number: associated.number, issueDate: associated.issueDate }

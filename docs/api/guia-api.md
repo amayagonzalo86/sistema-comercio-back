@@ -89,7 +89,7 @@ Convenciones:
 | POST | `/fiscal/sales/:id/invoice` | Emitir factura (A/B/C según el cliente). Idempotente y reintentable |
 | POST | `/fiscal/returns/:id/credit-note` | Nota de crédito de una devolución |
 | GET | `/fiscal/documents?status=&from=&to=` | Comprobantes emitidos |
-| GET | `/fiscal/documents/:id` | Todo lo necesario para imprimir: emisor, receptor, ítems, CAE, `formattedNumber` y `qrUrl` |
+| GET | `/fiscal/documents/:id` | Todo lo necesario para imprimir: emisor, receptor (nombre y domicilio), ítems, CAE, `formattedNumber` y `qrUrl` |
 
 Flujo de caja recomendado: `quote` → `POST /sales` → `POST /fiscal/sales/:id/invoice` → imprimir con `GET /fiscal/documents/:id`.
 Si ARCA no responde, la venta queda registrada con `fiscalStatus: FAILED` y se reintenta la emisión más tarde.
