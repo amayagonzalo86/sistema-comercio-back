@@ -75,7 +75,7 @@ Convenciones:
 | GET | `/sales/:id` | Detalle con ítems, pagos y notas fiscales |
 | POST | `/sales/:id/returns` | Devolución total (sin líneas) o parcial; `refundMethod`: `CASH` (con `cashSessionId`), `ORIGINAL_METHOD`, `STORE_CREDIT` |
 | GET | `/sales/:id/returns` | Devoluciones de la venta |
-| POST | `/cash/registers` · GET `/cash/registers` | Cajas por sucursal |
+| POST | `/cash/registers` · GET `/cash/registers?branchId=` | Cajas por sucursal; cada caja trae `openSession` (o `null`) para imputar cobros en efectivo |
 | POST | `/cash/registers/:id/sessions` | Abrir caja |
 | POST | `/cash/sessions/:id/movements` · `/close` | Ingresos/egresos y cierre |
 
