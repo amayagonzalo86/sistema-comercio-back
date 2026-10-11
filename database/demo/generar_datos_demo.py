@@ -231,6 +231,15 @@ emit("""-- ═══════════════════════
 -- ═══════════════════════════════════════════════════════════════════════════
 
 SET NAMES utf8mb4;
+-- La conexión usa la MISMA intercalación (collation) que tus tablas: evita el error 1267
+-- "Illegal mix of collations" sin importar si la base es utf8mb4_unicode_ci o utf8mb4_0900_ai_ci.
+SET @erp_collation = (SELECT COLLATION_NAME FROM information_schema.COLUMNS
+                       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username' LIMIT 1);
+SET @erp_set_names = CONCAT('SET NAMES utf8mb4 COLLATE ', COALESCE(@erp_collation, 'utf8mb4_unicode_ci'));
+PREPARE erp_stmt FROM @erp_set_names;
+EXECUTE erp_stmt;
+DEALLOCATE PREPARE erp_stmt;
+
 SET @admin_username = 'admin';
 SET @admin_id = (SELECT id FROM users WHERE username = @admin_username LIMIT 1);
 SET @admin_hash = (SELECT password_hash FROM users WHERE username = @admin_username LIMIT 1);
