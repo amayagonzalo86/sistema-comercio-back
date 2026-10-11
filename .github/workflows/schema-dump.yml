@@ -1,0 +1,53 @@
+name: Schema dump (temporal)
+on:
+  push:
+    branches: ['ci/seed-check2']
+permissions:
+  contents: write
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: erp_dev
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      NODE_ENV: development
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: erp_dev
+      PORT: '3000'
+      ALLOWED_ORIGINS: http://localhost:3001
+      JWT_ACCESS_SECRET: test-access-secret-0123456789-abcdefghijklmnop
+      JWT_REFRESH_SECRET: test-refresh-secret-0123456789-abcdefghijklmno
+      ADMIN_BOOTSTRAP_PASSWORD: Prueba-Integracion-2026!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run build
+      - name: Arrancar la API (synchronize crea el esquema) y sembrar admin
+        run: |
+          mysql -h127.0.0.1 -uroot -proot -e "DROP DATABASE erp_dev; CREATE DATABASE erp_dev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+
+          node dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health && break; sleep 2; done
+          kill %1 || true
+          node dist/seed.js
+      - name: Cargar datos demo (dos veces, debe ser re-ejecutable)
+        run: |
+          mysql -h127.0.0.1 -uroot -proot -e "SELECT DISTINCT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA='erp_dev'"
+          mysql -h127.0.0.1 -uroot -proot --default-character-set=utf8mb4 erp_dev -e "source database/demo/datos-demo.sql"
+          mysql -h127.0.0.1 -uroot -proot --default-character-set=utf8mb4 erp_dev -e "source database/demo/datos-demo.sql"
+      - name: Prueba de humo contra la API
+        run: |
+          node dist/main.js > api2.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
+          node scripts/ci/smoke-demo.mjs || (tail -60 api2.log; exit 1)
