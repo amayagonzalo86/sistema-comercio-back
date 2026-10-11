@@ -18,6 +18,8 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 
 SET NAMES utf8mb4;
+-- MySQL Workbench trae activado el "modo seguro" (error 1175 en DELETE): se desactiva solo en esta sesión.
+SET SQL_SAFE_UPDATES = 0;
 -- La conexión usa la MISMA intercalación (collation) que tus tablas: evita el error 1267
 -- "Illegal mix of collations" sin importar si la base es utf8mb4_unicode_ci o utf8mb4_0900_ai_ci.
 SET @erp_collation = (SELECT COLLATION_NAME FROM information_schema.COLUMNS

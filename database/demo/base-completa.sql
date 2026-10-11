@@ -4,6 +4,7 @@
 --  ⚠ BORRA Y RECREA TODAS LAS TABLAS de la base `sistema_comercio`.
 --    Usar solo en desarrollo / pruebas. NO ejecutar en producción.
 --
+--  MySQL Workbench: File > Run SQL Script... > elegir este archivo > Run.
 --  Ejecución (PowerShell, desde la carpeta del backend):
 --    mysql -u root -p --default-character-set=utf8mb4 -e "source database/demo/base-completa.sql"
 --
@@ -18,6 +19,8 @@ CREATE DATABASE IF NOT EXISTS `sistema_comercio` CHARACTER SET utf8mb4 COLLATE u
 USE `sistema_comercio`;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 SET FOREIGN_KEY_CHECKS = 0;
+-- MySQL Workbench trae activado el "modo seguro" (error 1175 en DELETE): se desactiva solo en esta sesión.
+SET SQL_SAFE_UPDATES = 0;
 
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
