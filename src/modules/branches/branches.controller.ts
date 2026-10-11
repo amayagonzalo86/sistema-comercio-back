@@ -38,7 +38,7 @@ export class BranchesController {
   }
 
   @Get()
-  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.SELLER )
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.SELLER, UserRoleEnum.USER)
   async findAll(@GetTenantId() tenantId: string, @Req() request: Request): Promise<BranchEntity[]> {
     const actor = request.user as { branchId?: string | null; tenantRole?: string };
     const scopedBranchId = requireAssignedBranch(actor);
@@ -46,7 +46,7 @@ export class BranchesController {
   }
 
   @Get(':id')
-  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.SELLER )
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.SELLER, UserRoleEnum.USER)
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @GetTenantId() tenantId: string,
