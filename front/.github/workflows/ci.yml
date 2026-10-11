@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      API_ORIGIN: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+
+      # Primera ejecución sin lockfile: se versiona el package-lock.json generado para builds reproducibles.
+      - name: Versionar package-lock.json
+        if: github.event_name == 'push' && hashFiles('package-lock.json') != '' && github.ref != 'refs/heads/main'
+        run: |
+          if [ -n "$(git status --porcelain package-lock.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: versionar package-lock.json generado por CI"
+            git push
+          fi
+
+      - name: Tipos (TypeScript estricto)
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build de producción
+        run: npm run build
+
+      # Las vulnerabilidades altas o críticas de dependencias de producción frenan el pipeline
+      # y se publican como anotaciones para verlas sin abrir el log.
+      - name: Auditoría de dependencias de producción
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          node -e '
+            const report = JSON.parse(require("fs").readFileSync("audit.json", "utf8"));
+            const vulns = Object.values(report.vulnerabilities || {});
+            let blocking = 0;
+            for (const v of vulns) {
+              const via = (v.via || []).filter((item) => typeof item === "object").map((item) => `${item.title} (${item.url})`).join(" | ");
+              const level = ["high", "critical"].includes(v.severity) ? "error" : "warning";
+              if (level === "error") blocking++;
+              console.log(`::${level}::${v.name} ${v.range} [${v.severity}] fix=${JSON.stringify(v.fixAvailable)} ${via}`);
+            }
+            if (blocking > 0) process.exit(1);
+          '

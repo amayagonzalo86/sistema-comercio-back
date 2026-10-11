@@ -1,0 +1,49 @@
+name: Capturas de pantalla
+
+# Genera capturas de las pantallas principales contra una API simulada y las publica en la rama "ci-screenshots".
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/**']
+    paths: ['src/**', 'scripts/screenshots/**']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      API_ORIGIN: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - name: Playwright
+        run: |
+          npm install --no-save playwright@^1.56.0
+          npx playwright install --with-deps chromium
+      - name: Capturar
+        run: |
+          node scripts/screenshots/mock-api.mjs &
+          npm start &
+          npx --yes wait-on@8 http://localhost:3001/login http://localhost:3000/api/v1/branches
+          node scripts/screenshots/capture.mjs out
+      - name: Publicar en la rama ci-screenshots
+        run: |
+          cd out
+          git init -q -b ci-screenshots
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Capturas de ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screenshots

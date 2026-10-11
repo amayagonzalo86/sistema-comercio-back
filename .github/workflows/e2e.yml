@@ -1,0 +1,57 @@
+name: E2E real (temporal, no mergear)
+on:
+  push:
+    branches: ['tmp/e2e-no-mergear']
+permissions:
+  contents: write
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env: { MYSQL_ROOT_PASSWORD: root, TZ: America/Argentina/Buenos_Aires }
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      NODE_ENV: development
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: sistema_comercio
+      PORT: '3000'
+      ALLOWED_ORIGINS: http://localhost:3001
+      JWT_ACCESS_SECRET: test-access-secret-0123456789-abcdefghijklmnop
+      JWT_REFRESH_SECRET: test-refresh-secret-0123456789-abcdefghijklmno
+      THROTTLE_LIMIT: '100000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Base de datos
+        run: mysql -h127.0.0.1 -uroot -proot --default-character-set=utf8mb4 -e "source database/demo/base-completa.sql"
+      - name: Backend
+        run: |
+          npm ci && npm run build
+          node dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
+      - name: Frontend (main)
+        working-directory: front
+        env: { API_ORIGIN: 'http://localhost:3000', NEXT_TELEMETRY_DISABLED: '1' }
+        run: |
+          npm ci && npm run build
+          (npm start > ../front.log 2>&1 &)
+          npx --yes wait-on@8 http://localhost:3001/login
+      - name: Recorrido
+        run: |
+          npm install --no-save playwright@^1.56.0
+          npx playwright install --with-deps chromium
+          node e2e/recorrido.mjs
+          grep -iE "error|exception" api.log | grep -v "ThrottlerException" | tail -30 > e2e-out/api-errores.txt || true
+          cp api.log front.log e2e-out/ || true
+      - name: Publicar
+        if: always()
+        run: |
+          cd e2e-out && git init -q -b tmp-e2e-resultado && git config user.name bot && git config user.email bot@users.noreply.github.com && git add -A && git commit -qm e2e && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" tmp-e2e-resultado
