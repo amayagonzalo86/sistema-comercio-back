@@ -413,11 +413,12 @@ describe('Flujo comercial completo (e2e)', () => {
     const spare = await api('post', '/sales-orders', { branchId: A, lines: [{ productId, quantity: 1 }] }, true);
     expectStatus(spare, 201);
     expect(spare.body.number).toBe(2);
-    const stockBeforeCharge = await api('get', '/inventory/stock-matrix');
-    expect(stockBeforeCharge.body.items[0].branches[A].stock).toBe('43.000'); // el pedido no descuenta stock
+    expectStatus(await api('get', '/inventory/stock-matrix'), 403); // el vendedor no ve el stock de todas las sucursales
 
     // La caja (administrador) ve la cola, busca el pedido por número y lo cobra.
     token = adminToken;
+    const stockBeforeCharge = await api('get', '/inventory/stock-matrix');
+    expect(stockBeforeCharge.body.items[0].branches[A].stock).toBe('43.000'); // el pedido no descuenta stock
     const queue = await api('get', '/sales-orders?status=PENDING');
     expectStatus(queue, 200);
     expect(queue.body.total).toBe(2);
@@ -440,6 +441,8 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(charged.body.salesOrderId).toBe(salesOrder.body.id);
     expect(charged.body.sellerUserId).toBe(sellerUser.body.id);
     expect(charged.body.total).toBe('2395.80');
+    const stockAfterCharge = await api('get', '/inventory/stock-matrix');
+    expect(stockAfterCharge.body.items[0].branches[A].stock).toBe('41.000'); // el cobro sí descuenta
     const chargedOrder = await api('get', `/sales-orders/${salesOrder.body.id}`);
     expect(chargedOrder.body.status).toBe('CHARGED');
     expect(chargedOrder.body.saleId).toBe(charged.body.id);
