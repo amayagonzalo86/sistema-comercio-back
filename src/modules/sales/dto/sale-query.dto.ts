@@ -27,6 +27,10 @@ export class SaleQueryDto extends PageQueryDto {
   sellerUserId?: string;
 
   @IsOptional()
+  @IsUUID('4')
+  salesOrderId?: string;
+
+  @IsOptional()
   @IsEnum(SalePaymentMethod)
   paymentMethod?: SalePaymentMethod;
 

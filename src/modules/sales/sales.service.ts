@@ -21,6 +21,8 @@ import { SaleEntity, SaleFiscalStatus } from './entities/sale.entity';
 import { SaleItemEntity } from './entities/sale-item.entity';
 import { SalePaymentEntity } from './entities/sale-payment.entity';
 import { CreateSaleDto, QuoteSaleDto } from './dto/create-sale.dto';
+import { SalesOrderEntity, SalesOrderStatus } from './orders/entities/sales-order.entity';
+import { lockSalesOrder, salesOrderProductQuantities } from './orders/sales-order-lock';
 import { CashMovementDirection, CashMovementEntity, CashMovementType } from '../cash/entities/cash-movement.entity';
 import { CashSessionEntity, CashSessionStatus } from '../cash/entities/cash-session.entity';
 import { FiscalProfileEntity } from '../platform/entities/fiscal-profile.entity';
@@ -44,12 +46,29 @@ import { localToday, localWeekday } from '../reports/domain/period';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 
+export interface SaleQuoteLine {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: string;
+  unitPrice: string;
+  discount: string;
+  promotion: { id: string; name: string } | null;
+  netAmount: string;
+  taxAmount: string;
+  exemptAmount: string;
+  notTaxedAmount: string;
+  total: string;
+  availableStock: string;
+  stockSufficient: boolean;
+}
+
 export interface SaleQuote {
   voucherClass: VoucherClass;
   vatChargeMode: string;
   requiresCustomerCuit: boolean;
   customerCuitValid: boolean;
-  lines: Array<Record<string, unknown>>;
+  lines: SaleQuoteLine[];
   subtotal: string;
   taxTotal: string;
   discountTotal: string;
@@ -117,6 +136,7 @@ export class SalesService {
         vatExemption: dto.vatExemption
           ? { reason: dto.vatExemption.reason, note: dto.vatExemption.note.trim() }
           : null,
+        salesOrderId: dto.salesOrderId ?? null,
       }))
       .digest('hex');
 
@@ -151,6 +171,20 @@ export class SalesService {
       }
       if (allowedBranchId && allowedBranchId !== branch.id) {
         throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
+      }
+
+      // Preventa: el pedido se bloquea primero (antes que el stock) para que dos cajas no lo cobren a la vez.
+      let salesOrder: SalesOrderEntity | null = null;
+      if (dto.salesOrderId) {
+        salesOrder = await lockSalesOrder(queryRunner.manager, tenantId, dto.salesOrderId);
+        if (salesOrder.status === SalesOrderStatus.PENDING) {
+          if (salesOrder.branchId !== branch.id) {
+            throw new BadRequestException('El pedido pertenece a otra sucursal: se cobra en la caja de esa sucursal.');
+          }
+        } else if (!(salesOrder.status === SalesOrderStatus.CHARGED && salesOrder.saleId)) {
+          throw new ConflictException('El pedido está anulado y no se puede cobrar.');
+        }
+        // Un pedido ya cobrado solo admite el reintento idempotente de esa misma venta (se resuelve más abajo).
       }
 
       let customerCondition = TaxConditionEnum.CONSUMIDOR_FINAL;
@@ -256,6 +290,9 @@ export class SalesService {
         transactionStarted = false;
         return this.loadSale(tenantId, concurrentSale.id);
       }
+      if (salesOrder && salesOrder.status !== SalesOrderStatus.PENDING) {
+        throw new ConflictException(`El pedido N° ${salesOrder.number} ya fue cobrado.`);
+      }
 
       const vatSummary = summarizeVat(pricedLines.map((line) => line.vat));
       const taxTotalCents = vatSummary.vatCents;
@@ -326,6 +363,9 @@ export class SalesService {
         idempotencyKey: key,
         requestFingerprint: fingerprint,
         actorUserId,
+        salesOrderId: salesOrder?.id ?? null,
+        // En preventa el vendedor es quien armó el pedido; en venta directa, quien cobra.
+        sellerUserId: salesOrder?.sellerUserId ?? actorUserId,
       }));
 
       const itemRepository = queryRunner.manager.getRepository(SaleItemEntity);
@@ -441,6 +481,37 @@ export class SalesService {
         }));
       }
 
+      if (salesOrder) {
+        const ordered = await salesOrderProductQuantities(queryRunner.manager, tenantId, salesOrder.id);
+        const linesChanged =
+          ordered.size !== normalizedLines.length ||
+          normalizedLines.some((line) => ordered.get(line.productId) !== line.quantity);
+        salesOrder.status = SalesOrderStatus.CHARGED;
+        salesOrder.saleId = sale.id;
+        salesOrder.chargedAt = new Date();
+        salesOrder.chargedByUserId = actorUserId;
+        await queryRunner.manager.save(SalesOrderEntity, salesOrder);
+        await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
+          tenantId,
+          actorUserId,
+          requestId: auditContext.requestId,
+          ipAddress: auditContext.ipAddress,
+          userAgent: auditContext.userAgent,
+          eventType: 'SALES_ORDER_CHARGED',
+          aggregateType: 'SALES_ORDER',
+          aggregateId: salesOrder.id,
+          metadata: {
+            number: salesOrder.number,
+            saleId: sale.id,
+            sellerUserId: salesOrder.sellerUserId,
+            estimatedTotal: salesOrder.estimatedTotal,
+            chargedTotal: sale.total,
+            // El cajero puede ajustar el pedido en caja (el cliente agrega o quita algo): queda registrado.
+            linesChanged,
+          },
+        }));
+      }
+
       await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
         tenantId,
         actorUserId,
@@ -463,6 +534,8 @@ export class SalesService {
           vatChargeMode: policy.chargeMode,
           vatExemptionReason: sale.vatExemptionReason ?? null,
           vatExemptionNote: sale.vatExemptionNote ?? null,
+          salesOrderId: sale.salesOrderId ?? null,
+          sellerUserId: sale.sellerUserId ?? null,
         },
       }));
 

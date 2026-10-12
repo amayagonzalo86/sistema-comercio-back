@@ -11,6 +11,10 @@ import { PromotionEntity } from '../marketing/entities/promotion.entity';
 import { SalesController } from './sales.controller';
 import { SalesQueryService } from './sales-query.service';
 import { SalesService } from './sales.service';
+import { SalesOrderEntity } from './orders/entities/sales-order.entity';
+import { SalesOrderItemEntity } from './orders/entities/sales-order-item.entity';
+import { SalesOrdersController } from './orders/sales-orders.controller';
+import { SalesOrdersService } from './orders/sales-orders.service';
 
 @Module({
   imports: [
@@ -22,10 +26,12 @@ import { SalesService } from './sales.service';
       SaleReturnItemEntity,
       DocumentSequenceEntity,
       PromotionEntity,
+      SalesOrderEntity,
+      SalesOrderItemEntity,
     ]),
   ],
-  controllers: [SalesController],
-  providers: [SalesService, SalesQueryService, SaleReturnsService],
+  controllers: [SalesController, SalesOrdersController],
+  providers: [SalesService, SalesQueryService, SaleReturnsService, SalesOrdersService],
   exports: [SalesService],
 })
 export class SalesModule {}

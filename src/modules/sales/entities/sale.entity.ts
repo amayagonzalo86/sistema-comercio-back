@@ -21,6 +21,8 @@ export enum SaleFiscalStatus {
 @Index('IDX_sales_tenant_branch_created', ['tenantId', 'branchId', 'createdAt'])
 @Index('IDX_sales_tenant_created', ['tenantId', 'createdAt'])
 @Index('IDX_sales_tenant_customer', ['tenantId', 'customerPersonId', 'createdAt'])
+@Index('IDX_sales_tenant_seller', ['tenantId', 'sellerUserId', 'createdAt'])
+@Index('IDX_sales_tenant_order', ['tenantId', 'salesOrderId'])
 export class SaleEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -33,6 +35,14 @@ export class SaleEntity {
 
   @Column({ name: 'customer_person_id', type: 'varchar', length: 36, nullable: true })
   customerPersonId?: string | null;
+
+  /** Pedido de venta (preventa) que originó el cobro, si lo hubo. */
+  @Column({ name: 'sales_order_id', type: 'varchar', length: 36, nullable: true })
+  salesOrderId?: string | null;
+
+  /** Quien vendió (para comisiones): el vendedor del pedido, o quien registró la venta directa. */
+  @Column({ name: 'seller_user_id', type: 'varchar', length: 36, nullable: true })
+  sellerUserId?: string | null;
 
   @Column({ type: 'char', length: 3 })
   currency!: string;

@@ -22,7 +22,8 @@ export class SalesQueryService {
     if (query.from) qb.andWhere('s.createdAt >= :from', { from: `${query.from.slice(0, 10)} 00:00:00` });
     if (query.to) qb.andWhere('s.createdAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to.slice(0, 10) });
     if (query.customerPersonId) qb.andWhere('s.customerPersonId = :customer', { customer: query.customerPersonId });
-    if (query.sellerUserId) qb.andWhere('s.actorUserId = :seller', { seller: query.sellerUserId });
+    if (query.sellerUserId) qb.andWhere('COALESCE(s.sellerUserId, s.actorUserId) = :seller', { seller: query.sellerUserId });
+    if (query.salesOrderId) qb.andWhere('s.salesOrderId = :salesOrderId', { salesOrderId: query.salesOrderId });
     if (query.voucherClass) qb.andWhere('s.voucherClass = :voucherClass', { voucherClass: query.voucherClass });
     if (query.returnStatus) qb.andWhere('s.returnStatus = :returnStatus', { returnStatus: query.returnStatus });
     if (query.paymentMethod) {

@@ -206,6 +206,7 @@ DEMO_USERS = [
     ("demo.encargado", "Laura", "Paz", "MANAGER", "MANAGER", 0),
     ("demo.cajero", "Julián", "Sosa", "CASHIER", "CASHIER", 0),
     ("demo.vendedor", "Carla", "Ríos", "SELLER", "SELLER", 1),
+    ("demo.vendedora", "Micaela", "Luna", "SELLER", "SELLER", 0),
     ("demo.deposito", "Ramiro", "Vega", "INVENTORY", "STOCK_CLERK", 4),
     ("demo.contador", "Silvia", "Moreno", "ACCOUNTANT", "USER", None),
 ]
@@ -243,7 +244,7 @@ emit("""
 START TRANSACTION;
 
 -- ── Limpieza de una carga anterior de la demo ───────────────────────────────""")
-for table in ["supplier_payment_allocations", "supplier_payments", "supplier_payables", "purchase_receipt_items", "purchase_receipts",
+for table in ["sales_order_items", "sales_orders", "supplier_payment_allocations", "supplier_payments", "supplier_payables", "purchase_receipt_items", "purchase_receipts",
               "purchase_order_items", "purchase_orders", "stock_transfer_items", "stock_transfers", "sale_return_items", "sale_returns",
               "fiscal_documents", "sale_payments", "sale_items", "sales", "cash_movements", "cash_sessions", "cash_registers",
               "inventory_movements", "product_price_history", "product_price_lists", "price_lists", "product_branches", "products",
@@ -323,6 +324,13 @@ inactive_customers = [c for c in CUSTOMERS if c["inactive"]]
 SELLERS = [ACTOR, Raw(f"'{USER_IDS['demo.cajero']}'"), Raw(f"'{USER_IDS['demo.vendedor']}'"), Raw(f"'{USER_IDS['demo.encargado']}'")]
 
 sales_rows, item_rows, payment_rows = [], [], []
+# Preventa: en Casa Central y Nueva Córdoba parte de las ventas las arma un vendedor y las cobra la caja.
+# Generador aparte para no alterar la secuencia aleatoria del resto de la demo.
+order_rng = random.Random(20260)
+PRESALE_SELLER = {BRANCHES[0][0]: USER_IDS["demo.vendedora"], BRANCHES[1][0]: USER_IDS["demo.vendedor"]}
+PRESALE_CASHIER = {BRANCHES[0][0]: Raw(f"'{USER_IDS['demo.cajero']}'"), BRANCHES[1][0]: ACTOR}
+order_rows, order_item_rows = [], []
+order_counter = 0
 today_cash: dict[str, list[tuple[str, Decimal, Raw]]] = {b[0]: [] for b in STORES}
 daily_sold: dict[tuple[str, str, int], Decimal] = {}
 sale_counter = 0
@@ -348,6 +356,7 @@ for days_ago in range(89, -1, -1):
             elif roll < 0.35:
                 customer = rng.choice(active_customers)
             sale_id = uid()
+            sale_lines: list[tuple[dict, Decimal, Decimal, Decimal]] = []
             chosen = {}
             for _ in range(rng.choices([1, 2, 3, 4, 5], [30, 30, 20, 12, 8])[0]):
                 p = rng.choices(POP, WEIGHTS)[0]
@@ -372,6 +381,7 @@ for days_ago in range(89, -1, -1):
                 # Kardex: diario el último mes, semanal antes (mantiene el archivo liviano).
                 key = (p["id"], b[0], days_ago if days_ago <= 30 else (days_ago // 7) * 7)
                 daily_sold[key] = daily_sold.get(key, D(0)) + qty
+                sale_lines.append((p, qty, row["price"], amount))
                 item_rows.append([uid(), TENANT, sale_id, p["id"], p["sku"], p["name"], qty, row["price"],
                                   p["rate"] if p["treat"] == "TAXED" else D(0), net, tax, p["treat"], arca_id, True, exempt, D(0), amount,
                                   row["cost"], D(0)])
@@ -380,10 +390,26 @@ for days_ago in range(89, -1, -1):
             if company and method == "CASH":
                 method = "BANK_TRANSFER"
             key = f"demo-sale-{sale_counter}"
-            sales_rows.append([sale_id, TENANT, b[0], customer["id"] if customer else None, "ARS", net_total + exempt_total, tax_total,
-                               net_total, D(0), exempt_total, D(0), "A" if company else "B", "CHARGE", "RESPONSABLE_INSCRIPTO",
+            actor = rng.choice(SELLERS)
+            seller = actor
+            order_id = None
+            if b[0] in PRESALE_SELLER and days_ago <= 30 and order_rng.random() < 0.35:
+                order_counter += 1
+                order_id = uid()
+                actor = PRESALE_CASHIER[b[0]]
+                seller = Raw(f"'{PRESALE_SELLER[b[0]]}'")
+                waited = order_rng.randint(3, 15) * 60
+                order_created = Raw(f"TIMESTAMPADD(SECOND,{-waited},{created.sql})")
+                okey = f"demo-order-{order_counter}"
+                order_rows.append([order_id, TENANT, b[0], order_counter, customer["id"] if customer else None, PRESALE_SELLER[b[0]], "CHARGED",
+                                   None, "ARS", "A" if company else "B", total, len(sale_lines), sale_id, actor, created, None, None, None,
+                                   okey, fp(okey), order_created, created])
+                for p, qty, price, amount in sale_lines:
+                    order_item_rows.append([uid(), TENANT, order_id, p["id"], p["sku"], p["name"], qty, price, D(0), amount])
+            sales_rows.append([sale_id, TENANT, b[0], customer["id"] if customer else None, order_id, seller, "ARS", net_total + exempt_total,
+                               tax_total, net_total, D(0), exempt_total, D(0), "A" if company else "B", "CHARGE", "RESPONSABLE_INSCRIPTO",
                                customer["vat"] if customer else "CONSUMIDOR_FINAL", total, "NOT_ISSUED", "NONE", D(0), key, fp(key),
-                               rng.choice(SELLERS), created])
+                               actor, created])
             payment_rows.append([uid(), TENANT, sale_id, method, total, "ARS", None, created])
             if days_ago == 0 and method == "CASH":
                 today_cash[b[0]].append((sale_id, total, created))
@@ -438,7 +464,7 @@ insert("inventory_movements", ["tenant_id", "product_id", "branch_id", "movement
                                "reason", "reference_type", "reference_id", "idempotency_key", "actor_user_id", "created_at"], mov_rows, batch=400)
 
 emit("\n-- ── Ventas ───────────────────────────────────────────────────────────────────")
-insert("sales", ["id", "tenant_id", "branch_id", "customer_person_id", "currency", "subtotal", "tax_total", "net_taxed_total", "discount_total",
+insert("sales", ["id", "tenant_id", "branch_id", "customer_person_id", "sales_order_id", "seller_user_id", "currency", "subtotal", "tax_total", "net_taxed_total", "discount_total",
                  "exempt_total", "not_taxed_total", "voucher_class", "vat_charge_mode", "issuer_vat_condition", "customer_vat_condition", "total",
                  "fiscal_status", "return_status", "refunded_total", "idempotency_key", "request_fingerprint", "actor_user_id", "created_at"],
        sales_rows, batch=300)
@@ -446,6 +472,48 @@ insert("sale_items", ["id", "tenant_id", "sale_id", "product_id", "sku_snapshot"
                       "net_amount", "tax_amount", "vat_treatment", "arca_vat_rate_id", "price_includes_vat", "exempt_amount", "not_taxed_amount",
                       "total", "unit_cost", "discount_amount"], item_rows, batch=400)
 insert("sale_payments", ["id", "tenant_id", "sale_id", "method", "amount", "currency", "external_reference", "created_at"], payment_rows, batch=400)
+
+# ── Preventa: pedidos cobrados (arriba) + cola de hoy esperando cobro y uno anulado ──
+emit("\n-- ── Pedidos de venta (preventa) ──────────────────────────────────────────────")
+QUEUE = [
+    # sucursal, minutos de espera, cliente, [(índice de producto, cantidad)], nota
+    (BRANCHES[0][0], 2, None, [(0, 2), (4, 3), (12, 1)], None),
+    (BRANCHES[0][0], 9, COMPANY_CUSTOMERS[0], [(2, 6), (3, 6)], "Retira con camioneta por depósito"),
+    (BRANCHES[1][0], 4, None, [(16, 2), (20, 1)], None),
+    (BRANCHES[1][0], 17, CUSTOMERS[1], [(1, 1), (5, 2), (8, 1), (13, 2)], "Envolver para regalo"),
+]
+for branch_id, minutes, customer, wanted, note in QUEUE:
+    order_counter += 1
+    order_id = uid()
+    estimated = D(0)
+    lines_ = []
+    for index, qty in wanted:
+        p = PRODUCTS[index]
+        price = pb[(p["id"], branch_id)]["price"]
+        amount = money(price * qty)
+        estimated += amount
+        lines_.append([uid(), TENANT, order_id, p["id"], p["sku"], p["name"], D(qty), price, D(0), amount])
+    order_item_rows.extend(lines_)
+    company = customer is not None and customer["vat"] in ("RESPONSABLE_INSCRIPTO", "MONOTRIBUTO")
+    created = Raw(f"TIMESTAMPADD(SECOND,{-minutes * 60},UTC_TIMESTAMP(6))")
+    okey = f"demo-order-{order_counter}"
+    order_rows.append([order_id, TENANT, branch_id, order_counter, customer["id"] if customer else None, PRESALE_SELLER[branch_id], "PENDING",
+                       note, "ARS", "A" if company else "B", estimated, len(lines_), None, None, None, None, None, None, okey, fp(okey),
+                       created, created])
+order_counter += 1
+okey = f"demo-order-{order_counter}"
+cancelled_id = uid()
+p = PRODUCTS[7]
+price = pb[(p["id"], BRANCHES[1][0])]["price"]
+order_item_rows.append([uid(), TENANT, cancelled_id, p["id"], p["sku"], p["name"], D(4), price, D(0), money(price * 4)])
+order_rows.append([cancelled_id, TENANT, BRANCHES[1][0], order_counter, None, USER_IDS["demo.vendedor"], "CANCELLED", None, "ARS", "B",
+                   money(price * 4), 1, None, None, None, USER_IDS["demo.vendedor"], at_past(11 * 3600, 30), "El cliente no pasó por caja",
+                   okey, fp(okey), at_past(10 * 3600 + 1800, 31), at_past(11 * 3600, 30)])
+insert("sales_orders", ["id", "tenant_id", "branch_id", "number", "customer_person_id", "seller_user_id", "status", "notes", "currency",
+                        "voucher_class", "estimated_total", "items_count", "sale_id", "charged_by_user_id", "charged_at", "cancelled_by_user_id",
+                        "cancelled_at", "cancel_reason", "idempotency_key", "request_fingerprint", "created_at", "updated_at"], order_rows, batch=300)
+insert("sales_order_items", ["id", "tenant_id", "sales_order_id", "product_id", "sku_snapshot", "name_snapshot", "quantity", "unit_price",
+                             "discount_amount", "total"], order_item_rows, batch=400)
 
 # ── Cajas: una abierta por local con las ventas en efectivo de hoy ──
 emit("\n-- ── Cajas (abiertas hoy) ─────────────────────────────────────────────────────")
@@ -556,7 +624,8 @@ insert("stock_transfer_items", ["id", "tenant_id", "transfer_id", "product_id", 
                                 "unit_cost"], tri_rows)
 
 # Numeradores: los próximos pedidos / transferencias continúan la numeración.
-insert("document_sequences", ["tenant_id", "name", "value"], [[TENANT, "PURCHASE_ORDER", 5], [TENANT, "STOCK_TRANSFER", 2], [TENANT, "SALE_RETURN", 0]])
+insert("document_sequences", ["tenant_id", "name", "value"], [[TENANT, "PURCHASE_ORDER", 5], [TENANT, "STOCK_TRANSFER", 2], [TENANT, "SALE_RETURN", 0],
+                                                         [TENANT, "SALES_ORDER", order_counter]])
 
 # ── Promociones ────────────────────────────────────────────────
 emit("\n-- ── Promociones ──────────────────────────────────────────────────────────────")
@@ -579,6 +648,7 @@ UNION ALL SELECT 'Sucursales', COUNT(*) FROM branches WHERE tenant_id = '{TENANT
 UNION ALL SELECT 'Productos', COUNT(*) FROM products WHERE tenant_id = '{TENANT}'
 UNION ALL SELECT 'Clientes y proveedores', COUNT(*) FROM persons WHERE tenant_id = '{TENANT}'
 UNION ALL SELECT 'Ventas', COUNT(*) FROM sales WHERE tenant_id = '{TENANT}'
+UNION ALL SELECT 'Pedidos esperando cobro', COUNT(*) FROM sales_orders WHERE tenant_id = '{TENANT}' AND status = 'PENDING'
 UNION ALL SELECT 'Facturación total', CONCAT('$ ', FORMAT(SUM(total), 2, 'es_AR')) FROM sales WHERE tenant_id = '{TENANT}'
 UNION ALL SELECT 'Usuarios demo', GROUP_CONCAT(username) FROM users WHERE username LIKE 'demo.%';
 """)
