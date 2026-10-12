@@ -22,6 +22,15 @@ page.on('response', async (res) => {
     failures.push(`[${current}] ${res.request().method()} ${url.replace(BASE, '')} → ${status} ${body}`);
   }
 });
+const inflight = new Map();
+page.on('request', (req) => inflight.set(req, `${req.method()} ${req.url().replace(BASE, '')}`));
+page.on('requestfinished', (req) => inflight.delete(req));
+page.on('requestfailed', (req) => inflight.delete(req));
+const reportInflight = async (label) => {
+  await page.waitForTimeout(3000);
+  const pending = [...inflight.values()];
+  report.push(`   en vuelo tras ${label}: ${pending.length ? pending.join(' | ').slice(0, 400) : 'ninguna'}`);
+};
 page.on('pageerror', (error) => failures.push(`[${current}] JS: ${error.message}`));
 page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('401')) failures.push(`[${current}] console: ${m.text().slice(0, 200)}`); });
 
@@ -102,7 +111,7 @@ for (const user of ['demo.cajero', 'demo.deposito', 'demo.contador']) {
     await page.fill('#password', 'Admin-Comercio-2026!');
     await page.click('button[type=submit]');
     await page.waitForSelector('.app-shell', { timeout: 20000 });
-    await page.waitForLoadState('networkidle');
+    await reportInflight(`login ${user}`);
   });
 }
 
@@ -116,7 +125,7 @@ const loginAs = async (user) => {
   await page.fill('#password', 'Admin-Comercio-2026!');
   await page.click('button[type=submit]');
   await page.waitForSelector('.app-shell', { timeout: 20000 });
-  await page.waitForLoadState('networkidle');
+  await reportInflight(`login ${user}`);
 };
 let orderNumber = null;
 await step('30-vendedora-pos', async () => {
