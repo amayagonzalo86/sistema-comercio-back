@@ -153,6 +153,8 @@ export function refreshSession(): Promise<string | null> {
           body: '{}',
         });
         if (!response.ok) {
+          // Liberar el cuerpo del 401: si no se lee, el navegador deja la petición abierta.
+          await response.body?.cancel().catch(() => undefined);
           setAccessToken(null);
           return null;
         }

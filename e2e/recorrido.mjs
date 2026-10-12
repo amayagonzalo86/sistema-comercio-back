@@ -124,8 +124,11 @@ const loginAs = async (user) => {
   await page.fill('#username', user);
   await page.fill('#password', 'Admin-Comercio-2026!');
   await page.click('button[type=submit]');
+  await page.waitForSelector('.app-shell, .tenant-option', { timeout: 20000 });
+  if (await page.locator('.tenant-option').count()) await page.locator('.tenant-option', { hasText: 'Almacenes del Centro' }).click();
   await page.waitForSelector('.app-shell', { timeout: 20000 });
   await reportInflight(`login ${user}`);
+  await page.waitForLoadState('networkidle', { timeout: 15000 });
 };
 let orderNumber = null;
 await step('30-vendedora-pos', async () => {
@@ -199,7 +202,6 @@ await step('39-cajero-cargar-por-numero', async () => {
 });
 await step('40-tablero-admin-pedidos', async () => {
   await loginAs('admin');
-  if (await page.locator('.tenant-option').count()) await page.locator('.tenant-option', { hasText: 'Almacenes del Centro' }).click();
   await page.goto(`${BASE}/tablero`);
   await page.waitForSelector('text=Pedidos esperando cobro', { timeout: 20000 });
 });
