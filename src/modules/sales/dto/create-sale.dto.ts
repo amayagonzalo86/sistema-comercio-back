@@ -81,6 +81,11 @@ export class CreateSaleDto {
   @ValidateNested()
   @Type(() => SaleVatExemptionDto)
   vatExemption?: SaleVatExemptionDto;
+
+  /** Pedido de venta (preventa) que se está cobrando. Debe estar pendiente y ser de la misma sucursal. */
+  @IsOptional()
+  @IsUUID('4')
+  salesOrderId?: string;
 }
 
 /** POST /sales/quote — calcula la venta (promociones, IVA y total) sin registrarla. */

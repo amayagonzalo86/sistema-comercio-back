@@ -50,6 +50,7 @@ export interface DashboardResponse {
     lowStockItems: number;
     transfersInTransit: number;
     purchaseOrdersPending: number;
+    salesOrdersPending: number;
   };
 }
 
@@ -254,14 +255,15 @@ export class ReportsService {
   async salesBySeller(tenantId: string, query: ReportQueryDto, branchScope: string | null) {
     const { period, branchId } = await this.context(tenantId, query, branchScope);
     const rows = (await this.dataSource.query(
-      `SELECT s.actor_user_id AS userId, MAX(u.username) AS username,
+      // Vendedor = quien armó el pedido (preventa) o, en venta directa, quien cobró.
+      `SELECT COALESCE(s.seller_user_id, s.actor_user_id) AS userId, MAX(u.username) AS username,
               MAX(CONCAT_WS(' ', pe.first_name, pe.last_name)) AS fullName,
               COUNT(*) AS tickets, SUM(s.total) AS gross, SUM(s.refunded_total) AS refunds
          FROM sales s
-         LEFT JOIN users u ON u.id = s.actor_user_id
+         LEFT JOIN users u ON u.id = COALESCE(s.seller_user_id, s.actor_user_id)
          LEFT JOIN persons pe ON pe.id = u.person_id
         WHERE s.tenant_id = ? AND s.created_at >= ? AND s.created_at < ?${branchId ? ' AND s.branch_id = ?' : ''}
-        GROUP BY s.actor_user_id
+        GROUP BY COALESCE(s.seller_user_id, s.actor_user_id)
         ORDER BY gross DESC`,
       [tenantId, period.startUtc, period.endUtc, ...(branchId ? [branchId] : [])],
     )) as Row[];
@@ -447,7 +449,7 @@ export class ReportsService {
     const branchFilter = (column: string) => (branchId ? ` AND ${column} = ?` : '');
     const branchParam = branchId ? [branchId] : [];
     const today = localToday(timeZone);
-    const [cash, payables, lowStock, transfers, orders] = await Promise.all([
+    const [cash, payables, lowStock, transfers, orders, salesOrders] = await Promise.all([
       this.dataSource.query(
         `SELECT COUNT(*) AS sessions, COALESCE(SUM(expected_amount), 0) AS cash
            FROM cash_sessions WHERE tenant_id = ? AND status = 'OPEN'${branchFilter('branch_id')}`,
@@ -474,6 +476,11 @@ export class ReportsService {
           WHERE tenant_id = ? AND status IN ('SENT', 'PARTIALLY_RECEIVED')${branchFilter('branch_id')}`,
         [tenantId, ...branchParam],
       ) as Promise<Row[]>,
+      this.dataSource.query(
+        `SELECT COUNT(*) AS total FROM sales_orders
+          WHERE tenant_id = ? AND status = 'PENDING'${branchFilter('branch_id')}`,
+        [tenantId, ...branchParam],
+      ) as Promise<Row[]>,
     ]);
     return {
       openCashSessions: num(cash[0]?.sessions),
@@ -483,6 +490,7 @@ export class ReportsService {
       lowStockItems: num(lowStock[0]?.total),
       transfersInTransit: num(transfers[0]?.total),
       purchaseOrdersPending: num(orders[0]?.total),
+      salesOrdersPending: num(salesOrders[0]?.total),
     };
   }
 

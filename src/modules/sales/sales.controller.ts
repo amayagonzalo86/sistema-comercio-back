@@ -100,8 +100,12 @@ export class SalesController {
     return this.saleReturns.listForSale(tenantId, id, requireAssignedBranch(actor) ?? actor.branchId ?? null);
   }
 
+  /**
+   * Registra (cobra) una venta. Solo caja y gerencia: el vendedor no cobra, arma pedidos en /sales-orders
+   * y la caja los cobra enviando salesOrderId. Así cada cobro tiene un responsable de caja identificado.
+   */
   @Post()
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER)
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @GetTenantId() tenantId: string,

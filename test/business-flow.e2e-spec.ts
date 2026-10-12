@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { AdminSeederService } from '../src/database/seeders/admin-seeder.service';
 import { ARCA_CLIENT, ArcaClient } from '../src/modules/fiscal/arca/arca-client';
+import { RoleEntity, UserRoleEnum } from '../src/modules/roles/entities/role.entity';
 import { CaeRequest } from '../src/modules/fiscal/arca/wsfe';
 
 /** ARCA simulado: numera por tipo de comprobante y autoriza todo (las pruebas no llegan a ARCA real). */
@@ -350,5 +351,117 @@ describe('Flujo comercial completo (e2e)', () => {
     const csv = await api('get', '/marketing/customers/contacts.csv');
     expectStatus(csv, 200);
     expect(csv.text).toContain('cliente@example.com');
+
+    // ── Preventa: la vendedora arma el pedido y la caja lo cobra ──────────────────────────────
+    const roleRepository = app.get(DataSource).getRepository(RoleEntity);
+    const sellerRole =
+      (await roleRepository.findOne({ where: { name: UserRoleEnum.SELLER } })) ??
+      (await roleRepository.save(roleRepository.create({ name: UserRoleEnum.SELLER, description: 'Vendedor' })));
+    const sellerPerson = await api('post', '/persons', {
+      firstName: 'Vera',
+      lastName: 'Vendedora',
+      documentType: 96,
+      nationalId: '30111222',
+      vatCondition: 'CONSUMIDOR_FINAL',
+    });
+    expectStatus(sellerPerson, 201);
+    const sellerPassword = 'Vendedora-2026x';
+    const sellerUser = await api('post', '/users', {
+      username: 'vera.vendedora',
+      password: sellerPassword,
+      roleIds: [sellerRole.id],
+      personId: sellerPerson.body.id,
+      branchId: A,
+    });
+    expectStatus(sellerUser, 201);
+    const sellerLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ username: 'vera.vendedora', password: sellerPassword });
+    expectStatus(sellerLogin, 200);
+    const adminToken = token;
+    token = sellerLogin.body.tokens.accessToken as string;
+
+    // La vendedora no cobra: POST /sales le está vedado; arma el pedido.
+    const sellerSale = await api(
+      'post',
+      '/sales',
+      { branchId: A, lines: [{ productId, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 1000 }] },
+      true,
+    );
+    expectStatus(sellerSale, 403);
+    expectStatus(await api('post', '/sales-orders', { branchId: B, lines: [{ productId, quantity: 1 }] }, true), 403);
+    const orderKey = randomUUID();
+    const salesOrder = await request(app.getHttpServer())
+      .post('/api/v1/sales-orders')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', orderKey)
+      .send({ branchId: A, lines: [{ productId, quantity: 2 }], notes: 'Retira en mostrador' });
+    expectStatus(salesOrder, 201);
+    expect(salesOrder.body.status).toBe('PENDING');
+    expect(salesOrder.body.number).toBe(1);
+    expect(salesOrder.body.sellerName).toBe('Vera Vendedora');
+    expect(salesOrder.body.items.length).toBe(1);
+    // Precio vigente $1100 (aumento de lista) − 10 % de promoción = $1980 neto + IVA 21 % = $2395.80
+    expect(salesOrder.body.estimatedTotal).toBe('2395.80');
+    const replay = await request(app.getHttpServer())
+      .post('/api/v1/sales-orders')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', orderKey)
+      .send({ branchId: A, lines: [{ productId, quantity: 2 }], notes: 'Retira en mostrador' });
+    expectStatus(replay, 201);
+    expect(replay.body.id).toBe(salesOrder.body.id);
+    const spare = await api('post', '/sales-orders', { branchId: A, lines: [{ productId, quantity: 1 }] }, true);
+    expectStatus(spare, 201);
+    expect(spare.body.number).toBe(2);
+    const stockBeforeCharge = await api('get', '/inventory/stock-matrix');
+    expect(stockBeforeCharge.body.items[0].branches[A].stock).toBe('43.000'); // el pedido no descuenta stock
+
+    // La caja (administrador) ve la cola, busca el pedido por número y lo cobra.
+    token = adminToken;
+    const queue = await api('get', '/sales-orders?status=PENDING');
+    expectStatus(queue, 200);
+    expect(queue.body.total).toBe(2);
+    expect(queue.body.items[0].number).toBe(1);
+    const byNumber = await api('get', '/sales-orders/by-number/1');
+    expectStatus(byNumber, 200);
+    expect(byNumber.body.id).toBe(salesOrder.body.id);
+    expectStatus(await api('get', '/sales-orders/by-number/999'), 404);
+    const pendingDashboard = await api('get', '/reports/dashboard');
+    expect(pendingDashboard.body.operations.salesOrdersPending).toBe(2);
+
+    const charge = {
+      branchId: A,
+      salesOrderId: salesOrder.body.id,
+      lines: [{ productId, quantity: 2 }],
+      payments: [{ method: 'CASH', amount: 2395.8, cashSessionId: session.body.id }],
+    };
+    const charged = await api('post', '/sales', charge, true);
+    expectStatus(charged, 201);
+    expect(charged.body.salesOrderId).toBe(salesOrder.body.id);
+    expect(charged.body.sellerUserId).toBe(sellerUser.body.id);
+    expect(charged.body.total).toBe('2395.80');
+    const chargedOrder = await api('get', `/sales-orders/${salesOrder.body.id}`);
+    expect(chargedOrder.body.status).toBe('CHARGED');
+    expect(chargedOrder.body.saleId).toBe(charged.body.id);
+    // Otra caja no puede cobrar el mismo pedido.
+    expectStatus(await api('post', '/sales', charge, true), 409);
+    const bySeller = await api('get', `/sales?sellerUserId=${sellerUser.body.id}`);
+    expectStatus(bySeller, 200);
+    expect(bySeller.body.total).toBe(1);
+    const sellerReport = await api('get', '/reports/sales-by-seller');
+    expect(sellerReport.body.items.some((row: { userId: string; tickets: number }) => row.userId === sellerUser.body.id && row.tickets === 1)).toBe(true);
+
+    // La vendedora puede anular su propio pedido pendiente, pero no uno cobrado.
+    token = sellerLogin.body.tokens.accessToken as string;
+    expectStatus(await api('post', `/sales-orders/${salesOrder.body.id}/cancel`, { reason: 'Se arrepintió' }), 409);
+    const cancelled = await api('post', `/sales-orders/${spare.body.id}/cancel`, { reason: 'El cliente no vino' });
+    expectStatus(cancelled, 200);
+    expect(cancelled.body.status).toBe('CANCELLED');
+    token = adminToken;
+    expectStatus(await api('post', '/sales', { ...charge, salesOrderId: spare.body.id, lines: [{ productId, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 1197.9 }] }, true), 409);
+    const finalDashboard = await api('get', '/reports/dashboard');
+    expect(finalDashboard.body.operations.salesOrdersPending).toBe(0);
+    const audit = await api('get', '/audit-events');
+    expectStatus(audit, 200);
   });
 });
