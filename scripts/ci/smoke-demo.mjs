@@ -61,7 +61,29 @@ if (t) {
 const po = await call('POST', '/purchase-orders', token, { supplierPersonId: (await call('GET', '/persons?role=suppliers&limit=1', token)).json.items[0].id, branchId: central.id, lines: [{ productId: yerba.id, quantity: 10 }] });
 log(po.status === 201 || po.status === 200, `nuevo pedido nro ${po.json.number} (${po.status})`);
 
-for (const username of ['demo.cajero', 'demo.encargado', 'demo.vendedor', 'demo.deposito', 'demo.contador']) {
+// Preventa: cola de la demo, pedido de la vendedora y cobro en caja con salesOrderId.
+const queue = await call('GET', '/sales-orders?status=PENDING', token);
+log(queue.status === 200 && queue.json.total >= 4, `pedidos esperando cobro ${queue.json.total} primero=#${queue.json.items?.[0]?.number} ${queue.json.items?.[0]?.sellerName}`);
+log(dash.json.operations?.salesOrdersPending >= 4, `tablero pedidos pendientes ${dash.json.operations?.salesOrdersPending}`);
+const charged = await call('GET', '/sales-orders?status=CHARGED&limit=1', token);
+log(charged.json.total > 50 && Boolean(charged.json.items?.[0]?.saleId), `pedidos cobrados históricos ${charged.json.total}`);
+const sellerLogin = await call('POST', '/auth/login', null, { username: 'demo.vendedora', password: process.env.ADMIN_BOOTSTRAP_PASSWORD });
+const sellerToken = sellerLogin.json.tokens?.accessToken;
+const sellerBranch = sellerLogin.json.user?.branchId ?? central.id;
+const forbidden = await call('POST', '/sales', sellerToken, { branchId: sellerBranch, lines: [{ productId: yerba.id, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 1 }] }, { 'Idempotency-Key': crypto.randomUUID() });
+log(forbidden.status === 403, `vendedora no cobra (POST /sales) ${forbidden.status}`);
+const order = await call('POST', '/sales-orders', sellerToken, { branchId: sellerBranch, lines: [{ productId: yerba.id, quantity: 2 }], notes: 'Prueba de humo' }, { 'Idempotency-Key': crypto.randomUUID() });
+log(order.status === 201, `pedido nuevo #${order.json.number} ${order.status} total=${order.json.estimatedTotal} vendedor=${order.json.sellerName}`);
+const byNumber = await call('GET', `/sales-orders/by-number/${order.json.number}`, token);
+const chargeQuote = await call('POST', '/sales/quote', token, { branchId: sellerBranch, lines: [{ productId: yerba.id, quantity: 2 }] });
+const chargeSale = await call('POST', '/sales', token, { branchId: sellerBranch, salesOrderId: byNumber.json.id, lines: [{ productId: yerba.id, quantity: 2 }], payments: [{ method: 'DEBIT_CARD', amount: Number(chargeQuote.json.total) }] }, { 'Idempotency-Key': crypto.randomUUID() });
+log(chargeSale.status === 201 && chargeSale.json.sellerUserId === sellerLogin.json.user?.id, `cobro del pedido ${chargeSale.status} vendedor=${chargeSale.json.sellerUserId}`);
+const afterCharge = await call('GET', `/sales-orders/${byNumber.json.id}`, token);
+log(afterCharge.json.status === 'CHARGED', `pedido queda ${afterCharge.json.status}`);
+const sellers = await call('GET', '/reports/sales-by-seller', token);
+log(sellers.json.items?.some((row) => row.username === 'demo.vendedora'), `ranking incluye a la vendedora ${JSON.stringify(sellers.json.items?.map((row) => `${row.username}:${row.tickets}`))}`);
+
+for (const username of ['demo.cajero', 'demo.encargado', 'demo.vendedor', 'demo.vendedora', 'demo.deposito', 'demo.contador']) {
   const r = await call('POST', '/auth/login', null, { username, password: process.env.ADMIN_BOOTSTRAP_PASSWORD });
   const tok = r.json.tokens?.accessToken;
   const br = tok ? await call('GET', '/branches', tok) : { status: 0, json: [] };
