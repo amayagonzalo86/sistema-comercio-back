@@ -17,7 +17,8 @@ y volcado con `mysqldump` (esquema, tablas del administrador y luego `datos-demo
 
 `datos-demo.sql` carga la empresa ficticia **Almacenes del Centro SRL** para probar el frontend:
 4 locales + depósito, 37 productos, 32 clientes, 4 proveedores, ~3.700 ventas de los últimos 90 días,
-cajas abiertas hoy, pedidos de compra, deuda con proveedores (una vencida), transferencias y promociones.
+cajas abiertas hoy, pedidos de compra, deuda con proveedores (una vencida), transferencias, promociones y
+**preventa**: pedidos de venta cobrados en caja (Casa Central y Nueva Córdoba), 4 esperando cobro hoy y uno anulado.
 
 ```bash
 # 1. Esquema: arrancar la API una vez en desarrollo (synchronize) y detenerla
@@ -29,7 +30,9 @@ mysql -u erp_app -p sistema_comercio < database/demo/datos-demo.sql
 ```
 
 - Ingresás con el **mismo usuario administrador** (queda como titular de la empresa demo).
-- Usuarios por rol con la misma contraseña: `demo.encargado`, `demo.cajero`, `demo.vendedor`, `demo.deposito`, `demo.contador`.
+- Usuarios por rol con la misma contraseña: `demo.encargado`, `demo.cajero`, `demo.vendedor`, `demo.vendedora`, `demo.deposito`, `demo.contador`.
+- Para probar la preventa: ingresá como `demo.vendedora` (Casa Central), armá un pedido en el punto de venta y anotá el número;
+  después ingresá como `demo.cajero` y cobralo desde **Pedidos de venta** o con **Cargar pedido** en el punto de venta.
 - Es re-ejecutable: borra la empresa demo y la vuelve a crear con fechas relativas a hoy.
 - Para regenerar el archivo: `python3 database/demo/generar_datos_demo.py`.
 - **No ejecutar en producción.**
