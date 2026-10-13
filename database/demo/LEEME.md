@@ -29,8 +29,10 @@ npm run seed
 mysql -u erp_app -p sistema_comercio < database/demo/datos-demo.sql
 ```
 
-- Ingresás con el **mismo usuario administrador** (queda como titular de la empresa demo).
-- Usuarios por rol con la misma contraseña: `demo.encargado`, `demo.cajero`, `demo.vendedor`, `demo.vendedora`, `demo.deposito`, `demo.contador`.
+- Ingresás con el **mismo usuario administrador** (operador de la plataforma, con acceso a la empresa demo).
+  Es invisible para la empresa: `demo.titular` no lo ve en Empleados y en la auditoría sus acciones figuran como
+  "Soporte de la plataforma".
+- Usuarios por rol con la misma contraseña: `demo.titular` (dueño de la empresa), `demo.encargado`, `demo.cajero`, `demo.vendedor`, `demo.vendedora`, `demo.deposito`, `demo.contador`.
   `demo.cajero` tiene **dos roles** (Caja + Depósito): cobra y también recibe mercadería.
 - Empleados: como titular o administración, en **Empresa → Empleados** das de alta personas con uno o más roles,
   editás sus datos, les cambiás la contraseña o los desactivás.

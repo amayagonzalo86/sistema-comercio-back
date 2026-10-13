@@ -1,3 +1,4 @@
+import { PLATFORM_SUPPORT_LABEL, platformOperatorIds } from '../../common/security/platform-operators';
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { TenantEntity } from '../platform/entities/tenant.entity';
@@ -267,15 +268,18 @@ export class ReportsService {
         ORDER BY gross DESC`,
       [tenantId, period.startUtc, period.endUtc, ...(branchId ? [branchId] : [])],
     )) as Row[];
+    // Las ventas hechas por soporte de la plataforma se muestran sin revelar quién es.
+    const operators = await platformOperatorIds(this.dataSource.manager);
     return {
       period: { from: period.from, to: period.to },
       items: rows.map((row) => {
         const gross = money(row.gross);
         const tickets = num(row.tickets);
+        const support = operators.has(String(row.userId));
         return {
-          userId: String(row.userId),
-          username: row.username ? String(row.username) : null,
-          fullName: row.fullName ? String(row.fullName) : null,
+          userId: support ? 'platform-support' : String(row.userId),
+          username: support ? null : row.username ? String(row.username) : null,
+          fullName: support ? PLATFORM_SUPPORT_LABEL : row.fullName ? String(row.fullName) : null,
           tickets,
           grossSales: gross,
           refunds: money(row.refunds),

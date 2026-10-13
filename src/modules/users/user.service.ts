@@ -9,7 +9,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
-import { In, Repository } from 'typeorm';
+import { FindOptionsWhere, In, Not, Repository } from 'typeorm';
+import { platformOperatorIds } from '../../common/security/platform-operators';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignBranchDto } from './dto/assign-branch.dto';
@@ -105,7 +106,7 @@ export class UsersService {
   
   async findAll(tenantId: string): Promise<UserEntity[]> {
     try{
-      const users = await this.userRepository.find({ where: { memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true },
+      const users = await this.userRepository.find({ where: { ...(await this.hideOperators()), memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true },
         select: {
           id: true,
           username: true,
@@ -124,6 +125,7 @@ export class UsersService {
 
   async findOne(id: string, tenantId: string): Promise<UserEntity> {
     try {
+      if ((await platformOperatorIds(this.userRepository.manager)).has(id)) { throw new NotFoundException(`Usuario con ID ${id} no encontrado`) }
       const user = await this.userRepository.findOne({ where: { id, memberships: { tenantId, status: MembershipStatus.ACTIVE } },  relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con ID ${id} no encontrado`) }
       await this.attachTenantBranches([user], tenantId);
@@ -137,7 +139,7 @@ export class UsersService {
 
   async findByUsername(username: string, tenantId: string): Promise<UserEntity> {
     try {
-      const user = await this.userRepository.findOne({ where: { username, memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true } });
+      const user = await this.userRepository.findOne({ where: { ...(await this.hideOperators()), username, memberships: { tenantId, status: MembershipStatus.ACTIVE } }, relations: { person: true, branch: true, roles: true } });
       if (!user) { throw new NotFoundException(`Usuario con el nombre '${username}' no encontrado`) }
       await this.attachTenantBranches([user], tenantId);
       return user;
@@ -254,7 +256,7 @@ export class UsersService {
       const branch = await this.branchRepository.findOne({ where: { id: branchId, tenantId } });
       if (!branch) { throw new NotFoundException(`Sucursal con ID ${branchId} no encontrada`) }
 
-      return await this.userRepository.find({ where: { memberships: { tenantId, branchId, status: MembershipStatus.ACTIVE } }, relations: { person: true },
+      return await this.userRepository.find({ where: { ...(await this.hideOperators()), memberships: { tenantId, branchId, status: MembershipStatus.ACTIVE } }, relations: { person: true },
         select: {
           id: true,
           username: true,
@@ -285,6 +287,7 @@ export class UsersService {
   };
 
   async enable(id: string, tenantId: string): Promise<{ message: string }> {
+    if ((await platformOperatorIds(this.userRepository.manager)).has(id)) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     const user = await this.userRepository.findOne({
       where: { id, memberships: { tenantId } },
       relations: { person: true, branch: true, roles: true },
@@ -296,6 +299,12 @@ export class UsersService {
     );
     return { message: `El usuario '${user.username}' ha sido activado en esta empresa` };
   }
+  /** Los operadores de la plataforma (SUPER_ADMIN) no son usuarios de la empresa: se excluyen de toda consulta. */
+  private async hideOperators(): Promise<FindOptionsWhere<UserEntity>> {
+    const ids = [...(await platformOperatorIds(this.userRepository.manager))];
+    return ids.length ? { id: Not(In(ids)) } : {};
+  }
+
   private async attachTenantBranches(users: UserEntity[], tenantId: string): Promise<UserEntity[]> {
     if (users.length === 0) return users;
     const memberships = await this.membershipRepository.find({

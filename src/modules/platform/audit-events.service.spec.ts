@@ -12,8 +12,10 @@ describe('AuditEventsService', () => {
     take: jest.fn(),
     getMany: jest.fn(),
   };
+  const managerQuery = jest.fn();
   const repository = {
     createQueryBuilder: jest.fn(),
+    manager: { query: managerQuery },
   } as unknown as Repository<AuditEventEntity>;
   let service: AuditEventsService;
 
@@ -24,6 +26,7 @@ describe('AuditEventsService', () => {
     queryBuilder.orderBy.mockReturnValue(queryBuilder);
     queryBuilder.take.mockReturnValue(queryBuilder);
     repository.createQueryBuilder = jest.fn().mockReturnValue(queryBuilder);
+    managerQuery.mockResolvedValue([]);
     service = new AuditEventsService(repository);
   });
 
@@ -51,7 +54,7 @@ describe('AuditEventsService', () => {
       { eventType: 'SALE_COMPLETED' },
     );
     expect(queryBuilder.take).toHaveBeenCalledWith(26);
-    expect(page).toEqual({ items: [{ id: '9007199254740999' }], nextCursor: null });
+    expect(page).toEqual({ items: [{ id: '9007199254740999', actorName: 'Sistema', actorType: 'SYSTEM' }], nextCursor: null });
   });
 
   it('returns a next cursor without coercing BIGINT IDs to Number', async () => {
@@ -71,6 +74,29 @@ describe('AuditEventsService', () => {
       '9007199254741009',
     ]);
     expect(page.nextCursor).toBe('9007199254741009');
+  });
+
+  it('muestra el nombre del empleado y oculta la identidad del soporte de la plataforma', async () => {
+    queryBuilder.getMany.mockResolvedValue([
+      { id: '3', actorUserId: 'operator-1', ipAddress: '200.1.1.1', userAgent: 'Chrome' },
+      { id: '2', actorUserId: 'employee-1', ipAddress: '10.0.0.5', userAgent: 'Firefox' },
+    ]);
+    managerQuery.mockImplementation((sql: string) =>
+      Promise.resolve(
+        sql.includes('users_roles')
+          ? [{ user_id: 'operator-1' }]
+          : [
+              { id: 'operator-1', name: 'Dueño del Sistema' },
+              { id: 'employee-1', name: 'Julián Sosa' },
+            ],
+      ),
+    );
+
+    const page = await service.findTenantEvents('tenant-a', new AuditEventQueryDto());
+
+    expect(page.items[0]).toMatchObject({ actorUserId: null, ipAddress: null, userAgent: null, actorName: 'Soporte de la plataforma', actorType: 'PLATFORM_SUPPORT' });
+    expect(JSON.stringify(page.items[0])).not.toContain('Dueño del Sistema');
+    expect(page.items[1]).toMatchObject({ actorUserId: 'employee-1', ipAddress: '10.0.0.5', actorName: 'Julián Sosa', actorType: 'USER' });
   });
 
   it('rejects an inverted date range', async () => {

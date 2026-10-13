@@ -45,6 +45,8 @@ class FakeArcaClient implements ArcaClient {
 describe('Flujo comercial completo (e2e)', () => {
   let app: INestApplication<App>;
   let token = '';
+  /** El administrador sembrado es el operador de la plataforma (SUPER_ADMIN). */
+  let operatorId = '';
   const arca = new FakeArcaClient();
 
   const api = (method: 'get' | 'post' | 'put' | 'patch', path: string, body?: object, idempotent = false) => {
@@ -82,6 +84,7 @@ describe('Flujo comercial completo (e2e)', () => {
       .send({ username: 'admin', password: process.env.ADMIN_BOOTSTRAP_PASSWORD });
     expectStatus(login, 200);
     token = login.body.tokens.accessToken as string;
+    operatorId = login.body.user.id as string;
     expect(login.headers['set-cookie']?.toString()).toContain('refreshToken=');
   });
 
@@ -561,11 +564,32 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await api('patch', `/employees/${camilaId}`, { roles: ['SELLER', 'ADMIN'] }), 403);
     expectStatus(await api('post', `/employees/${adminEmployee.body.id}/deactivate`), 400);
     expectStatus(await api('patch', `/employees/${adminEmployee.body.id}`, { roles: ['VIEWER'] }), 403);
-    const ownerRow = (await api('get', '/employees?role=OWNER')).body.items[0] as { id: string };
-    expectStatus(await api('post', `/employees/${ownerRow.id}/password`, { newPassword: 'Robar-Cuenta-2026' }), 403);
+    // El operador de la plataforma no existe para la empresa: ni siquiera un administrador puede tocarlo.
+    expectStatus(await api('post', `/employees/${operatorId}/password`, { newPassword: 'Robar-Cuenta-2026' }), 404);
+    expectStatus(await api('patch', `/employees/${operatorId}`, { firstName: 'Curioso' }), 404);
+    expectStatus(await api('post', `/employees/${operatorId}/deactivate`), 404);
     token = adminToken;
-    expectStatus(await api('post', `/employees/${ownerRow.id}/password`, { newPassword: 'Mi-Propia-2026x' }), 400); // la propia se cambia con la actual
-    const employeeAudit = await api('get', '/audit-events');
-    expectStatus(employeeAudit, 200);
+    expectStatus(await api('post', `/employees/${operatorId}/password`, { newPassword: 'Mi-Propia-2026x' }), 400); // la propia se cambia con la actual
+
+    // ── Operador de la plataforma invisible para la empresa ──
+    const everyone = await api('get', '/employees?status=ALL&limit=100');
+    expectStatus(everyone, 200);
+    expect(everyone.body.items.some((row: { id: string; username: string }) => row.id === operatorId || row.username === 'admin')).toBe(false);
+    expect((await api('get', '/employees?role=OWNER')).body.total).toBe(0);
+    expect((await api('get', '/employees?search=admin')).body.items.some((row: { username: string }) => row.username === 'admin')).toBe(false);
+    expectStatus(await api('get', `/employees/${operatorId}`), 404);
+    const legacyUsers = await api('get', '/users');
+    expectStatus(legacyUsers, 200);
+    expect(legacyUsers.body.some((row: { id: string }) => row.id === operatorId)).toBe(false);
+    expectStatus(await api('get', `/users/${operatorId}`), 404);
+    const operatorAudit = await api('get', '/audit-events?limit=100');
+    expectStatus(operatorAudit, 200);
+    const auditText = JSON.stringify(operatorAudit.body.items);
+    expect(auditText).not.toContain(operatorId);
+    expect(operatorAudit.body.items.some((event: { actorType: string; actorName: string }) => event.actorType === 'PLATFORM_SUPPORT' && event.actorName === 'Soporte de la plataforma')).toBe(true);
+    expect(operatorAudit.body.items.some((event: { actorName: string }) => event.actorName === 'Adrián Administra')).toBe(true);
+    const sellersReport = await api('get', '/reports/sales-by-seller');
+    expect(JSON.stringify(sellersReport.body)).not.toContain(operatorId);
+    expect(sellersReport.body.items.some((row: { fullName: string }) => row.fullName === 'Soporte de la plataforma')).toBe(true);
   });
 });

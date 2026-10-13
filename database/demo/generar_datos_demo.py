@@ -203,6 +203,7 @@ ALL_PEOPLE = CUSTOMERS + COMPANY_CUSTOMERS + SUPPLIERS
 
 DEMO_USERS = [
     # username, nombre, apellido, rol empresa, rol global, sucursal
+    ("demo.titular", "Roberto", "Giménez", "OWNER", "ADMIN", None),
     ("demo.encargado", "Laura", "Paz", "MANAGER", "MANAGER", 0),
     ("demo.cajero", "Julián", "Sosa", "CASHIER", "CASHIER", 0),
     ("demo.vendedor", "Carla", "Ríos", "SELLER", "SELLER", 1),

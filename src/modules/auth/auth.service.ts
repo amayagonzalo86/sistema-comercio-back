@@ -1,5 +1,6 @@
 import { membershipRoles } from '../../common/security/tenant-roles';
 import { recordAudit } from '../../common/audit/audit';
+import { isPlatformOperator } from '../../common/security/platform-operators';
 import {
   BadRequestException,
   Injectable,
@@ -393,14 +394,15 @@ export class AuthService {
         .where('user_id = :userId AND is_valid = 1', { userId });
       if (currentTokenId) sessions.andWhere('token_id <> :tokenId', { tokenId: currentTokenId });
       await sessions.execute();
-      if (tenantId) {
+      // La cuenta de un operador de la plataforma no pertenece a la empresa: no se registra en su auditoría.
+      if (tenantId && !(await isPlatformOperator(manager, userId))) {
         await recordAudit(manager, {
           tenantId,
           actorUserId: userId,
           eventType: 'PASSWORD_CHANGED',
           aggregateType: 'USER',
           aggregateId: userId,
-          metadata: { username: user.username, otherSessionsClosed: true },
+          metadata: { otherSessionsClosed: true },
           context: { requestId: context.requestId ?? null, ipAddress, userAgent: context.userAgent ?? null },
         });
       }

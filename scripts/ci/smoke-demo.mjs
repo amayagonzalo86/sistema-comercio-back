@@ -92,7 +92,15 @@ log(JSON.stringify(cashierClaims.tenantRoles) === JSON.stringify(['CASHIER', 'IN
 const cashierTransfers = await call('GET', '/stock-transfers', cashierLogin.json.tokens.accessToken);
 log(cashierTransfers.status === 200, `cajero+depósito ve transferencias ${cashierTransfers.status}`);
 
-for (const username of ['demo.cajero', 'demo.encargado', 'demo.vendedor', 'demo.vendedora', 'demo.deposito', 'demo.contador']) {
+// El titular de la empresa no ve al operador de la plataforma (admin) entre sus empleados ni en la auditoría.
+const ownerLogin = await call('POST', '/auth/login', null, { username: 'demo.titular', password: process.env.ADMIN_BOOTSTRAP_PASSWORD });
+const ownerToken = ownerLogin.json.tokens?.accessToken;
+const ownerEmployees = await call('GET', '/employees?status=ALL&limit=100', ownerToken);
+log(ownerEmployees.status === 200 && !ownerEmployees.json.items.some((row) => row.username === 'admin'), `titular no ve al operador: ${ownerEmployees.json.items?.map((row) => row.username).join(',')}`);
+const ownerAudit = await call('GET', '/audit-events?limit=100', ownerToken);
+log(ownerAudit.status === 200 && !JSON.stringify(ownerAudit.json).includes(claims.sub), `auditoría sin el id del operador (${ownerAudit.json.items?.filter((e) => e.actorType === 'PLATFORM_SUPPORT').length} acciones de soporte)`);
+
+for (const username of ['demo.titular', 'demo.cajero', 'demo.encargado', 'demo.vendedor', 'demo.vendedora', 'demo.deposito', 'demo.contador']) {
   const r = await call('POST', '/auth/login', null, { username, password: process.env.ADMIN_BOOTSTRAP_PASSWORD });
   const tok = r.json.tokens?.accessToken;
   const br = tok ? await call('GET', '/branches', tok) : { status: 0, json: [] };
