@@ -1,3 +1,4 @@
+import { PLATFORM_SUPPORT_LABEL, platformOperatorIds } from '../../../common/security/platform-operators';
 import {
   BadRequestException,
   ConflictException,
@@ -299,6 +300,9 @@ export class SalesOrdersService {
     const toMap = (rows: NameRow[]) => new Map(rows.map((row) => [String(row.id), row.name ? String(row.name) : null]));
     const branchNames = toMap(branches);
     const sellerNames = toMap(sellers);
+    // Un pedido armado por soporte de la plataforma no revela su identidad.
+    const operators = await platformOperatorIds(this.dataSource.manager);
+    for (const id of operators) if (sellerNames.has(id)) sellerNames.set(id, PLATFORM_SUPPORT_LABEL);
     const customerNames = toMap(customers);
 
     return orders.map(({ items: _items, tenant: _tenant, branch: _branch, ...order }) => ({

@@ -21,6 +21,7 @@ import {
   splitTenantRoles,
   TENANT_ROLE_GUARD_MAP,
 } from '../../common/security/tenant-roles';
+import { isPlatformOperator, PLATFORM_OPERATOR_IDS_SQL } from '../../common/security/platform-operators';
 import { SessionEntity } from '../auth/entities/session.entity';
 import { BranchEntity } from '../branches/entities/branch.entity';
 import { PersonEntity, PersonType } from '../persons/entities/person.entity';
@@ -101,7 +102,8 @@ export class EmployeesService {
   constructor(private readonly dataSource: DataSource) {}
 
   async list(tenantId: string, query: EmployeeQueryDto): Promise<Paginated<EmployeeView>> {
-    const where: string[] = ['m.tenant_id = ?', 'u.deleted_at IS NULL'];
+    // Los operadores de la plataforma no son empleados de la empresa: nunca se listan.
+    const where: string[] = ['m.tenant_id = ?', 'u.deleted_at IS NULL', `u.id NOT IN (${PLATFORM_OPERATOR_IDS_SQL})`];
     const params: unknown[] = [tenantId];
     const status = query.status ?? MembershipStatus.ACTIVE;
     if (status !== 'ALL') {
@@ -138,7 +140,7 @@ export class EmployeesService {
   }
 
   async findOne(tenantId: string, userId: string): Promise<EmployeeView> {
-    const rows = (await this.dataSource.query(`${this.selectSql()} WHERE m.tenant_id = ? AND m.user_id = ? AND u.deleted_at IS NULL LIMIT 1`, [
+    const rows = (await this.dataSource.query(`${this.selectSql()} WHERE m.tenant_id = ? AND m.user_id = ? AND u.deleted_at IS NULL AND u.id NOT IN (${PLATFORM_OPERATOR_IDS_SQL}) LIMIT 1`, [
       tenantId,
       userId,
     ])) as EmployeeRow[];
@@ -439,6 +441,8 @@ export class EmployeesService {
   }
 
   private async lockEmployee(manager: EntityManager, tenantId: string, userId: string) {
+    // Un operador de la plataforma no existe para la administración de la empresa.
+    if (await isPlatformOperator(manager, userId)) throw new NotFoundException('Empleado no encontrado en esta empresa.');
     const membership = await manager
       .createQueryBuilder(TenantMembershipEntity, 'm')
       .setLock('pessimistic_write')
