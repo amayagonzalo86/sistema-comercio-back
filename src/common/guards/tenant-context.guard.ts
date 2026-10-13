@@ -14,6 +14,7 @@ import {
 } from '../../modules/platform/entities/tenant-membership.entity';
 import { TenantStatus } from '../../modules/platform/entities/tenant.entity';
 import { isIpAllowed } from '../security/ip-allowlist';
+import { membershipRoles } from '../security/tenant-roles';
 
 type TenantRequest = {
   ip?: string;
@@ -22,6 +23,7 @@ type TenantRequest = {
     id?: string;
     tenantId?: string;
     tenantRole?: string;
+    tenantRoles?: string[];
     branchId?: string | null;
   };
 };
@@ -72,7 +74,9 @@ export class TenantContextGuard implements CanActivate {
     }
 
     // Use the current database role, not a possibly stale role claim in the JWT.
+    // Roles múltiples: los permisos son la unión de todos los roles de la membresía.
     user.tenantRole = membership.role;
+    user.tenantRoles = membershipRoles(membership);
     user.branchId = membership.branchId ?? null;
     return true;
   }

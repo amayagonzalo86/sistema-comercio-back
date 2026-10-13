@@ -83,6 +83,15 @@ log(afterCharge.json.status === 'CHARGED', `pedido queda ${afterCharge.json.stat
 const sellers = await call('GET', '/reports/sales-by-seller', token);
 log(sellers.json.items?.some((row) => row.username === 'demo.vendedora'), `ranking incluye a la vendedora ${JSON.stringify(sellers.json.items?.map((row) => `${row.username}:${row.tickets}`))}`);
 
+// Empleados y roles múltiples.
+const employees = await call('GET', '/employees?status=ALL&limit=50', token);
+log(employees.status === 200 && employees.json.total >= 7, `empleados ${employees.json.total} ${JSON.stringify(employees.json.items?.map((row) => `${row.username}:${row.roles.join('+')}`))}`);
+const cashierLogin = await call('POST', '/auth/login', null, { username: 'demo.cajero', password: process.env.ADMIN_BOOTSTRAP_PASSWORD });
+const cashierClaims = JSON.parse(Buffer.from(cashierLogin.json.tokens.accessToken.split('.')[1], 'base64url').toString());
+log(JSON.stringify(cashierClaims.tenantRoles) === JSON.stringify(['CASHIER', 'INVENTORY']), `demo.cajero roles ${JSON.stringify(cashierClaims.tenantRoles)}`);
+const cashierTransfers = await call('GET', '/stock-transfers', cashierLogin.json.tokens.accessToken);
+log(cashierTransfers.status === 200, `cajero+depósito ve transferencias ${cashierTransfers.status}`);
+
 for (const username of ['demo.cajero', 'demo.encargado', 'demo.vendedor', 'demo.vendedora', 'demo.deposito', 'demo.contador']) {
   const r = await call('POST', '/auth/login', null, { username, password: process.env.ADMIN_BOOTSTRAP_PASSWORD });
   const tok = r.json.tokens?.accessToken;

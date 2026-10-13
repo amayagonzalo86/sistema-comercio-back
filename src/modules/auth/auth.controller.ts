@@ -4,6 +4,7 @@ import { CookieOptions, Request, Response } from 'express';
 import { AuthService, REFRESH_TOKEN_TTL_MS } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ChangeOwnPasswordDto } from '../users/dto/employee.dto';
 import { getClientIp } from '../../common/http/request-context';
 
 const REFRESH_COOKIE = 'refreshToken';
@@ -68,6 +69,24 @@ export class AuthController {
       response.clearCookie(REFRESH_COOKIE, refreshCookieBase());
       throw error;
     }
+  }
+
+  /** Cambia la contraseña del usuario autenticado. Pide la actual y cierra sus otras sesiones. */
+  @Post('change-password')
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(HttpStatus.OK)
+  async changePassword(@Req() request: Request, @Body() dto: ChangeOwnPasswordDto): Promise<{ message: string }> {
+    const user = request.user as { id: string; tenantId?: string; sessionId?: string };
+    await this.authService.changeOwnPassword(
+      user.id,
+      user.tenantId,
+      user.sessionId,
+      dto.currentPassword,
+      dto.newPassword,
+      getClientIp(request) ?? 'unknown',
+      { requestId: (request as Request & { requestId?: string }).requestId ?? null, userAgent: request.headers['user-agent']?.slice(0, 512) ?? null },
+    );
+    return { message: 'Contraseña actualizada. Se cerraron tus otras sesiones.' };
   }
 
   @Post('logout')

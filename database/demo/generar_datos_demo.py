@@ -210,6 +210,8 @@ DEMO_USERS = [
     ("demo.deposito", "Ramiro", "Vega", "INVENTORY", "STOCK_CLERK", 4),
     ("demo.contador", "Silvia", "Moreno", "ACCOUNTANT", "USER", None),
 ]
+# Roles adicionales (los permisos son la suma): el cajero de Casa Central también recibe mercadería.
+EXTRA_ROLES = {"demo.cajero": ["INVENTORY"]}
 USER_IDS = {u[0]: uid() for u in DEMO_USERS}
 USER_PERSON_IDS = {u[0]: uid() for u in DEMO_USERS}
 
@@ -289,8 +291,10 @@ for username, first, last, tenant_role, global_role, branch_index in DEMO_USERS:
          f"SELECT '{USER_IDS[username]}', '{username}', password_hash, 1, '{USER_PERSON_IDS[username]}', {q(branch_id)} "
          f"FROM users WHERE username = '{ADMIN_USERNAME}' LIMIT 1;")
     emit(f"INSERT INTO users_roles (user_id, role_id) SELECT '{USER_IDS[username]}', id FROM roles WHERE name = '{global_role}' LIMIT 1;")
-    emit("INSERT INTO tenant_memberships (id, tenant_id, user_id, branch_id, role, status, accepted_at) "
-         f"VALUES ('{uid()}', '{TENANT}', '{USER_IDS[username]}', {q(branch_id)}, '{tenant_role}', 'ACTIVE', UTC_TIMESTAMP(6));")
+    extra = EXTRA_ROLES.get(username)
+    emit("INSERT INTO tenant_memberships (id, tenant_id, user_id, branch_id, role, additional_roles, status, accepted_at) "
+         f"VALUES ('{uid()}', '{TENANT}', '{USER_IDS[username]}', {q(branch_id)}, '{tenant_role}', "
+         f"{q(json.dumps(extra)) if extra else 'NULL'}, 'ACTIVE', UTC_TIMESTAMP(6));")
 
 # ── Clientes y proveedores ──────────────────────────────────────
 emit("\n-- ── Clientes y proveedores ───────────────────────────────────────────────────")

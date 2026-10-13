@@ -31,6 +31,9 @@ mysql -u erp_app -p sistema_comercio < database/demo/datos-demo.sql
 
 - Ingresás con el **mismo usuario administrador** (queda como titular de la empresa demo).
 - Usuarios por rol con la misma contraseña: `demo.encargado`, `demo.cajero`, `demo.vendedor`, `demo.vendedora`, `demo.deposito`, `demo.contador`.
+  `demo.cajero` tiene **dos roles** (Caja + Depósito): cobra y también recibe mercadería.
+- Empleados: como titular o administración, en **Empresa → Empleados** das de alta personas con uno o más roles,
+  editás sus datos, les cambiás la contraseña o los desactivás.
 - Para probar la preventa: ingresá como `demo.vendedora` (Casa Central), armá un pedido en el punto de venta y anotá el número;
   después ingresá como `demo.cajero` y cobralo desde **Pedidos de venta** o con **Cargar pedido** en el punto de venta.
 - Es re-ejecutable: borra la empresa demo y la vuelve a crear con fechas relativas a hoy.

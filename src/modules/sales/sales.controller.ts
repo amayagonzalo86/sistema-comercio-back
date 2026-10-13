@@ -19,6 +19,7 @@ import { Request } from 'express';
 import { buildAuditContext } from '../../common/http/request-context';
 import { GetTenantId } from '../../common/decorators/get-tenant.decorator';
 import { requireAssignedBranch, requireBranchAccess } from '../../common/security/tenant-branch-access';
+import { hasAnyTenantRole } from '../../common/security/tenant-roles';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
@@ -116,11 +117,11 @@ export class SalesController {
     if (!idempotencyKey) {
       throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
     }
-    const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
+    const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
     const auditContext: InventoryAuditContext = buildAuditContext(request);
     requireBranchAccess(actor, dto.branchId);
     // Quitar el IVA de una venta es una decisión fiscal: solo titulares y administradores.
-    if (dto.vatExemption && !VAT_EXEMPTION_ROLES.has(actor.tenantRole ?? '')) {
+    if (dto.vatExemption && !hasAnyTenantRole(actor, VAT_EXEMPTION_ROLES)) {
       throw new ForbiddenException('Solo el titular o un administrador pueden registrar ventas exentas de IVA.');
     }
     return this.salesService.create(

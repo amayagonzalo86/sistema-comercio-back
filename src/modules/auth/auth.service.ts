@@ -1,4 +1,7 @@
+import { membershipRoles } from '../../common/security/tenant-roles';
+import { recordAudit } from '../../common/audit/audit';
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -25,6 +28,8 @@ export interface JwtPayload {
   roles: UserRoleEnum[];
   tenantId: string;
   tenantRole: TenantRole;
+  /** Todos los roles en la empresa (principal + adicionales), para que el frontend arme el menú. */
+  tenantRoles: TenantRole[];
   jti?: string;
 }
 
@@ -140,6 +145,7 @@ export class AuthService {
       roles: roleNames,
       tenantId: membership.tenantId,
       tenantRole: membership.role,
+      tenantRoles: membershipRoles(membership),
       jti: sessionTokenId,
     };
 
@@ -326,6 +332,7 @@ export class AuthService {
       roles: roleNames,
       tenantId: membership.tenantId,
       tenantRole: membership.role,
+      tenantRoles: membershipRoles(membership),
       jti: nextTokenId,
     };
     const { accessToken, refreshToken: nextRefreshToken } = this.signTokens(nextPayload);
@@ -346,6 +353,58 @@ export class AuthService {
     }
 
     return { accessToken, refreshToken: nextRefreshToken };
+  }
+
+  /**
+   * Cambio de la contraseña propia: exige la contraseña actual, aplica el mismo límite de intentos que el
+   * ingreso y cierra las demás sesiones del usuario (la sesión desde la que se cambia sigue abierta).
+   */
+  async changeOwnPassword(
+    userId: string,
+    tenantId: string | undefined,
+    currentTokenId: string | undefined,
+    currentPassword: string,
+    newPassword: string,
+    ipAddress: string,
+    context: { requestId?: string | null; userAgent?: string | null } = {},
+  ): Promise<void> {
+    await this.enforceLoginRateLimit(`password-change:${userId}`, ipAddress);
+    const user = await this.userRepository.findOne({
+      where: { id: userId, isActive: true },
+      select: { id: true, username: true, passwordHash: true },
+    });
+    if (!user) throw new UnauthorizedException('Sesión inválida.');
+    let valid = false;
+    try {
+      valid = await argon2.verify(user.passwordHash, currentPassword);
+    } catch {
+      valid = false;
+    }
+    if (!valid) throw new BadRequestException('La contraseña actual no es correcta.');
+    if (currentPassword === newPassword) throw new BadRequestException('La contraseña nueva debe ser distinta de la actual.');
+
+    const passwordHash = await argon2.hash(newPassword);
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(UserEntity, { id: userId }, { passwordHash });
+      const sessions = manager
+        .createQueryBuilder()
+        .update(SessionEntity)
+        .set({ isValid: false })
+        .where('user_id = :userId AND is_valid = 1', { userId });
+      if (currentTokenId) sessions.andWhere('token_id <> :tokenId', { tokenId: currentTokenId });
+      await sessions.execute();
+      if (tenantId) {
+        await recordAudit(manager, {
+          tenantId,
+          actorUserId: userId,
+          eventType: 'PASSWORD_CHANGED',
+          aggregateType: 'USER',
+          aggregateId: userId,
+          metadata: { username: user.username, otherSessionsClosed: true },
+          context: { requestId: context.requestId ?? null, ipAddress, userAgent: context.userAgent ?? null },
+        });
+      }
+    });
   }
 
   async logoutWithRefreshToken(refreshToken?: string): Promise<void> {

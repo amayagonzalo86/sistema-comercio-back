@@ -12,6 +12,7 @@ import { DataSource } from 'typeorm';
 import { recordAudit } from '../../../common/audit/audit';
 import { Paginated, paginated } from '../../../common/dto/page-query.dto';
 import { RequestAuditContext } from '../../../common/http/request-context';
+import { hasAnyTenantRole } from '../../../common/security/tenant-roles';
 import { nextSequence } from '../../../common/sequences/sequences';
 import { TenantEntity } from '../../platform/entities/tenant.entity';
 import { SalesService } from '../sales.service';
@@ -27,6 +28,7 @@ export interface SalesOrderActor {
   id: string;
   branchId: string | null;
   tenantRole?: string;
+  tenantRoles?: string[];
 }
 
 export interface SalesOrderView extends Omit<SalesOrderEntity, 'items' | 'tenant' | 'branch'> {
@@ -213,7 +215,7 @@ export class SalesOrdersService {
       if (actor.branchId && actor.branchId !== order.branchId) {
         throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
       }
-      if (!CANCEL_ANY_ROLES.has(actor.tenantRole ?? '') && order.sellerUserId !== actor.id) {
+      if (!hasAnyTenantRole(actor, CANCEL_ANY_ROLES) && order.sellerUserId !== actor.id) {
         throw new ForbiddenException('Solo podés anular tus propios pedidos.');
       }
       if (order.status !== SalesOrderStatus.PENDING) {

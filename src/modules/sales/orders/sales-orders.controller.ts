@@ -27,7 +27,7 @@ import { UserRoleEnum } from '../../roles/entities/role.entity';
 import { CancelSalesOrderDto, CreateSalesOrderDto, SalesOrderQueryDto } from './dto/sales-order.dto';
 import { SalesOrderActor, SalesOrdersService, SalesOrderView } from './sales-orders.service';
 
-type RequestActor = { id: string; branchId?: string | null; tenantRole?: string };
+type RequestActor = { id: string; branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
 
 /**
  * Pedidos de venta (preventa). El vendedor los arma; el cajero los cobra con POST /sales enviando salesOrderId.
@@ -106,6 +106,6 @@ export class SalesOrdersController {
   }
 
   private toActor(actor: RequestActor): SalesOrderActor {
-    return { id: actor.id, branchId: requireAssignedBranch(actor), tenantRole: actor.tenantRole };
+    return { id: actor.id, branchId: requireAssignedBranch(actor), tenantRole: actor.tenantRole, tenantRoles: actor.tenantRoles };
   }
 }
