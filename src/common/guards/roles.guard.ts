@@ -7,10 +7,12 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { UserRoleEnum } from '../../modules/roles/entities/role.entity';
+import { actorTenantRoles, isTenantRole, TENANT_ROLE_GUARD_MAP } from '../security/tenant-roles';
 
 interface RequestUserPayload {
   roles?: (UserRoleEnum | { name: UserRoleEnum })[];
   tenantRole?: string;
+  tenantRoles?: string[];
 }
 
 @Injectable()
@@ -38,19 +40,10 @@ export class RolesGuard implements CanActivate {
       );
     }
 
-    // Once tenant context is verified, authorize from the tenant-scoped role.
-    const tenantRoleMap: Record<string, UserRoleEnum[]> = {
-      OWNER: [UserRoleEnum.ADMIN],
-      ADMIN: [UserRoleEnum.ADMIN],
-      MANAGER: [UserRoleEnum.MANAGER],
-      ACCOUNTANT: [UserRoleEnum.USER],
-      CASHIER: [UserRoleEnum.CASHIER],
-      INVENTORY: [UserRoleEnum.WAREHOUSE, UserRoleEnum.STOCK_CLERK],
-      SELLER: [UserRoleEnum.SELLER],
-      VIEWER: [UserRoleEnum.USER],
-    };
-    const userRoleNames: UserRoleEnum[] = user.tenantRole
-      ? (tenantRoleMap[user.tenantRole] ?? [])
+    // Con contexto de empresa se autoriza con los roles de la membresía (unión de todos).
+    const tenantRoles = actorTenantRoles(user);
+    const userRoleNames: UserRoleEnum[] = tenantRoles.length > 0
+      ? tenantRoles.flatMap((role) => (isTenantRole(role) ? [...TENANT_ROLE_GUARD_MAP[role]] : []))
       : user.roles.map((role) =>
       typeof role === 'object' && role !== null && 'name' in role
         ? role.name

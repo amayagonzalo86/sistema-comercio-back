@@ -49,8 +49,13 @@ export class TenantMembershipEntity {
   @JoinColumn({ name: 'branch_id' })
   branch?: BranchEntity | null;
 
+  /** Rol principal (el de mayor jerarquía). */
   @Column({ type: 'enum', enum: TenantRole })
   role!: TenantRole;
+
+  /** Roles adicionales: los permisos del usuario son la unión de `role` + estos. */
+  @Column({ name: 'additional_roles', type: 'json', nullable: true })
+  additionalRoles?: TenantRole[] | null;
 
   @Column({ type: 'enum', enum: MembershipStatus, default: MembershipStatus.INVITED })
   status!: MembershipStatus;

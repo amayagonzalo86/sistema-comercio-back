@@ -1,14 +1,21 @@
 import { ForbiddenException } from '@nestjs/common';
+import { actorTenantRoles, BRANCH_SCOPED_TENANT_ROLES } from './tenant-roles';
 
 export interface TenantBranchActor {
   branchId?: string | null;
   tenantRole?: string;
+  tenantRoles?: readonly string[];
 }
 
-const BRANCH_REQUIRED_ROLES = new Set(['CASHIER', 'SELLER', 'INVENTORY']);
-
+/**
+ * Exige sucursal asignada cuando TODOS los roles del usuario son de sucursal (cajero, vendedor, depósito).
+ * Si además tiene un rol de alcance general (encargado, administración, contaduría), puede operar sin sucursal.
+ * Con sucursal asignada, el usuario siempre queda limitado a ella.
+ */
 export function requireAssignedBranch(actor: TenantBranchActor): string | null {
-  if (BRANCH_REQUIRED_ROLES.has(actor.tenantRole ?? '') && !actor.branchId) {
+  const roles = actorTenantRoles(actor);
+  const onlyBranchRoles = roles.length > 0 && roles.every((role) => BRANCH_SCOPED_TENANT_ROLES.has(role));
+  if (onlyBranchRoles && !actor.branchId) {
     throw new ForbiddenException('El usuario debe tener una sucursal asignada en esta empresa.');
   }
 

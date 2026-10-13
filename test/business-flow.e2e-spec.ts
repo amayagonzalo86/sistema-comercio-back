@@ -466,5 +466,106 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(finalDashboard.body.operations.salesOrdersPending).toBe(0);
     const audit = await api('get', '/audit-events');
     expectStatus(audit, 200);
+
+    // ── Empleados: alta con varios roles, edición, contraseñas y desactivación ─────────────────
+    const loginAs = (username: string, password: string) =>
+      request(app.getHttpServer()).post('/api/v1/auth/login').send({ username, password });
+    const claimsOf = (accessToken: string) =>
+      JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString()) as { tenantRole: string; tenantRoles: string[] };
+
+    const employee = await api('post', '/employees', {
+      firstName: 'Camila',
+      lastName: 'Cajera',
+      documentType: 96,
+      nationalId: '28999111',
+      email: 'camila@example.com',
+      username: 'Camila.Caja',
+      password: 'Camila-Caja-2026',
+      roles: ['INVENTORY', 'CASHIER'],
+      branchId: A,
+    });
+    expectStatus(employee, 201);
+    expect(employee.body.username).toBe('camila.caja');
+    expect(employee.body.roles).toEqual(['CASHIER', 'INVENTORY']);
+    expect(employee.body.primaryRole).toBe('CASHIER');
+    expect(employee.body.branchId).toBe(A);
+    const camilaId = employee.body.id as string;
+    expectStatus(await api('post', '/employees', { firstName: 'Sin', lastName: 'Sucursal', username: 'sin.sucursal', password: 'Sin-Sucursal-2026', roles: ['CASHIER'] }), 400);
+    expectStatus(await api('post', '/employees', { firstName: 'Otro', lastName: 'Titular', username: 'otro.titular', password: 'Otro-Titular-2026', roles: ['OWNER'] }), 400);
+    expectStatus(await api('post', '/employees', { firstName: 'Clave', lastName: 'Debil', username: 'clave.debil', password: 'corta', roles: ['VIEWER'] }), 400);
+    expectStatus(await api('post', '/employees', { firstName: 'Repetido', lastName: 'Usuario', username: 'camila.caja', password: 'Repetido-2026x', roles: ['VIEWER'] }), 409);
+    const searched = await api('get', '/employees?search=camila');
+    expectStatus(searched, 200);
+    expect(searched.body.total).toBe(1);
+    const byRole = await api('get', '/employees?role=INVENTORY');
+    expect(byRole.body.items.some((row: { id: string }) => row.id === camilaId)).toBe(true);
+
+    // La empleada ingresa con sus dos roles: puede ver transferencias (depósito) y no administra empleados.
+    const camilaLogin = await loginAs('camila.caja', 'Camila-Caja-2026');
+    expectStatus(camilaLogin, 200);
+    expect(claimsOf(camilaLogin.body.tokens.accessToken).tenantRoles).toEqual(['CASHIER', 'INVENTORY']);
+    const camilaCookie = camilaLogin.headers['set-cookie'];
+    token = camilaLogin.body.tokens.accessToken as string;
+    expectStatus(await api('get', '/stock-transfers'), 200);
+    expectStatus(await api('get', '/employees'), 403);
+    token = adminToken;
+
+    // Edición: datos personales y roles. Cambiar roles cierra sus sesiones (el refresh deja de servir).
+    const edited = await api('patch', `/employees/${camilaId}`, { phone: '351 555-1234', roles: ['SELLER'], lastName: 'Vendedora' });
+    expectStatus(edited, 200);
+    expect(edited.body.roles).toEqual(['SELLER']);
+    expect(edited.body.lastName).toBe('Vendedora');
+    expect(edited.body.phone).toBe('351 555-1234');
+    const staleRefresh = await request(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', camilaCookie).send({});
+    expectStatus(staleRefresh, 401);
+    expectStatus(await api('patch', `/employees/${camilaId}`, { branchId: null }), 400); // un vendedor necesita sucursal
+
+    // Contraseña definida por la administración.
+    expectStatus(await api('post', `/employees/${camilaId}/password`, { newPassword: 'Nueva-Clave-2026' }), 200);
+    expectStatus(await loginAs('camila.caja', 'Camila-Caja-2026'), 401);
+    const renewed = await loginAs('camila.caja', 'Nueva-Clave-2026');
+    expectStatus(renewed, 200);
+
+    // La empleada cambia su propia contraseña (pide la actual).
+    token = renewed.body.tokens.accessToken as string;
+    expectStatus(await api('post', '/auth/change-password', { currentPassword: 'equivocada', newPassword: 'Propia-Clave-2026' }), 400);
+    expectStatus(await api('post', '/auth/change-password', { currentPassword: 'Nueva-Clave-2026', newPassword: 'Propia-Clave-2026' }), 200);
+    expectStatus(await loginAs('camila.caja', 'Propia-Clave-2026'), 200);
+    const camilaToken = token;
+    token = adminToken;
+
+    // Desactivar corta el acceso al instante; reactivar lo devuelve.
+    const deactivated = await api('post', `/employees/${camilaId}/deactivate`);
+    expectStatus(deactivated, 200);
+    expect(deactivated.body.status).toBe('SUSPENDED');
+    token = camilaToken;
+    expectStatus(await api('get', '/sales-orders'), 401);
+    token = adminToken;
+    expectStatus(await api('post', `/employees/${camilaId}/activate`), 200);
+    expect((await api('get', '/employees?status=ALL&search=camila')).body.items[0].status).toBe('ACTIVE');
+
+    // Un administrador gestiona empleados, pero no otorga el rol de administración ni se toca a sí mismo.
+    const adminEmployee = await api('post', '/employees', {
+      firstName: 'Adrián',
+      lastName: 'Administra',
+      username: 'adrian.admin',
+      password: 'Adrian-Admin-2026',
+      roles: ['ADMIN', 'MANAGER'],
+    });
+    expectStatus(adminEmployee, 201);
+    expect(adminEmployee.body.roles).toEqual(['ADMIN', 'MANAGER']);
+    const adrianLogin = await loginAs('adrian.admin', 'Adrian-Admin-2026');
+    expectStatus(adrianLogin, 200);
+    token = adrianLogin.body.tokens.accessToken as string;
+    expectStatus(await api('patch', `/employees/${camilaId}`, { address: 'Av. Colón 100' }), 200);
+    expectStatus(await api('patch', `/employees/${camilaId}`, { roles: ['SELLER', 'ADMIN'] }), 403);
+    expectStatus(await api('post', `/employees/${adminEmployee.body.id}/deactivate`), 400);
+    expectStatus(await api('patch', `/employees/${adminEmployee.body.id}`, { roles: ['VIEWER'] }), 403);
+    const ownerRow = (await api('get', '/employees?role=OWNER')).body.items[0] as { id: string };
+    expectStatus(await api('post', `/employees/${ownerRow.id}/password`, { newPassword: 'Robar-Cuenta-2026' }), 403);
+    token = adminToken;
+    expectStatus(await api('post', `/employees/${ownerRow.id}/password`, { newPassword: 'Mi-Propia-2026x' }), 400); // la propia se cambia con la actual
+    const employeeAudit = await api('get', '/audit-events');
+    expectStatus(employeeAudit, 200);
   });
 });
