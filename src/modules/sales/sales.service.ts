@@ -273,6 +273,7 @@ export class SalesService {
             rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
             priceIncludesVat: Boolean(stock.product.priceIncludesVat),
             chargeMode: policy.chargeMode,
+            exemptPriceIsFinal: exemption?.reason === VatExemptionReason.TIERRA_DEL_FUEGO,
           });
         } catch (error) {
           if (error instanceof RangeError) {
@@ -673,6 +674,7 @@ export class SalesService {
           rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
           priceIncludesVat: Boolean(stock.product.priceIncludesVat),
           chargeMode: policy.chargeMode,
+          exemptPriceIsFinal: exemption?.reason === VatExemptionReason.TIERRA_DEL_FUEGO,
         });
       } catch (error) {
         if (error instanceof RangeError) {

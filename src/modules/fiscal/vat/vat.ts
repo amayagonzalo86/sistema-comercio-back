@@ -228,6 +228,12 @@ export interface VatLineInput {
    * si el precio incluye IVA, el descuento también; el IVA se calcula sobre el importe descontado.
    */
   readonly discountCents?: bigint;
+  /**
+   * Operación exenta con precio ya final sin IVA (Tierra del Fuego, Ley 19.640): la mercadería se compra
+   * sin IVA y el precio de la sucursal se carga sin IVA, así que se cobra tal cual, sin "volver a quitar" el 21 %.
+   * Sin esta marca (por ejemplo, exportación desde el continente), si el precio incluía IVA se lo descuenta.
+   */
+  readonly exemptPriceIsFinal?: boolean;
 }
 
 export interface VatLineResult {
@@ -297,7 +303,7 @@ export function computeVatLine(input: VatLineInput): VatLineResult {
   // Operación exenta: si el precio incluía IVA se lo quita; el resultado se informa como exento.
   if (input.chargeMode === VatChargeMode.EXEMPT_OPERATION) {
     const base =
-      input.priceIncludesVat && rate > 0n
+      input.priceIncludesVat && rate > 0n && !input.exemptPriceIsFinal
         ? roundDivide(amountCents * BASIS, BASIS + rate)
         : amountCents;
     return {

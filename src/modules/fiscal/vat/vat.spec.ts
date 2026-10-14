@@ -171,3 +171,25 @@ describe('régimen de IVA y comprobante elegido en caja', () => {
     expect(voucherMismatchMessage(VoucherClass.B, VoucherClass.C, TaxConditionEnum.MONOTRIBUTO)).toContain('Factura C');
   });
 });
+
+describe('Tierra del Fuego: precio final sin IVA', () => {
+  const line = {
+    unitPriceCents: 269_000n,
+    quantityMilli: 1000n,
+    treatment: VatTreatment.TAXED,
+    rateBasisPoints: 2100n,
+    priceIncludesVat: true,
+    chargeMode: VatChargeMode.EXEMPT_OPERATION,
+  };
+
+  it('se cobra el precio cargado, sin volver a quitar el IVA', () => {
+    const result = computeVatLine({ ...line, exemptPriceIsFinal: true });
+    expect(formatCents(result.totalCents)).toBe('2690.00');
+    expect(formatCents(result.exemptCents)).toBe('2690.00');
+    expect(result.vatCents).toBe(0n);
+  });
+
+  it('en una exportación desde el continente, el precio con IVA se descuenta', () => {
+    expect(formatCents(computeVatLine(line).totalCents)).toBe('2223.14');
+  });
+});

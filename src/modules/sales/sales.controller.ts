@@ -58,7 +58,7 @@ export class SalesController {
 
   /** Régimen de IVA de la sucursal y comprobantes que puede emitir la empresa (para el punto de venta). */
   @Get('vat-regime')
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER)
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.WAREHOUSE, UserRoleEnum.STOCK_CLERK, UserRoleEnum.USER)
   vatRegime(@GetTenantId() tenantId: string, @Req() request: Request, @Query('branchId', ParseUUIDPipe) branchId: string) {
     const actor = request.user as { branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
     requireBranchAccess(actor, branchId);

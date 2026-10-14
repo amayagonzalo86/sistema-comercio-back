@@ -634,6 +634,21 @@ describe('Flujo comercial completo (e2e)', () => {
       400,
     ); // a un Responsable Inscripto le corresponde A
 
+    // Compras en Tierra del Fuego: el proveedor factura sin IVA; con alícuota no se acepta.
+    const tdfReceiptLine = { productId, quantity: 2, unitCost: 700 };
+    expectStatus(
+      await api('post', '/purchases/receipts', { branchId: A, supplierPersonId: supplier.body.id, lines: [{ ...tdfReceiptLine, taxRate: 21 }] }, true),
+      400,
+    );
+    const tdfReceipt = await api('post', '/purchases/receipts', { branchId: A, supplierPersonId: supplier.body.id, lines: [{ ...tdfReceiptLine, taxRate: 0 }] }, true);
+    expectStatus(tdfReceipt, 201);
+    expect(tdfReceipt.body.taxTotal).toBe('0.00');
+    expect(tdfReceipt.body.total).toBe('1400.00');
+    const tdfOrder = await api('post', '/purchase-orders', { supplierPersonId: supplier.body.id, branchId: A, lines: [{ productId, quantity: 10, unitCost: 700 }] });
+    expectStatus(tdfOrder, 201);
+    expect(tdfOrder.body.estimatedTotal).toBe('7000.00'); // sin IVA aunque el producto tenga 21 %
+    expectStatus(await api('post', '/purchase-orders', { supplierPersonId: supplier.body.id, branchId: A, lines: [{ productId, quantity: 1, unitCost: 700, taxRate: 21 }] }), 400);
+
     // Una sucursal en el continente: régimen propio General, aunque la empresa sea de Tierra del Fuego.
     const continental = await api('patch', `/platform/tenants/${tenantId}/branches/${A}/vat-regime`, { vatRegime: 'GENERAL' });
     expectStatus(continental, 200);
