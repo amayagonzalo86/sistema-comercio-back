@@ -15,7 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { SalePaymentMethod } from '../entities/sale-payment.entity';
-import { VatExemptionReason } from '../../fiscal/vat/vat';
+import { VatExemptionReason, VatRegime, VoucherClass } from '../../fiscal/vat/vat';
 
 /**
  * Quita el IVA de toda la venta por una causa legal. Solo OWNER/ADMIN de la empresa; queda auditado.
@@ -82,6 +82,19 @@ export class CreateSaleDto {
   @Type(() => SaleVatExemptionDto)
   vatExemption?: SaleVatExemptionDto;
 
+  /**
+   * Régimen de IVA solo para esta venta (por ejemplo, una venta desde Tierra del Fuego al continente con IVA).
+   * Si no se envía, se usa el de la sucursal o la empresa. Solo titular/administración pueden forzarlo.
+   */
+  @IsOptional()
+  @IsEnum(VatRegime)
+  vatRegime?: VatRegime;
+
+  /** Comprobante elegido por el cajero (A, B o C). Se valida contra las reglas de ARCA. */
+  @IsOptional()
+  @IsEnum(VoucherClass)
+  voucherClass?: VoucherClass;
+
   /** Pedido de venta (preventa) que se está cobrando. Debe estar pendiente y ser de la misma sucursal. */
   @IsOptional()
   @IsUUID('4')
@@ -108,4 +121,17 @@ export class QuoteSaleDto {
   @ValidateNested()
   @Type(() => SaleVatExemptionDto)
   vatExemption?: SaleVatExemptionDto;
+
+  /**
+   * Régimen de IVA solo para esta venta (por ejemplo, una venta desde Tierra del Fuego al continente con IVA).
+   * Si no se envía, se usa el de la sucursal o la empresa. Solo titular/administración pueden forzarlo.
+   */
+  @IsOptional()
+  @IsEnum(VatRegime)
+  vatRegime?: VatRegime;
+
+  /** Comprobante elegido por el cajero (A, B o C). Se valida contra las reglas de ARCA. */
+  @IsOptional()
+  @IsEnum(VoucherClass)
+  voucherClass?: VoucherClass;
 }

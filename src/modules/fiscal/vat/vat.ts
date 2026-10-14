@@ -38,6 +38,44 @@ export enum VatExemptionReason {
   OTHER_LEGAL = 'OTHER_LEGAL',
 }
 
+/**
+ * Régimen de IVA de la empresa o de una sucursal.
+ * - GENERAL: se aplica la Ley de IVA según el producto.
+ * - TIERRA_DEL_FUEGO: operaciones dentro del Área Aduanera Especial (Ley 19.640), exentas de IVA.
+ *   Las ventas se registran automáticamente sin IVA, con la causa legal ya cargada.
+ */
+export enum VatRegime {
+  GENERAL = 'GENERAL',
+  TIERRA_DEL_FUEGO = 'TIERRA_DEL_FUEGO',
+}
+
+/** Respaldo legal que se guarda en cada venta del régimen Tierra del Fuego. */
+export const TIERRA_DEL_FUEGO_EXEMPTION_NOTE = 'Operación exenta de IVA - Área Aduanera Especial, Ley 19.640';
+
+/** Régimen efectivo: el de la sucursal si lo tiene; si no, el de la empresa. */
+export function resolveVatRegime(tenantDefault: VatRegime | null | undefined, branchRegime: VatRegime | null | undefined): VatRegime {
+  return branchRegime ?? tenantDefault ?? VatRegime.GENERAL;
+}
+
+/** Comprobantes que puede emitir el emisor según su condición frente al IVA. */
+export function allowedVoucherClasses(issuer: TaxConditionEnum): VoucherClass[] {
+  return issuer === TaxConditionEnum.RESPONSABLE_INSCRIPTO ? [VoucherClass.A, VoucherClass.B] : [VoucherClass.C];
+}
+
+/** Explica por qué no corresponde el comprobante pedido (reglas de ARCA). */
+export function voucherMismatchMessage(requested: VoucherClass, resolved: VoucherClass, issuer: TaxConditionEnum): string {
+  if (issuer !== TaxConditionEnum.RESPONSABLE_INSCRIPTO) {
+    return `La empresa es ${issuer === TaxConditionEnum.MONOTRIBUTO ? 'monotributista' : 'exenta'}: solo emite Factura C.`;
+  }
+  if (requested === VoucherClass.A) {
+    return 'La Factura A requiere un cliente Responsable Inscripto o Monotributista identificado con CUIT válida.';
+  }
+  if (requested === VoucherClass.B && resolved === VoucherClass.A) {
+    return 'A un cliente Responsable Inscripto o Monotributista le corresponde Factura A (RG 5003/2021). Quitá el cliente para emitir B a consumidor final.';
+  }
+  return `Para esta operación corresponde Factura ${resolved}.`;
+}
+
 /** Clase de comprobante según condición del emisor y del receptor. */
 export enum VoucherClass {
   A = 'A',

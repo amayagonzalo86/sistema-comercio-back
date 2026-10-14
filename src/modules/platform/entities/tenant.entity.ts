@@ -1,3 +1,4 @@
+import { VatRegime } from '../../fiscal/vat/vat';
 import {
   Column,
   CreateDateColumn,
@@ -54,6 +55,10 @@ export class TenantEntity {
 
   @Column({ name: 'currency_code', type: 'char', length: 3, default: 'ARS' })
   currencyCode!: string;
+
+  /** Régimen de IVA por defecto de la empresa (Tierra del Fuego: ventas exentas, Ley 19.640). Lo configura la plataforma. */
+  @Column({ name: 'default_vat_regime', type: 'enum', enum: VatRegime, default: VatRegime.GENERAL })
+  defaultVatRegime!: VatRegime;
 
   @OneToMany(() => TenantMembershipEntity, (membership) => membership.tenant)
   memberships!: TenantMembershipEntity[];
