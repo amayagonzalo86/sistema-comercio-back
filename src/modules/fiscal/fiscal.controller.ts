@@ -8,7 +8,7 @@ import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { buildAuditContext } from '../../common/http/request-context';
 import { requireAssignedBranch } from '../../common/security/tenant-branch-access';
 import { UserRoleEnum } from '../roles/entities/role.entity';
-import { CreatePointOfSaleDto, FiscalDocumentQueryDto, UpsertFiscalProfileDto } from './dto/fiscal.dto';
+import { CreatePointOfSaleDto, FiscalDocumentQueryDto, LetterheadQueryDto, UpsertFiscalProfileDto } from './dto/fiscal.dto';
 import { FiscalService } from './fiscal.service';
 
 type ActorRequest = Request & { user: { id: string; branchId?: string | null; tenantRole?: string } };
@@ -85,6 +85,16 @@ export class FiscalController {
   @Roles(...READ)
   documents(@GetTenantId() tenantId: string, @Req() request: ActorRequest, @Query() query: FiscalDocumentQueryDto) {
     return this.fiscal.listDocuments(tenantId, query, scope(request));
+  }
+
+  /**
+   * Encabezado de la empresa para comprobantes no fiscales (presupuesto X, remito X).
+   * Un usuario asignado a una sucursal siempre recibe el de su sucursal.
+   */
+  @Get('letterhead')
+  @Roles(...READ)
+  letterhead(@GetTenantId() tenantId: string, @Req() request: ActorRequest, @Query() query: LetterheadQueryDto) {
+    return this.fiscal.letterhead(tenantId, scope(request) ?? query.branchId ?? null);
   }
 
   /** Datos completos para imprimir el comprobante, incluido el QR obligatorio. */

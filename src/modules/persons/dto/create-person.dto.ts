@@ -80,6 +80,18 @@ export class CreatePersonDto {
   @MaxLength(255)
   address?: string | null;
 
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  city?: string | null;
+
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(60)
+  province?: string | null;
+
   /** El cliente aceptó recibir promociones (registrar solo con aceptación expresa). */
   @IsOptional()
   @IsBoolean()

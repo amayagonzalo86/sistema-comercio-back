@@ -28,6 +28,8 @@ export class BranchesService {
         name: createBranchDto.name.trim(),
         address: createBranchDto.address?.trim(),
         phone: createBranchDto.phone?.trim(),
+        city: createBranchDto.city?.trim() || null,
+        province: createBranchDto.province?.trim() || null,
         allowedIpRanges: normalizeRanges(createBranchDto.allowedIpRanges),
         status: true,
       });

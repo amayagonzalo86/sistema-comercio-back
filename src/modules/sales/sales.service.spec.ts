@@ -101,7 +101,7 @@ function setup() {
     createQueryRunner: jest.fn(() => queryRunner),
     getRepository: jest.fn((entity: Function) => repositories.get(entity)),
     // Nombres de vendedor/cajero para la respuesta de la venta.
-    manager: { query: jest.fn(async () => []) },
+    manager: { query: jest.fn(async () => []), findOne: jest.fn(async () => null) },
   };
   const service = new SalesService(dataSource as never, salesRepo as never);
   const dto: CreateSaleDto = {

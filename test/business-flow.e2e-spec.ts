@@ -94,7 +94,14 @@ describe('Flujo comercial completo (e2e)', () => {
 
   it('opera dos sucursales de punta a punta', async () => {
     // Sucursales
-    const branchA = await api('post', '/branches', { code: 'CENTRO', name: 'Sucursal Centro' });
+    const branchA = await api('post', '/branches', {
+      code: 'CENTRO',
+      name: 'Sucursal Centro',
+      address: 'San Martín 123',
+      city: 'Ushuaia',
+      province: 'Tierra del Fuego',
+      phone: '2901-430000',
+    });
     expectStatus(branchA, 201);
     const branchB = await api('post', '/branches', { code: 'NORTE', name: 'Sucursal Norte' });
     expectStatus(branchB, 201);
@@ -131,9 +138,15 @@ describe('Flujo comercial completo (e2e)', () => {
       nationalId: '20-12345678-6',
       vatCondition: 'RESPONSABLE_INSCRIPTO',
       email: 'cliente@example.com',
+      address: 'Belgrano 450',
+      city: 'Río Grande',
+      province: 'Tierra del Fuego',
       marketingConsent: true,
     });
     expectStatus(customer, 201);
+    // Número de cuenta correlativo por empresa (se imprime en los comprobantes).
+    const customerAccount = customer.body.accountNumber as number;
+    expect(customerAccount).toBeGreaterThan(0);
     const invalidCuit = await api('post', '/persons', {
       firstName: 'Mal',
       lastName: 'Cuit',
@@ -151,6 +164,9 @@ describe('Flujo comercial completo (e2e)', () => {
       vatCondition: 'RESPONSABLE_INSCRIPTO',
     });
     expectStatus(supplier, 201);
+    expect(supplier.body.accountNumber).toBe(customerAccount + 1);
+    const byAccount = await api('get', `/persons?search=${customerAccount}`);
+    expect(byAccount.body.items.map((person: { id: string }) => person.id)).toContain(customer.body.id);
     const customersList = await api('get', '/persons?role=customers&search=Inscripto');
     expectStatus(customersList, 200);
     expect(customersList.body.total).toBe(1);
@@ -222,6 +238,11 @@ describe('Flujo comercial completo (e2e)', () => {
         certificateSecretRef: 'env:ARCA_CERT',
         privateKeySecretRef: 'env:ARCA_KEY',
         activityStartDate: '2020-01-01',
+        grossIncomeRegistration: '999-1267752',
+        commercialAddress: 'Av. San Martín 1000',
+        commercialCity: 'Ushuaia',
+        commercialProvince: 'Tierra del Fuego',
+        phone: '2901-421111',
       }),
       200,
     );
@@ -251,6 +272,31 @@ describe('Flujo comercial completo (e2e)', () => {
       payments: [{ method: 'CASH', amount: '3267.00' }],
     });
     expect(printable.body.qrUrl).toContain('https://www.arca.gob.ar/fe/qr/?p=');
+    // Encabezado: datos de la empresa con el domicilio del local donde se vendió.
+    expect(printable.body.issuer).toMatchObject({
+      legalName: 'Comercio de Prueba SA',
+      address: 'San Martín 123',
+      city: 'Ushuaia',
+      province: 'Tierra del Fuego',
+      phone: '2901-430000',
+      vatCondition: 'RESPONSABLE_INSCRIPTO',
+      cuit: '30712345671',
+      grossIncomeRegistration: '999-1267752',
+      activityStartDate: '2020-01-01',
+    });
+    expect(printable.body.receiver).toMatchObject({
+      name: 'Inscripto Cliente',
+      accountNumber: customerAccount,
+      address: 'Belgrano 450',
+      city: 'Río Grande',
+      province: 'Tierra del Fuego',
+      vatCondition: 'RESPONSABLE_INSCRIPTO',
+      nationalId: '20123456786',
+    });
+    const letterhead = await api('get', `/fiscal/letterhead?branchId=${A}`);
+    expectStatus(letterhead, 200);
+    expect(letterhead.body).toMatchObject({ branchName: 'Sucursal Centro', address: 'San Martín 123', grossIncomeRegistration: '999-1267752' });
+    expect(letterhead.body).not.toHaveProperty('certificateSecretRef');
     expectStatus(await api('get', '/fiscal/documents'), 200);
     expectStatus(await api('get', '/fiscal/status'), 200);
 
@@ -685,6 +731,9 @@ describe('Flujo comercial completo (e2e)', () => {
     const createdAt = new Date(storedQuote.body.createdAt).getTime();
     expect(Math.abs(createdAt - Date.now())).toBeLessThan(5 * 60 * 1000);
     expect(Math.abs(new Date(storedQuote.body.expiresAt).getTime() - createdAt - 24 * 3600 * 1000)).toBeLessThan(60 * 1000);
+    // Se borra a las 24 h, pero el impreso informa al cliente una validez de 72 h.
+    expect(storedQuote.body.printedValidityHours).toBe(72);
+    expect(storedQuote.body.customer).toBeNull();
 
     // Otro vendedor no lo ve ni lo puede convertir; el encargado/administración sí lo ve.
     const camilaAgain = await loginAs('camila.caja', 'Propia-Clave-2026');
@@ -715,7 +764,10 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await api('post', `/sales-quotes/${stale.body.id}/convert`), 404);
     const remaining = (await dataSource.query('SELECT COUNT(*) AS total FROM sales_quotes WHERE id = ?', [stale.body.id])) as Array<{ total: string | number }>;
     expect(Number(remaining[0].total)).toBe(0);
-    const discard = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 1 }] }, true);
+    const discard = await api('post', '/sales-quotes', { branchId: A, customerPersonId: customer.body.id, lines: [{ productId, quantity: 1 }] }, true);
+    expectStatus(discard, 201);
+    const discardDetail = await api('get', `/sales-quotes/${discard.body.id}`);
+    expect(discardDetail.body.customer).toMatchObject({ name: 'Inscripto Cliente', accountNumber: customerAccount, city: 'Río Grande' });
     expectStatus(await api('delete', `/sales-quotes/${discard.body.id}`), 200);
     token = adminToken;
   });

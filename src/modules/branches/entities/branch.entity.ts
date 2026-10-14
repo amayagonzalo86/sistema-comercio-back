@@ -25,6 +25,12 @@ export class BranchEntity extends BaseAuditEntity {
     @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
     address?: string;
 
+    @Column({ type: 'varchar', length: 100, nullable: true, name: 'city' })
+    city?: string | null;
+
+    @Column({ type: 'varchar', length: 60, nullable: true, name: 'province' })
+    province?: string | null;
+
     @Column({ type: 'varchar', length: 50, nullable: true, name: 'phone' })
     phone?: string;
 
