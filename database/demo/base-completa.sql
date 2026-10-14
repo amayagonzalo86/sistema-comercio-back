@@ -1007,8 +1007,8 @@ INSERT INTO typeorm_metadata (`type`, `database`, `schema`, `table`, `name`, `va
 VALUES ('GENERATED_COLUMN', NULL, 'sistema_comercio', 'cash_sessions', 'open_register_id', 'CASE WHEN `status` = ''OPEN'' THEN `cash_register_id` ELSE NULL END');
 
 -- ── Datos de demostración ──
--- Misma zona horaria de sesión que usa la API al leer y escribir (la del servidor MySQL).
-SET time_zone = @@global.time_zone;
+-- Misma zona horaria de sesión que usa la API al leer y escribir (UTC).
+SET time_zone = '+00:00';
 SET FOREIGN_KEY_CHECKS = 1;
 -- ═══════════════════════════════════════════════════════════════════════════
 --  DATOS DE DEMOSTRACIÓN · ERP Comercio (generado por generar_datos_demo.py)

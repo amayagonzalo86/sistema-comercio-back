@@ -1,5 +1,6 @@
 import { DataSource, DataSourceOptions } from 'typeorm';
 import * as dotenv from 'dotenv';
+import { mysqlUtcDriver } from './mysql-utc-driver';
 
 dotenv.config();
 
@@ -10,6 +11,10 @@ export const dataSourceOptions: DataSourceOptions = {
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'sistema_comercio',
+  // Misma zona horaria que la API: las migraciones también trabajan en UTC.
+  timezone: 'Z',
+  driver: mysqlUtcDriver,
+  charset: 'utf8mb4_unicode_ci',
 
   entities: ['dist/**/*.entity.js'],
 

@@ -680,6 +680,11 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(quoteX.body.remainingMs).toBeGreaterThan(23.9 * 3600 * 1000);
     expect(new Date(quoteX.body.expiresAt).getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
     expect((await api('get', '/sales-quotes')).body.total).toBe(1);
+    // created_at lo pone MySQL (CURRENT_TIMESTAMP) y expires_at la API: ambos en UTC aunque el servidor esté en -03:00.
+    const storedQuote = await api('get', `/sales-quotes/${quoteX.body.id}`);
+    const createdAt = new Date(storedQuote.body.createdAt).getTime();
+    expect(Math.abs(createdAt - Date.now())).toBeLessThan(5 * 60 * 1000);
+    expect(Math.abs(new Date(storedQuote.body.expiresAt).getTime() - createdAt - 24 * 3600 * 1000)).toBeLessThan(60 * 1000);
 
     // Otro vendedor no lo ve ni lo puede convertir; el encargado/administración sí lo ve.
     const camilaAgain = await loginAs('camila.caja', 'Propia-Clave-2026');
