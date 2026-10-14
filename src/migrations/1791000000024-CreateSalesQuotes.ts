@@ -37,7 +37,7 @@ export class CreateSalesQuotes1791000000024 implements MigrationInterface {
         KEY IDX_sales_quotes_expires (expires_at),
         CONSTRAINT FK_sales_quotes_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT,
         CONSTRAINT FK_sales_quotes_branch FOREIGN KEY (branch_id) REFERENCES branches (id) ON DELETE RESTRICT
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB
     `);
   }
 
