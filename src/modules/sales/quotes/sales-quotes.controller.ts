@@ -27,7 +27,7 @@ import { requireAssignedBranch, requireBranchAccess } from '../../../common/secu
 import { UserRoleEnum } from '../../roles/entities/role.entity';
 import { SalesOrderView } from '../orders/sales-orders.service';
 import { CreateSalesQuoteDto, SalesQuoteQueryDto } from './dto/sales-quote.dto';
-import { QuoteActor, SalesQuotesService, SalesQuoteView } from './sales-quotes.service';
+import { QuoteActor, SalesQuoteDetailView, SalesQuotesService, SalesQuoteView } from './sales-quotes.service';
 
 type RequestActor = { id: string; branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
 const OPERATORS = [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER] as const;
@@ -69,7 +69,7 @@ export class SalesQuotesController {
   }
 
   @Get(':id')
-  findOne(@GetTenantId() tenantId: string, @Req() request: Request, @Param('id', ParseUUIDPipe) id: string): Promise<SalesQuoteView> {
+  findOne(@GetTenantId() tenantId: string, @Req() request: Request, @Param('id', ParseUUIDPipe) id: string): Promise<SalesQuoteDetailView> {
     return this.quotes.findOne(tenantId, toActor(request.user as RequestActor), id);
   }
 

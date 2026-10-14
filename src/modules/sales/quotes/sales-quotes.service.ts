@@ -16,14 +16,17 @@ import { RequestAuditContext } from '../../../common/http/request-context';
 import { userDisplayNames } from '../../../common/security/platform-operators';
 import { hasAnyTenantRole } from '../../../common/security/tenant-roles';
 import { nextSequence } from '../../../common/sequences/sequences';
+import { loadPrintCustomer, PrintCustomer } from '../../fiscal/printable';
 import { TenantEntity } from '../../platform/entities/tenant.entity';
 import { SalesOrdersService, SalesOrderView } from '../orders/sales-orders.service';
 import { SalesService } from '../sales.service';
 import { CreateSalesQuoteDto, SalesQuoteQueryDto } from './dto/sales-quote.dto';
 import { SalesQuoteEntity } from './entities/sales-quote.entity';
 
-/** Vigencia de un presupuesto X. */
+/** Vigencia real de un presupuesto X en el sistema: pasado este plazo se borra de la base. */
 export const QUOTE_VALIDITY_MS = 24 * 60 * 60 * 1000;
+/** Validez que se informa al cliente en el presupuesto impreso (decisión comercial de la empresa). */
+export const QUOTE_PRINTED_VALIDITY_HOURS = 72;
 const PURGE_EVERY_MS = 60 * 60 * 1000;
 /** Ven y descartan presupuestos de cualquier vendedor de su alcance (no los convierten: eso es solo de quien lo emitió). */
 const SUPERVISOR_ROLES = new Set(['OWNER', 'ADMIN', 'MANAGER']);
@@ -41,6 +44,13 @@ export interface SalesQuoteView extends Omit<SalesQuoteEntity, 'tenant' | 'branc
   branchName: string | null;
   /** Milisegundos hasta el vencimiento (para la cuenta regresiva). */
   remainingMs: number;
+  /** Horas de validez que se imprimen en el presupuesto. */
+  printedValidityHours: number;
+}
+
+export interface SalesQuoteDetailView extends SalesQuoteView {
+  /** Datos completos del cliente para el bloque "Señor / Dirección / IVA / DNI". */
+  customer: PrintCustomer | null;
 }
 
 /**
@@ -175,8 +185,10 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
     return paginated(await this.views(items), total, query.page, query.limit);
   }
 
-  async findOne(tenantId: string, actor: QuoteActor, quoteId: string): Promise<SalesQuoteView> {
-    return this.view(await this.visibleQuote(tenantId, actor, { id: quoteId }));
+  async findOne(tenantId: string, actor: QuoteActor, quoteId: string): Promise<SalesQuoteDetailView> {
+    const quote = await this.visibleQuote(tenantId, actor, { id: quoteId });
+    const [view, customer] = await Promise.all([this.view(quote), loadPrintCustomer(this.dataSource.manager, tenantId, quote.customerPersonId)]);
+    return { ...view, customer };
   }
 
   async findByNumber(tenantId: string, actor: QuoteActor, number: number): Promise<SalesQuoteView> {
@@ -288,6 +300,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
       customerName: quote.customerPersonId ? customerName.get(quote.customerPersonId) ?? null : null,
       branchName: branchName.get(quote.branchId) ?? null,
       remainingMs: Math.max(0, new Date(quote.expiresAt).getTime() - now),
+      printedValidityHours: QUOTE_PRINTED_VALIDITY_HOURS,
     }));
   }
 }

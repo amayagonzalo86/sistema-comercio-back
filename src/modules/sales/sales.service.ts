@@ -1,3 +1,4 @@
+import { loadPrintCustomer } from '../fiscal/printable';
 import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   BadRequestException,
@@ -773,7 +774,10 @@ export class SalesService {
         order: { createdAt: 'ASC' },
       }),
     ]);
-    const names = await userDisplayNames(this.dataSource.manager, [sale.sellerUserId ?? sale.actorUserId, sale.actorUserId]);
+    const [names, customer] = await Promise.all([
+      userDisplayNames(this.dataSource.manager, [sale.sellerUserId ?? sale.actorUserId, sale.actorUserId]),
+      loadPrintCustomer(this.dataSource.manager, tenantId, sale.customerPersonId),
+    ]);
     return {
       ...sale,
       items,
@@ -781,6 +785,7 @@ export class SalesService {
       fiscalNotes: buildFiscalNotes(sale),
       sellerName: names.get(sale.sellerUserId ?? sale.actorUserId) ?? null,
       cashierName: names.get(sale.actorUserId) ?? null,
+      customer,
     };
   }
 
