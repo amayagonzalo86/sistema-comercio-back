@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { SeederModule } from './database/seeders/seeder.module';
+import { mysqlUtcDriver } from './database/mysql-utc-driver';
 import { AuthModule } from './modules/auth/auth.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { ProductModule } from './modules/inventory/product/product.module';
@@ -57,7 +58,9 @@ import { FiscalModule } from './modules/fiscal/fiscal.module';
           autoLoadEntities: true, // Carga automáticamente las entidades registradas con forFeature()
           // Solo en desarrollo. En producción el esquema cambia únicamente con migraciones revisadas.
           synchronize: isDevelopment,
+          // Fechas siempre en UTC: TypeORM convierte con 'Z' y cada sesión de MySQL trabaja en +00:00.
           timezone: 'Z',
+          driver: mysqlUtcDriver,
           charset: 'utf8mb4_unicode_ci',
           // Pool acotado: protege a MySQL de saturarse en un VPS chico.
           poolSize: configService.get<number>('DB_POOL_SIZE', 10),

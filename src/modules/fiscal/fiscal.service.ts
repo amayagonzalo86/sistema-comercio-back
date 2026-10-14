@@ -1,3 +1,5 @@
+import { SalePaymentEntity } from '../sales/entities/sale-payment.entity';
+import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   BadRequestException,
   ConflictException,
@@ -305,6 +307,13 @@ export class FiscalService {
     const customer = sourceSale?.customerPersonId
       ? await this.dataSource.getRepository(PersonEntity).findOne({ where: { id: sourceSale.customerPersonId, tenantId } })
       : null;
+    // Quién vendió, quién cobró y cómo se pagó (se imprimen en el comprobante).
+    const [names, payments] = sourceSale
+      ? await Promise.all([
+          userDisplayNames(this.dataSource.manager, [sourceSale.sellerUserId ?? sourceSale.actorUserId, sourceSale.actorUserId]),
+          this.dataSource.getRepository(SalePaymentEntity).find({ where: { tenantId, saleId: sourceSale.id }, order: { createdAt: 'ASC' } }),
+        ])
+      : [new Map<string, string>(), [] as SalePaymentEntity[]];
     const associated = document.associatedDocumentId
       ? await this.dataSource.getRepository(FiscalDocumentEntity).findOne({ where: { id: document.associatedDocumentId, tenantId } })
       : null;
@@ -327,6 +336,14 @@ export class FiscalService {
         ? { voucherType: associated.voucherType, pointOfSale: associated.pointOfSale, number: associated.number, issueDate: associated.issueDate }
         : null,
       items,
+      operation: sourceSale
+        ? {
+            saleId: sourceSale.id,
+            sellerName: names.get(sourceSale.sellerUserId ?? sourceSale.actorUserId) ?? null,
+            cashierName: names.get(sourceSale.actorUserId) ?? null,
+            payments: payments.map((payment) => ({ method: payment.method, amount: payment.amount })),
+          }
+        : null,
       formattedNumber:
         document.number !== null && document.number !== undefined
           ? `${String(document.pointOfSale).padStart(5, '0')}-${String(document.number).padStart(8, '0')}`

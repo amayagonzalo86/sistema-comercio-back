@@ -1,3 +1,4 @@
+import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   BadRequestException,
   ConflictException,
@@ -772,7 +773,15 @@ export class SalesService {
         order: { createdAt: 'ASC' },
       }),
     ]);
-    return { ...sale, items, payments, fiscalNotes: buildFiscalNotes(sale) };
+    const names = await userDisplayNames(this.dataSource.manager, [sale.sellerUserId ?? sale.actorUserId, sale.actorUserId]);
+    return {
+      ...sale,
+      items,
+      payments,
+      fiscalNotes: buildFiscalNotes(sale),
+      sellerName: names.get(sale.sellerUserId ?? sale.actorUserId) ?? null,
+      cashierName: names.get(sale.actorUserId) ?? null,
+    };
   }
 
   /**

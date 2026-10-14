@@ -18,6 +18,8 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 
 SET NAMES utf8mb4;
+-- Las fechas se guardan en UTC, igual que las escribe y lee la API.
+SET time_zone = '+00:00';
 -- MySQL Workbench trae activado el "modo seguro" (error 1175 en DELETE): se desactiva solo en esta sesión.
 SET SQL_SAFE_UPDATES = 0;
 -- Sin variables de sesión (@...): funciona igual en mysql, Workbench (cualquier modo de ejecución) y DBeaver.
