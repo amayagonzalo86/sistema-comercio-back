@@ -49,7 +49,7 @@ describe('Flujo comercial completo (e2e)', () => {
   let operatorId = '';
   const arca = new FakeArcaClient();
 
-  const api = (method: 'get' | 'post' | 'put' | 'patch', path: string, body?: object, idempotent = false) => {
+  const api = (method: 'get' | 'post' | 'put' | 'patch' | 'delete', path: string, body?: object, idempotent = false) => {
     let call = request(app.getHttpServer())[method](`/api/v1${path}`).set('Authorization', `Bearer ${token}`);
     if (idempotent) call = call.set('Idempotency-Key', randomUUID());
     return body ? call.send(body) : call;
@@ -244,6 +244,12 @@ describe('Flujo comercial completo (e2e)', () => {
     const printable = await api('get', `/fiscal/documents/${invoice.body.id}`);
     expectStatus(printable, 200);
     expect(printable.body.formattedNumber).toBe('00003-00000001');
+    // La factura muestra quién vendió, quién cobró y cómo se pagó (el operador figura como soporte).
+    expect(printable.body.operation).toMatchObject({
+      sellerName: 'Soporte de la plataforma',
+      cashierName: 'Soporte de la plataforma',
+      payments: [{ method: 'CASH', amount: '3267.00' }],
+    });
     expect(printable.body.qrUrl).toContain('https://www.arca.gob.ar/fe/qr/?p=');
     expectStatus(await api('get', '/fiscal/documents'), 200);
     expectStatus(await api('get', '/fiscal/status'), 200);
@@ -443,6 +449,8 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(charged, 201);
     expect(charged.body.salesOrderId).toBe(salesOrder.body.id);
     expect(charged.body.sellerUserId).toBe(sellerUser.body.id);
+    expect(charged.body.sellerName).toBe('Vera Vendedora');
+    expect(charged.body.cashierName).toBe('Soporte de la plataforma');
     expect(charged.body.total).toBe('2395.80');
     const stockAfterCharge = await api('get', '/inventory/stock-matrix');
     expect(stockAfterCharge.body.items[0].branches[A].stock).toBe('41.000'); // el cobro sí descuenta
@@ -660,5 +668,50 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(restored.body.defaultVatRegime).toBe('GENERAL');
     const regimeAudit = await api('get', '/audit-events?eventType=VAT_REGIME_CHANGED');
     expect(regimeAudit.body.items.length).toBeGreaterThanOrEqual(3);
+
+    // ── Presupuestos X: 24 h, solo quien lo emitió lo pasa a pedido, vencidos se borran ──
+    const veraToken = sellerLogin.body.tokens.accessToken as string;
+    token = veraToken;
+    const quoteX = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 2 }], notes: 'Cliente vuelve mañana' }, true);
+    expectStatus(quoteX, 201);
+    expect(quoteX.body.number).toBe(1);
+    expect(quoteX.body.total).toBe('2395.80');
+    expect(quoteX.body.sellerName).toBe('Vera Vendedora');
+    expect(quoteX.body.remainingMs).toBeGreaterThan(23.9 * 3600 * 1000);
+    expect(new Date(quoteX.body.expiresAt).getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
+    expect((await api('get', '/sales-quotes')).body.total).toBe(1);
+
+    // Otro vendedor no lo ve ni lo puede convertir; el encargado/administración sí lo ve.
+    const camilaAgain = await loginAs('camila.caja', 'Propia-Clave-2026');
+    expectStatus(camilaAgain, 200);
+    token = camilaAgain.body.tokens.accessToken as string;
+    expectStatus(await api('get', `/sales-quotes/${quoteX.body.id}`), 404);
+    expectStatus(await api('post', `/sales-quotes/${quoteX.body.id}/convert`), 403);
+    expect((await api('get', '/sales-quotes')).body.total).toBe(0);
+    token = adminToken;
+    expectStatus(await api('get', `/sales-quotes/by-number/1`), 200);
+    expectStatus(await api('post', `/sales-quotes/${quoteX.body.id}/convert`), 403); // solo quien lo emitió
+
+    // Quien lo emitió lo pasa a pedido: el presupuesto se borra y el pedido queda para cobrar en caja.
+    token = veraToken;
+    const fromQuote = await api('post', `/sales-quotes/${quoteX.body.id}/convert`);
+    expectStatus(fromQuote, 201);
+    expect(fromQuote.body.status).toBe('PENDING');
+    expect(fromQuote.body.notes).toContain('Presupuesto X N.º 1');
+    expect(fromQuote.body.sellerName).toBe('Vera Vendedora');
+    expectStatus(await api('get', `/sales-quotes/${quoteX.body.id}`), 404);
+    expectStatus(await api('post', `/sales-quotes/${quoteX.body.id}/convert`), 404);
+
+    // Vencido: no se puede usar y se borra de la base.
+    const stale = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 1 }] }, true);
+    expectStatus(stale, 201);
+    const dataSource = app.get(DataSource);
+    await dataSource.query('UPDATE sales_quotes SET expires_at = ? WHERE id = ?', [new Date(Date.now() - 60_000), stale.body.id]);
+    expectStatus(await api('post', `/sales-quotes/${stale.body.id}/convert`), 404);
+    const remaining = (await dataSource.query('SELECT COUNT(*) AS total FROM sales_quotes WHERE id = ?', [stale.body.id])) as Array<{ total: string | number }>;
+    expect(Number(remaining[0].total)).toBe(0);
+    const discard = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 1 }] }, true);
+    expectStatus(await api('delete', `/sales-quotes/${discard.body.id}`), 200);
+    token = adminToken;
   });
 });
