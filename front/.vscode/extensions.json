@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "syler.sass-indented",
+    "mikestead.dotenv",
+    "eamodio.gitlens",
+    "streetsidesoftware.code-spell-checker-spanish"
+  ]
+}
