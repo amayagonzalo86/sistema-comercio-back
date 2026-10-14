@@ -1,0 +1,100 @@
+OK  01-login
+OK  02-tablero
+OK  03-reportes
+OK  04-ventas
+OK  05-caja-todas
+OK  06-comprobantes
+OK  07-catalogo
+OK  08-aumentos
+OK  09-stock
+OK  10-transferencias
+OK  11-reposicion
+OK  12-pedidos
+OK  13-recepciones
+OK  14-cuentas
+OK  15-contactos
+OK  16-promociones
+OK  17-fidelizacion
+OK  18-fiscal
+OK  19-sucursales
+OK  20-auditoria
+OK  21-elegir-sucursal
+OK  22-caja-central
+OK  23-catalogo-central
+OK  24-pos-venta
+OK  25-ventas-detalle
+OK  26-pedido-detalle
+OK  27-recarga-sesion
+   en vuelo tras login demo.cajero: ninguna
+OK  28-login-demo.cajero
+   en vuelo tras login demo.deposito: ninguna
+OK  28-login-demo.deposito
+   en vuelo tras login demo.contador: ninguna
+OK  28-login-demo.contador
+   en vuelo tras login demo.vendedora: ninguna
+OK  30-vendedora-pos
+   pedido generado N.º 324
+OK  31-vendedora-genera-pedido
+OK  32-vendedora-pedido-imprimible
+OK  33-vendedora-cola
+   en vuelo tras login demo.cajero: ninguna
+OK  34-cajero-cola
+OK  35-cajero-carga-pedido
+OK  36-cajero-cobra-pedido
+OK  37-cajero-venta-preventa
+OK  38-cajero-cobrados
+OK  39-cajero-cargar-por-numero
+   en vuelo tras login admin: ninguna
+OK  40-tablero-admin-pedidos
+OK  50-empleados-listado
+OK  51-empleado-alta
+OK  52-empleado-edicion-roles
+   campos: 2 valores=["Lucia-Admin-2026","Lucia-Admin-2026"]
+   cuerpo enviado: {"newPassword":"Lucia-Admin-2026"}
+   login con Lucia-Inicial-2026: 401
+   login con Lucia-Admin-2026: 200
+OK  53-empleado-contrasena
+   en vuelo tras login lucia.prueba: POST /api/v1/auth/login | POST /api/v1/auth/login
+OK  54-empleada-ingresa
+   modal cambiar contraseña: alto 453 px, botón visible true
+OK  55-empleada-cambia-su-contrasena
+   en vuelo tras login lucia.prueba: POST /api/v1/auth/login | POST /api/v1/auth/login
+OK  56-empleada-nueva-contrasena
+   en vuelo tras login demo.titular: POST /api/v1/auth/login | POST /api/v1/auth/login
+   empleados que ve el titular: demo.titular, demo.vendedora, demo.contador, demo.encargado, lucia.prueba, demo.vendedor, demo.cajero, demo.deposito
+OK  60-titular-empleados
+   auditoría muestra soporte: true
+OK  61-titular-auditoria
+OK  62-titular-reporte-vendedores
+   en vuelo tras login admin: POST /api/v1/auth/login | POST /api/v1/auth/login
+OK  70-plataforma-regimen-tdf
+   en vuelo tras login demo.cajero: POST /api/v1/auth/login | POST /api/v1/auth/login
+   ticket: CLIENTE Nuevo F4 Sin IVA · Tierra del Fuego (Ley 19.640) B Factura B Consumidor final Factura A Factura B Consumidor final o exento. Subtotal neto $ 2.690,00 TOTAL A COBRAR $ 2.690,00 Cobrar F9 Presupuesto XGuardar como pedido (paga en caja)
+OK  71-cajero-pos-tdf
+   ticket A: CLIENTE Nuevo F4 Distribuidora Austral SRL Responsable Inscripto · 30-71999888-3 Consumidor final Sin IVA · Tierra del Fuego (Ley 19.640) A Factura A Distribuidora Austral SRL · 30-71999888-3 Factura 
+OK  72-cajero-factura-a-cuit
+   remito: Almacenes del Centro Almacenes del Centro SRL Av. Colón 1250 Córdoba - Córdoba Responsable Inscripto Tel.: 351 422-1000 X No válido como factura REMITO Comprobante de entrega interno N.º: 425300A2 Fecha: 14/10/2026, 19:58 CUIT: 30-71888999-1IIBB: 904-123456-7 Inicio de actividad: 01/03/2015 Comprobante fiscal: Factura A Señor: Distribuidora Austral SRL Cuenta: 37 Dirección: — IVA: Responsable Inscripto CUIT: 30-71999
+OK  73-cajero-cobra-y-entrega
+   en vuelo tras login demo.vendedora: POST /api/v1/auth/login | POST /api/v1/auth/login
+OK  74-vendedora-sin-elegir-comprobante
+   en vuelo tras login admin: POST /api/v1/auth/login | POST /api/v1/auth/login
+   alícuota compra: 0 deshabilitada=true
+OK  75-compra-tdf-sin-iva
+   en vuelo tras login demo.vendedora: POST /api/v1/auth/login | POST /api/v1/auth/login | GET /api/v1/reports/dashboard?from=2026-09-15&to=2026-10-14&branchId=5687a1ec-7ee9-48c9-98bb-a0827de9fc02 | GET /ventas?_rsc=mnDPcayH1PL78gne | GET /caja?_rsc=mnDPcayH1PL78gne | GET /comprobantes?_rsc=mnDPcayH1PL78gne | GET /catalogo?_rsc=mnDPcayH1PL78gne
+   presupuesto: Almacenes del Centro Almacenes del Centro SRL Av. Colón 1250 Córdoba - Córdoba Responsable Inscripto Tel.: 351 422-1000 X No válido como factura PRESUPUESTO N.º: 00000001 Fecha: 14/10/2026, 19:58 CUIT: 30-71888999-1IIBB: 904-123456-7 Inicio de actividad: 01/03/2015 Validez: 72 horas Señor: Consumidor final Cuenta: — Dirección: — IVA: Consumidor Final DNI: — Vendedor: Micaela Luna Cond. de Vta.: Contado ARTÍCULO CANT.
+OK  80-vendedora-presupuesto-x
+   en vuelo tras login demo.cajero: POST /api/v1/auth/login | POST /api/v1/auth/login | GET /api/v1/reports/dashboard?from=2026-09-15&to=2026-10-14&branchId=5687a1ec-7ee9-48c9-98bb-a0827de9fc02 | GET /ventas?_rsc=mnDPcayH1PL78gne | GET /caja?_rsc=mnDPcayH1PL78gne | GET /comprobantes?_rsc=mnDPcayH1PL78gne | GET /catalogo?_rsc=mnDPcayH1PL78gne
+   cajero ve: no visible (otro vendedor)
+ERR 81-otro-usuario-no-convierte
+   en vuelo tras login demo.vendedora: POST /api/v1/auth/login | POST /api/v1/auth/login | GET /api/v1/reports/dashboard?from=2026-09-15&to=2026-10-14&branchId=5687a1ec-7ee9-48c9-98bb-a0827de9fc02 | GET /ventas?_rsc=mnDPcayH1PL78gne | GET /caja?_rsc=mnDPcayH1PL78gne | GET /comprobantes?_rsc=mnDPcayH1PL78gne | GET /catalogo?_rsc=mnDPcayH1PL78gne
+OK  82-vendedora-pasa-a-pedido
+   en vuelo tras login admin: POST /api/v1/auth/login | POST /api/v1/auth/login | GET /api/v1/reports/dashboard?from=2026-09-15&to=2026-10-14&branchId=5687a1ec-7ee9-48c9-98bb-a0827de9fc02 | GET /ventas?_rsc=mnDPcayH1PL78gne | GET /caja?_rsc=mnDPcayH1PL78gne | GET /comprobantes?_rsc=mnDPcayH1PL78gne | GET /catalogo?_rsc=mnDPcayH1PL78gne
+   Atención VendedorJulián Sosa CobróJulián Sosa Pagos Efectivo$ 2.690,00
+OK  83-venta-muestra-vendedor-y-cajero
+   sin comprobantes autorizados en la demo
+OK  84-factura-encabezado
+OK  85-config-datos-empresa
+
+FALLAS (2):
+[81-otro-usuario-no-convierte] console: Failed to load resource: the server responded with a status of 404 (Not Found)
+[81-otro-usuario-no-convierte] GET /api/v1/sales-quotes/e70c5b44-f0aa-4a03-a1b6-a96f610331fc → 404 {"statusCode":404,"timestamp":"2026-10-14T22:59:00.182Z","path":"/api/v1/sales-quotes/e70c5b44-f0aa-4a03-a1b6-a96f610331fc","requestId":"0cf6a5a7-2af8-45d2-b24d-6540687ab57b","message":"El presupuesto no existe o venció 
