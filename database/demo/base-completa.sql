@@ -735,6 +735,38 @@ CREATE TABLE `sales_orders` (
   CONSTRAINT `FK_sales_orders_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `FK_sales_orders_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `sales_quotes`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sales_quotes` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `number` int unsigned NOT NULL,
+  `seller_user_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_person_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `voucher_class` char(1) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `vat_regime` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subtotal` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `tax_total` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `discount_total` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `total` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `lines` json NOT NULL,
+  `expires_at` timestamp(6) NOT NULL,
+  `idempotency_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `request_fingerprint` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_sales_quotes_tenant_idempotency` (`tenant_id`,`idempotency_key`),
+  KEY `IDX_sales_quotes_expires` (`expires_at`),
+  KEY `IDX_sales_quotes_seller` (`tenant_id`,`seller_user_id`,`created_at`),
+  KEY `IDX_sales_quotes_tenant_number` (`tenant_id`,`number`),
+  KEY `FK_sales_quotes_branch` (`branch_id`),
+  CONSTRAINT `FK_sales_quotes_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `FK_sales_quotes_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `stock_transfer_items`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `stock_transfer_items` (
