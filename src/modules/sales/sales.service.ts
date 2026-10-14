@@ -39,6 +39,12 @@ import {
   VatPolicy,
   VatTreatment,
   VoucherClass,
+  allowedVoucherClasses,
+  resolveVatRegime,
+  TIERRA_DEL_FUEGO_EXEMPTION_NOTE,
+  VatExemptionReason,
+  VatRegime,
+  voucherMismatchMessage,
 } from '../fiscal/vat/vat';
 import { loadActivePromotions } from '../marketing/promotion-loader';
 import { AppliedPromotion, bestPromotion } from '../marketing/domain/promotions';
@@ -65,6 +71,13 @@ export interface SaleQuoteLine {
 
 export interface SaleQuote {
   voucherClass: VoucherClass;
+  issuerVatCondition: TaxConditionEnum;
+  /** Comprobantes que puede emitir la empresa (RI: A y B; Monotributo/Exento: C). */
+  allowedVoucherClasses: VoucherClass[];
+  /** Régimen de IVA aplicado (Tierra del Fuego: sin IVA por Ley 19.640). */
+  vatRegime: VatRegime;
+  /** Si se pidió un comprobante que no corresponde, el motivo (para mostrarlo antes de cobrar). */
+  requestedVoucherError: string | null;
   vatChargeMode: string;
   requiresCustomerCuit: boolean;
   customerCuitValid: boolean;
@@ -137,6 +150,8 @@ export class SalesService {
           ? { reason: dto.vatExemption.reason, note: dto.vatExemption.note.trim() }
           : null,
         salesOrderId: dto.salesOrderId ?? null,
+        voucherClass: dto.voucherClass ?? null,
+        vatRegime: dto.vatRegime ?? null,
       }))
       .digest('hex');
 
@@ -202,7 +217,10 @@ export class SalesService {
       }
 
       const issuerCondition = await this.resolveIssuerCondition(queryRunner.manager, tenantId);
-      const policy = this.resolvePolicy(issuerCondition, customerCondition, dto);
+      const vatRegime = dto.vatRegime ?? resolveVatRegime(tenant.defaultVatRegime, branch.vatRegime);
+      const exemption = effectiveExemption(dto.vatExemption, vatRegime);
+      const policy = this.resolvePolicy(issuerCondition, customerCondition, exemption?.reason ?? null);
+      assertRequestedVoucher(dto.voucherClass, policy.voucherClass, issuerCondition);
       if (policy.requiresCustomerCuit && !isValidCuit(customerTaxId)) {
         throw new BadRequestException(
           `Un comprobante ${policy.voucherClass} requiere que el cliente tenga una CUIT válida cargada.`,
@@ -255,6 +273,7 @@ export class SalesService {
             rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
             priceIncludesVat: Boolean(stock.product.priceIncludesVat),
             chargeMode: policy.chargeMode,
+            exemptPriceIsFinal: exemption?.reason === VatExemptionReason.TIERRA_DEL_FUEGO,
           });
         } catch (error) {
           if (error instanceof RangeError) {
@@ -357,8 +376,8 @@ export class SalesService {
         vatChargeMode: policy.chargeMode,
         issuerVatCondition: issuerCondition,
         customerVatCondition: customerCondition,
-        vatExemptionReason: dto.vatExemption?.reason ?? null,
-        vatExemptionNote: dto.vatExemption?.note.trim() ?? null,
+        vatExemptionReason: exemption?.reason ?? null,
+        vatExemptionNote: exemption?.note ?? null,
         fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
@@ -612,7 +631,9 @@ export class SalesService {
       customerTaxId = customer.nationalId ?? null;
     }
     const issuerCondition = await this.resolveIssuerCondition(manager, tenantId);
-    const policy = this.resolvePolicy(issuerCondition, customerCondition, dto as CreateSaleDto);
+    const vatRegime = dto.vatRegime ?? resolveVatRegime(tenant.defaultVatRegime, branch.vatRegime);
+    const exemption = effectiveExemption(dto.vatExemption, vatRegime);
+    const policy = this.resolvePolicy(issuerCondition, customerCondition, exemption?.reason ?? null);
 
     const timeZone = tenant.timeZone || 'America/Argentina/Buenos_Aires';
     const promotions = await loadActivePromotions(manager, tenantId, localToday(timeZone));
@@ -653,6 +674,7 @@ export class SalesService {
           rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
           priceIncludesVat: Boolean(stock.product.priceIncludesVat),
           chargeMode: policy.chargeMode,
+          exemptPriceIsFinal: exemption?.reason === VatExemptionReason.TIERRA_DEL_FUEGO,
         });
       } catch (error) {
         if (error instanceof RangeError) {
@@ -687,11 +709,18 @@ export class SalesService {
       voucherClass: policy.voucherClass,
       taxTotal: formatCents(summary.vatCents),
       customerVatCondition: customerCondition,
-      vatExemptionReason: dto.vatExemption?.reason ?? null,
-      vatExemptionNote: dto.vatExemption?.note ?? null,
+      vatExemptionReason: exemption?.reason ?? null,
+      vatExemptionNote: exemption?.note ?? null,
     } as SaleEntity;
     return {
       voucherClass: policy.voucherClass,
+      issuerVatCondition: issuerCondition,
+      allowedVoucherClasses: allowedVoucherClasses(issuerCondition),
+      vatRegime,
+      requestedVoucherError:
+        dto.voucherClass && dto.voucherClass !== policy.voucherClass
+          ? voucherMismatchMessage(dto.voucherClass, policy.voucherClass, issuerCondition)
+          : null,
       vatChargeMode: policy.chargeMode,
       requiresCustomerCuit: policy.requiresCustomerCuit,
       customerCuitValid: isValidCuit(customerTaxId),
@@ -772,19 +801,57 @@ export class SalesService {
     return condition;
   }
 
+  /** Régimen de IVA efectivo de una sucursal (para mostrarlo en el punto de venta antes de cargar productos). */
+  async vatRegimeFor(tenantId: string, branchId: string): Promise<{ vatRegime: VatRegime; source: 'BRANCH' | 'TENANT'; issuerVatCondition: TaxConditionEnum; allowedVoucherClasses: VoucherClass[] }> {
+    const [tenant, branch] = await Promise.all([
+      this.dataSource.manager.findOne(TenantEntity, { where: { id: tenantId }, select: { id: true, defaultVatRegime: true } }),
+      this.dataSource.manager.findOne(BranchEntity, { where: { id: branchId, tenantId }, select: { id: true, vatRegime: true } }),
+    ]);
+    if (!tenant || !branch) throw new NotFoundException('La sucursal no existe en esta empresa.');
+    const issuerVatCondition = await this.resolveIssuerCondition(this.dataSource.manager, tenantId);
+    return {
+      vatRegime: resolveVatRegime(tenant.defaultVatRegime, branch.vatRegime),
+      source: branch.vatRegime ? 'BRANCH' : 'TENANT',
+      issuerVatCondition,
+      allowedVoucherClasses: allowedVoucherClasses(issuerVatCondition),
+    };
+  }
+
   private resolvePolicy(
     issuer: TaxConditionEnum,
     customer: TaxConditionEnum,
-    dto: CreateSaleDto,
+    exemptionReason: VatExemptionReason | null,
   ): VatPolicy {
     try {
-      return resolveVatPolicy(issuer, customer, dto.vatExemption?.reason ?? null);
+      return resolveVatPolicy(issuer, customer, exemptionReason);
     } catch (error) {
       if (error instanceof RangeError) {
         throw new BadRequestException(error.message);
       }
       throw error;
     }
+  }
+}
+
+/**
+ * Exención efectiva de la venta: la cargada a mano (por titular/administración) o, si la sucursal
+ * opera en Tierra del Fuego, la de la Ley 19.640 aplicada automáticamente.
+ */
+function effectiveExemption(
+  manual: { reason: VatExemptionReason; note: string } | undefined,
+  regime: VatRegime,
+): { reason: VatExemptionReason; note: string } | null {
+  if (manual) return { reason: manual.reason, note: manual.note.trim() };
+  if (regime === VatRegime.TIERRA_DEL_FUEGO) {
+    return { reason: VatExemptionReason.TIERRA_DEL_FUEGO, note: TIERRA_DEL_FUEGO_EXEMPTION_NOTE };
+  }
+  return null;
+}
+
+/** El cajero elige el comprobante; si no corresponde según ARCA, se rechaza con el motivo. */
+function assertRequestedVoucher(requested: VoucherClass | undefined, resolved: VoucherClass, issuer: TaxConditionEnum): void {
+  if (requested && requested !== resolved) {
+    throw new BadRequestException(voucherMismatchMessage(requested, resolved, issuer));
   }
 }
 

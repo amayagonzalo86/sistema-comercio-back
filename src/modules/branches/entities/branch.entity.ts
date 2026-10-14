@@ -1,3 +1,4 @@
+import { VatRegime } from '../../fiscal/vat/vat';
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { BaseAuditEntity } from '../../../entities/base-audit.entity';
 import { UserEntity } from '../../users/entities/user.entity';
@@ -34,6 +35,10 @@ export class BranchEntity extends BaseAuditEntity {
     // Null o vacío = sin restricción.
     @Column({ name: 'allowed_ip_ranges', type: 'json', nullable: true })
     allowedIpRanges?: string[] | null;
+
+    /** Régimen de IVA propio de la sucursal; null = usa el de la empresa. */
+    @Column({ name: 'vat_regime', type: 'enum', enum: VatRegime, nullable: true })
+    vatRegime?: VatRegime | null;
 
     @OneToMany(() => UserEntity, (user) => user.branch)
     users!: UserEntity[];

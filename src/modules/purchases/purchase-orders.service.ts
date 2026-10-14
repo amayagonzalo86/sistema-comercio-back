@@ -16,6 +16,7 @@ import { planReplenishment } from '../inventory/ops/domain/replenishment';
 import { ProductBranchEntity } from '../inventory/product/entities/product-branch.entity';
 import { PersonEntity, PersonType } from '../persons/entities/person.entity';
 import { TenantEntity } from '../platform/entities/tenant.entity';
+import { resolveVatRegime, VatRegime } from '../fiscal/vat/vat';
 import {
   CancelPurchaseOrderDto,
   CreatePurchaseOrderDto,
@@ -266,6 +267,15 @@ export class PurchaseOrdersService {
       where: { tenantId, branchId: order.branchId, productId: In(lines.map((line) => line.productId)) },
       relations: { product: true },
     });
+    // Tierra del Fuego (Ley 19.640): las compras de la sucursal son sin IVA.
+    const [tenant, branch] = await Promise.all([
+      manager.findOne(TenantEntity, { where: { id: tenantId }, select: { id: true, defaultVatRegime: true } }),
+      manager.findOne(BranchEntity, { where: { id: order.branchId, tenantId }, select: { id: true, vatRegime: true } }),
+    ]);
+    const withoutVat = resolveVatRegime(tenant?.defaultVatRegime, branch?.vatRegime) === VatRegime.TIERRA_DEL_FUEGO;
+    if (withoutVat && lines.some((line) => (line.taxRate ?? 0) > 0)) {
+      throw new BadRequestException('La sucursal opera en Tierra del Fuego (Ley 19.640): los pedidos se cargan sin IVA (alícuota 0 %).');
+    }
     const byProduct = new Map(rows.map((row) => [row.productId, row]));
     await manager.delete(PurchaseOrderItemEntity, { tenantId, purchaseOrderId: order.id });
 
@@ -276,7 +286,7 @@ export class PurchaseOrdersService {
         throw new NotFoundException(`El producto ${line.productId} no está habilitado en la sucursal del pedido.`);
       }
       const unitCostCents = line.unitCost !== undefined ? cents(line.unitCost) : cents(row.costPrice);
-      const taxRateBp = cents(line.taxRate ?? Number(row.product.taxRate));
+      const taxRateBp = withoutVat ? 0n : cents(line.taxRate ?? Number(row.product.taxRate));
       const quantityMilli = milli(line.quantity);
       const net = lineAmount(unitCostCents, quantityMilli);
       totalCents += net + roundDivide(net * taxRateBp, 10_000n);

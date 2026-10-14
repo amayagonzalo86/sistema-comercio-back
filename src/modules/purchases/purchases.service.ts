@@ -1,3 +1,4 @@
+import { resolveVatRegime, VatRegime } from '../fiscal/vat/vat';
 import {
   BadRequestException,
   ConflictException,
@@ -112,6 +113,10 @@ export class PurchasesService {
       }
       if (allowedBranchId && allowedBranchId !== branch.id) {
         throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
+      }
+      // Tierra del Fuego (Ley 19.640): la mercadería se compra sin IVA; la factura del proveedor no lo discrimina.
+      if (resolveVatRegime(tenant.defaultVatRegime, branch.vatRegime) === VatRegime.TIERRA_DEL_FUEGO && dto.lines.some((line) => Number(line.taxRate) > 0)) {
+        throw new BadRequestException('La sucursal opera en Tierra del Fuego (Ley 19.640): las compras se registran sin IVA. Cargá la alícuota en 0 %.');
       }
 
       const supplier = await queryRunner.manager.findOne(PersonEntity, {

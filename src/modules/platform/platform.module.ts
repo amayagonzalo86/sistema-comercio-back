@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantsController } from './tenants.controller';
+import { PlatformVatService } from './platform-vat.service';
 import { AuditEventsController } from './audit-events.controller';
 import { AuditEventsService } from './audit-events.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -22,7 +23,7 @@ import { TenantEntity } from './entities/tenant.entity';
     ]),
   ],
   controllers: [TenantsController, AuditEventsController],
-  providers: [TenantContextGuard, PlatformSuperAdminGuard, TenantProvisioningService, AuditEventsService],
+  providers: [TenantContextGuard, PlatformSuperAdminGuard, TenantProvisioningService, AuditEventsService, PlatformVatService],
   exports: [TypeOrmModule, TenantContextGuard, PlatformSuperAdminGuard],
 })
 export class PlatformModule {}

@@ -56,6 +56,15 @@ export class SalesController {
     return this.salesService.quote(tenantId, dto, actor.branchId ?? null);
   }
 
+  /** Régimen de IVA de la sucursal y comprobantes que puede emitir la empresa (para el punto de venta). */
+  @Get('vat-regime')
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.WAREHOUSE, UserRoleEnum.STOCK_CLERK, UserRoleEnum.USER)
+  vatRegime(@GetTenantId() tenantId: string, @Req() request: Request, @Query('branchId', ParseUUIDPipe) branchId: string) {
+    const actor = request.user as { branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
+    requireBranchAccess(actor, branchId);
+    return this.salesService.vatRegimeFor(tenantId, branchId);
+  }
+
   /** Listado de ventas con filtros (sucursal, fechas, cliente, vendedor, medio de pago, comprobante). */
   @Get()
   @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.USER)
@@ -123,6 +132,9 @@ export class SalesController {
     // Quitar el IVA de una venta es una decisión fiscal: solo titulares y administradores.
     if (dto.vatExemption && !hasAnyTenantRole(actor, VAT_EXEMPTION_ROLES)) {
       throw new ForbiddenException('Solo el titular o un administrador pueden registrar ventas exentas de IVA.');
+    }
+    if (dto.vatRegime && !hasAnyTenantRole(actor, VAT_EXEMPTION_ROLES)) {
+      throw new ForbiddenException('Solo el titular o un administrador pueden cambiar el régimen de IVA de una venta.');
     }
     return this.salesService.create(
       tenantId,

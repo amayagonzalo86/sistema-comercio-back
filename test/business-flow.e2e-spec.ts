@@ -474,7 +474,7 @@ describe('Flujo comercial completo (e2e)', () => {
     const loginAs = (username: string, password: string) =>
       request(app.getHttpServer()).post('/api/v1/auth/login').send({ username, password });
     const claimsOf = (accessToken: string) =>
-      JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString()) as { tenantRole: string; tenantRoles: string[] };
+      JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString()) as { tenantRole: string; tenantRoles: string[]; tenantId: string };
 
     const employee = await api('post', '/employees', {
       firstName: 'Camila',
@@ -591,5 +591,74 @@ describe('Flujo comercial completo (e2e)', () => {
     const sellersReport = await api('get', '/reports/sales-by-seller');
     expect(JSON.stringify(sellersReport.body)).not.toContain(operatorId);
     expect(sellersReport.body.items.some((row: { fullName: string }) => row.fullName === 'Soporte de la plataforma')).toBe(true);
+
+    // ── Régimen de IVA Tierra del Fuego (lo configura la plataforma) y comprobante elegido en caja ──
+    const tenantId = claimsOf(adminToken).tenantId as string;
+    token = adrianLogin.body.tokens.accessToken as string;
+    expectStatus(await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'TIERRA_DEL_FUEGO' }), 403);
+    token = adminToken;
+    const platformTenants = await api('get', '/platform/tenants');
+    expectStatus(platformTenants, 200);
+    const tdf = await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'TIERRA_DEL_FUEGO' });
+    expectStatus(tdf, 200);
+    expect(tdf.body.branches.every((branch: { effectiveVatRegime: string }) => branch.effectiveVatRegime === 'TIERRA_DEL_FUEGO')).toBe(true);
+    const regime = await api('get', `/sales/vat-regime?branchId=${A}`);
+    expectStatus(regime, 200);
+    expect(regime.body).toMatchObject({ vatRegime: 'TIERRA_DEL_FUEGO', source: 'TENANT', allowedVoucherClasses: ['A', 'B'] });
+
+    // Sin cargar nada a mano: la venta sale sin IVA y con la causa legal de la Ley 19.640.
+    const tdfQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }] });
+    expectStatus(tdfQuote, 200);
+    expect(tdfQuote.body.vatRegime).toBe('TIERRA_DEL_FUEGO');
+    expect(tdfQuote.body.taxTotal).toBe('0.00');
+    expect(tdfQuote.body.total).toBe('990.00'); // $1100 − 10 % de promoción, sin IVA
+    expect(tdfQuote.body.fiscalNotes.vatExemption.reason).toBe('TIERRA_DEL_FUEGO');
+    const wrongVoucherQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }], voucherClass: 'A' });
+    expect(wrongVoucherQuote.body.requestedVoucherError).toContain('CUIT');
+    const tdfSaleBody = { branchId: A, lines: [{ productId, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 990 }] };
+    expectStatus(await api('post', '/sales', { ...tdfSaleBody, voucherClass: 'A' }, true), 400);
+    expectStatus(await api('post', '/sales', { ...tdfSaleBody, voucherClass: 'C' }, true), 400);
+    const tdfSale = await api('post', '/sales', { ...tdfSaleBody, voucherClass: 'B' }, true);
+    expectStatus(tdfSale, 201);
+    expect(tdfSale.body).toMatchObject({ voucherClass: 'B', taxTotal: '0.00', exemptTotal: '990.00', vatExemptionReason: 'TIERRA_DEL_FUEGO' });
+    const withCustomerA = await api(
+      'post',
+      '/sales',
+      { branchId: A, customerPersonId: customer.body.id, voucherClass: 'A', lines: [{ productId, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 990 }] },
+      true,
+    );
+    expectStatus(withCustomerA, 201);
+    expect(withCustomerA.body.voucherClass).toBe('A');
+    expectStatus(
+      await api('post', '/sales', { branchId: A, customerPersonId: customer.body.id, voucherClass: 'B', lines: [{ productId, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 990 }] }, true),
+      400,
+    ); // a un Responsable Inscripto le corresponde A
+
+    // Compras en Tierra del Fuego: el proveedor factura sin IVA; con alícuota no se acepta.
+    const tdfReceiptLine = { productId, quantity: 2, unitCost: 700 };
+    expectStatus(
+      await api('post', '/purchases/receipts', { branchId: A, supplierPersonId: supplier.body.id, lines: [{ ...tdfReceiptLine, taxRate: 21 }] }, true),
+      400,
+    );
+    const tdfReceipt = await api('post', '/purchases/receipts', { branchId: A, supplierPersonId: supplier.body.id, lines: [{ ...tdfReceiptLine, taxRate: 0 }] }, true);
+    expectStatus(tdfReceipt, 201);
+    expect(tdfReceipt.body.taxTotal).toBe('0.00');
+    expect(tdfReceipt.body.total).toBe('1400.00');
+    const tdfOrder = await api('post', '/purchase-orders', { supplierPersonId: supplier.body.id, branchId: A, lines: [{ productId, quantity: 10, unitCost: 700 }] });
+    expectStatus(tdfOrder, 201);
+    expect(tdfOrder.body.estimatedTotal).toBe('7000.00'); // sin IVA aunque el producto tenga 21 %
+    expectStatus(await api('post', '/purchase-orders', { supplierPersonId: supplier.body.id, branchId: A, lines: [{ productId, quantity: 1, unitCost: 700, taxRate: 21 }] }), 400);
+
+    // Una sucursal en el continente: régimen propio General, aunque la empresa sea de Tierra del Fuego.
+    const continental = await api('patch', `/platform/tenants/${tenantId}/branches/${A}/vat-regime`, { vatRegime: 'GENERAL' });
+    expectStatus(continental, 200);
+    const generalQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }] });
+    expect(generalQuote.body.vatRegime).toBe('GENERAL');
+    expect(generalQuote.body.taxTotal).toBe('207.90');
+    expectStatus(await api('patch', `/platform/tenants/${tenantId}/branches/${A}/vat-regime`, { vatRegime: null }), 200);
+    const restored = await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'GENERAL' });
+    expect(restored.body.defaultVatRegime).toBe('GENERAL');
+    const regimeAudit = await api('get', '/audit-events?eventType=VAT_REGIME_CHANGED');
+    expect(regimeAudit.body.items.length).toBeGreaterThanOrEqual(3);
   });
 });

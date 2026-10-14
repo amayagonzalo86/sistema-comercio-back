@@ -1,5 +1,9 @@
 import { TaxConditionEnum } from '../../../common/enums/afip.enum';
 import {
+  allowedVoucherClasses,
+  resolveVatRegime,
+  VatRegime,
+  voucherMismatchMessage,
   computeVatLine,
   findVatRate,
   formatCents,
@@ -144,5 +148,48 @@ describe('vat', () => {
     expect(formatCents(final.totalCents)).toBe('200.00');
     expect(final.netCents + final.vatCents).toBe(final.totalCents);
     expect(() => computeVatLine({ ...base, discountCents: 30_000n })).toThrow(RangeError);
+  });
+});
+
+describe('régimen de IVA y comprobante elegido en caja', () => {
+  it('la sucursal manda sobre la empresa; sin datos, régimen general', () => {
+    expect(resolveVatRegime(VatRegime.TIERRA_DEL_FUEGO, null)).toBe(VatRegime.TIERRA_DEL_FUEGO);
+    expect(resolveVatRegime(VatRegime.TIERRA_DEL_FUEGO, VatRegime.GENERAL)).toBe(VatRegime.GENERAL);
+    expect(resolveVatRegime(VatRegime.GENERAL, VatRegime.TIERRA_DEL_FUEGO)).toBe(VatRegime.TIERRA_DEL_FUEGO);
+    expect(resolveVatRegime(undefined, undefined)).toBe(VatRegime.GENERAL);
+  });
+
+  it('comprobantes según la condición del emisor', () => {
+    expect(allowedVoucherClasses(TaxConditionEnum.RESPONSABLE_INSCRIPTO)).toEqual([VoucherClass.A, VoucherClass.B]);
+    expect(allowedVoucherClasses(TaxConditionEnum.MONOTRIBUTO)).toEqual([VoucherClass.C]);
+  });
+
+  it('explica por qué no corresponde el comprobante pedido', () => {
+    const ri = TaxConditionEnum.RESPONSABLE_INSCRIPTO;
+    expect(voucherMismatchMessage(VoucherClass.A, VoucherClass.B, ri)).toContain('CUIT');
+    expect(voucherMismatchMessage(VoucherClass.B, VoucherClass.A, ri)).toContain('Factura A');
+    expect(voucherMismatchMessage(VoucherClass.B, VoucherClass.C, TaxConditionEnum.MONOTRIBUTO)).toContain('Factura C');
+  });
+});
+
+describe('Tierra del Fuego: precio final sin IVA', () => {
+  const line = {
+    unitPriceCents: 269_000n,
+    quantityMilli: 1000n,
+    treatment: VatTreatment.TAXED,
+    rateBasisPoints: 2100n,
+    priceIncludesVat: true,
+    chargeMode: VatChargeMode.EXEMPT_OPERATION,
+  };
+
+  it('se cobra el precio cargado, sin volver a quitar el IVA', () => {
+    const result = computeVatLine({ ...line, exemptPriceIsFinal: true });
+    expect(formatCents(result.totalCents)).toBe('2690.00');
+    expect(formatCents(result.exemptCents)).toBe('2690.00');
+    expect(result.vatCents).toBe(0n);
+  });
+
+  it('en una exportación desde el continente, el precio con IVA se descuenta', () => {
+    expect(formatCents(computeVatLine(line).totalCents)).toBe('2223.14');
   });
 });
