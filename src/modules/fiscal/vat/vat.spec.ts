@@ -1,6 +1,7 @@
 import { TaxConditionEnum } from '../../../common/enums/afip.enum';
 import {
   allowedVoucherClasses,
+  showsFiscalTransparency,
   resolveVatRegime,
   VatRegime,
   voucherMismatchMessage,
@@ -191,5 +192,21 @@ describe('Tierra del Fuego: precio final sin IVA', () => {
 
   it('en una exportación desde el continente, el precio con IVA se descuenta', () => {
     expect(formatCents(computeVatLine(line).totalCents)).toBe('2223.14');
+  });
+});
+
+describe('Transparencia Fiscal al Consumidor (Ley 27.743)', () => {
+  it('va en Factura B con IVA del régimen general', () => {
+    expect(showsFiscalTransparency({ voucherClass: VoucherClass.B, taxTotal: '2787.28', vatRegime: VatRegime.GENERAL })).toBe(true);
+  });
+
+  it('no va en Tierra del Fuego (Ley 19.640), aunque haya un importe de IVA', () => {
+    expect(showsFiscalTransparency({ voucherClass: VoucherClass.B, taxTotal: '2787.28', vatRegime: VatRegime.TIERRA_DEL_FUEGO })).toBe(false);
+    expect(showsFiscalTransparency({ voucherClass: VoucherClass.B, taxTotal: '0.00', vatExemptionReason: VatExemptionReason.TIERRA_DEL_FUEGO })).toBe(false);
+  });
+
+  it('no va en Factura A ni sin IVA', () => {
+    expect(showsFiscalTransparency({ voucherClass: VoucherClass.A, taxTotal: '100.00', vatRegime: VatRegime.GENERAL })).toBe(false);
+    expect(showsFiscalTransparency({ voucherClass: VoucherClass.B, taxTotal: '0.00', vatRegime: VatRegime.GENERAL })).toBe(false);
   });
 });

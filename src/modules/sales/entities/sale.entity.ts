@@ -1,5 +1,5 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
-import { VatChargeMode, VatExemptionReason, VoucherClass } from '../../fiscal/vat/vat';
+import { VatChargeMode, VatExemptionReason, VatRegime, VoucherClass } from '../../fiscal/vat/vat';
 
 export enum SaleReturnStatus {
   NONE = 'NONE',
@@ -87,6 +87,10 @@ export class SaleEntity {
 
   @Column({ name: 'vat_exemption_note', type: 'varchar', length: 200, nullable: true })
   vatExemptionNote?: string | null;
+
+  /** Régimen de IVA con el que se vendió (Tierra del Fuego: sin IVA ni apartado de Transparencia Fiscal). */
+  @Column({ name: 'vat_regime', type: 'enum', enum: VatRegime, default: VatRegime.GENERAL })
+  vatRegime!: VatRegime;
 
   @Column({ type: 'decimal', precision: 14, scale: 2 })
   total!: string;

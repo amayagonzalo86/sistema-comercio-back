@@ -111,6 +111,20 @@ export const DEFAULT_VAT_PERCENT = 21;
 export const MONOTRIBUTO_CREDIT_LEGEND =
   'El crédito fiscal discriminado en el presente comprobante, sólo podrá ser computado a efectos del Régimen de Sostenimiento e Inclusión Fiscal para Pequeños Contribuyentes de la Ley Nº 27.618';
 
+/**
+ * El apartado de Transparencia Fiscal al Consumidor (Ley 27.743) va en comprobantes B con IVA,
+ * nunca en operaciones de Tierra del Fuego: allí rige la Ley 19.640 (operación exenta).
+ */
+export function showsFiscalTransparency(sale: {
+  voucherClass?: VoucherClass | string | null;
+  taxTotal: string | number;
+  vatExemptionReason?: VatExemptionReason | string | null;
+  vatRegime?: VatRegime | string | null;
+}): boolean {
+  if (sale.vatRegime === VatRegime.TIERRA_DEL_FUEGO || sale.vatExemptionReason === VatExemptionReason.TIERRA_DEL_FUEGO) return false;
+  return sale.voucherClass === VoucherClass.B && Number(sale.taxTotal) > 0;
+}
+
 /** Título del apartado exigido por el Régimen de Transparencia Fiscal al Consumidor. */
 export const FISCAL_TRANSPARENCY_TITLE = 'Régimen de Transparencia Fiscal al Consumidor (Ley 27.743)';
 

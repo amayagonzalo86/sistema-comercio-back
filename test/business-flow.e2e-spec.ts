@@ -675,6 +675,25 @@ describe('Flujo comercial completo (e2e)', () => {
     const tdfSale = await api('post', '/sales', { ...tdfSaleBody, voucherClass: 'B' }, true);
     expectStatus(tdfSale, 201);
     expect(tdfSale.body).toMatchObject({ voucherClass: 'B', taxTotal: '0.00', exemptTotal: '990.00', vatExemptionReason: 'TIERRA_DEL_FUEGO' });
+    // Factura B de Tierra del Fuego: sin apartado de Transparencia Fiscal (Ley 27.743), con la leyenda de la Ley 19.640.
+    const tdfDetail = await api('get', `/sales/${tdfSale.body.id}`);
+    expect(tdfDetail.body.vatRegime).toBe('TIERRA_DEL_FUEGO');
+    expect(tdfDetail.body.fiscalNotes.fiscalTransparency).toBeUndefined();
+    expect(tdfDetail.body.fiscalNotes.vatExemption.note).toContain('19.640');
+    expect(tdfQuote.body.fiscalNotes.fiscalTransparency).toBeUndefined();
+    // "Cobrar con IVA" (envío al continente): lleva IVA y, en Factura B, el apartado de Transparencia Fiscal.
+    const withVatQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }], vatRegime: 'GENERAL' });
+    expect(withVatQuote.body.fiscalNotes.fiscalTransparency.vatContained).toBe(withVatQuote.body.taxTotal);
+    const withVatSale = await api(
+      'post',
+      '/sales',
+      { branchId: A, lines: [{ productId, quantity: 1 }], vatRegime: 'GENERAL', voucherClass: 'B', payments: [{ method: 'DEBIT_CARD', amount: Number(withVatQuote.body.total) }] },
+      true,
+    );
+    expectStatus(withVatSale, 201);
+    const withVatDetail = await api('get', `/sales/${withVatSale.body.id}`);
+    expect(withVatDetail.body.vatRegime).toBe('GENERAL');
+    expect(withVatDetail.body.fiscalNotes.fiscalTransparency).toBeDefined();
     const withCustomerA = await api(
       'post',
       '/sales',
