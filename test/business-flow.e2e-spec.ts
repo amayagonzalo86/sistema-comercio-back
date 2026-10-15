@@ -687,7 +687,7 @@ describe('Flujo comercial completo (e2e)', () => {
     const withVatSale = await api(
       'post',
       '/sales',
-      { branchId: A, lines: [{ productId, quantity: 1 }], vatRegime: 'GENERAL', voucherClass: 'B', payments: [{ method: 'CASH', amount: Number(withVatQuote.body.total) }] },
+      { branchId: A, lines: [{ productId, quantity: 1 }], vatRegime: 'GENERAL', voucherClass: 'B', payments: [{ method: 'DEBIT_CARD', amount: Number(withVatQuote.body.total) }] },
       true,
     );
     expectStatus(withVatSale, 201);
