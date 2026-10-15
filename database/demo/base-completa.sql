@@ -673,6 +673,7 @@ CREATE TABLE `sales` (
   `customer_vat_condition` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `vat_exemption_reason` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `vat_exemption_note` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `vat_regime` enum('GENERAL','TIERRA_DEL_FUEGO') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'GENERAL',
   `total` decimal(14,2) NOT NULL,
   `fiscal_status` enum('NOT_ISSUED','PENDING','AUTHORIZED','REJECTED','FAILED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NOT_ISSUED',
   `return_status` enum('NONE','PARTIAL','FULL') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NONE',
