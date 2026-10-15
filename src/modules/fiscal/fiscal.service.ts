@@ -488,8 +488,22 @@ export class FiscalService {
     const document = await documents.findOneOrFail({ where: { id: documentId } });
     if (document.status === FiscalDocumentStatus.AUTHORIZED) return document;
 
-    const auth = await this.auth(input.tenantId, profile);
     document.attempts += 1;
+    let auth: WsfeAuth;
+    try {
+      auth = await this.auth(input.tenantId, profile);
+    } catch (error) {
+      // Sin autenticación (certificado faltante o vencido, ARCA caído) el comprobante no queda "pendiente" en
+      // silencio: se guarda el motivo para mostrarlo y se puede reintentar cuando se resuelva.
+      document.status = FiscalDocumentStatus.ERROR;
+      document.errorMessage = (error instanceof Error ? error.message : 'No se pudo autenticar ante ARCA.').slice(0, 1000);
+      await documents.save(document);
+      await this.updateSourceStatus(input, SaleFiscalStatus.FAILED);
+      if (error instanceof ArcaTransportError || error instanceof ArcaAuthError) {
+        throw new ServiceUnavailableException(`${error.message} El comprobante quedó pendiente: reintentá la emisión.`);
+      }
+      throw error;
+    }
 
     try {
       // Un intento anterior pudo autorizarse en ARCA sin que llegara la respuesta: se consulta antes de renumerar.

@@ -16,7 +16,14 @@ class FakeArcaClient implements ArcaClient {
   readonly requests: CaeRequest[] = [];
   private readonly last = new Map<string, number>();
 
+  /** Simula un problema de credenciales (certificado inexistente) en el próximo intento. */
+  failAuth: string | null = null;
   async authenticate() {
+    if (this.failAuth) {
+      const message = this.failAuth;
+      this.failAuth = null;
+      throw new Error(message);
+    }
     return { token: 'TOKEN', sign: 'SIGN', expiresAt: new Date(Date.now() + 12 * 3600_000) };
   }
   async lastAuthorized(_env: unknown, _auth: unknown, pointOfSale: number, voucherType: number) {
@@ -247,6 +254,13 @@ describe('Flujo comercial completo (e2e)', () => {
       200,
     );
     expectStatus(await api('post', '/fiscal/points-of-sale', { branchId: A, number: 3 }), 201);
+    // Sin certificado el comprobante no queda "pendiente" en silencio: guarda el motivo y se puede reintentar.
+    arca.failAuth = 'No se encontró el archivo de secreto "empresa.crt" en FISCAL_SECRETS_DIR.';
+    expectStatus(await api('post', `/fiscal/sales/${sale.body.id}/invoice`), 400);
+    const failedDocs = await api('get', '/fiscal/documents?status=ERROR');
+    expect(failedDocs.body.items[0]).toMatchObject({ status: 'ERROR', number: null });
+    expect(failedDocs.body.items[0].errorMessage).toContain('empresa.crt');
+    expect(arca.requests.length).toBe(0);
     const invoice = await api('post', `/fiscal/sales/${sale.body.id}/invoice`);
     expectStatus(invoice, 200);
     expect(invoice.body.status).toBe('AUTHORIZED');
