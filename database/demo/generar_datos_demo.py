@@ -90,12 +90,12 @@ ADMIN_ID_SQL = f"(SELECT id FROM users WHERE username = '{ADMIN_USERNAME}' LIMIT
 ACTOR = Raw(ADMIN_ID_SQL)
 
 BRANCHES = [
-    # id, code, name, address, phone, sells, weight
-    (uid(), "CENTRAL", "Casa Central", "Av. Colón 1250, Córdoba", "351 422-1000", True, 1.35),
-    (uid(), "NVA-CBA", "Nueva Córdoba", "Bv. San Juan 455, Córdoba", "351 422-2000", True, 1.0),
-    (uid(), "VILLA-A", "Villa Allende", "Av. Goycoechea 820, Villa Allende", "3543 43-3000", True, 0.8),
-    (uid(), "RIO-IV", "Río Cuarto", "Constitución 640, Río Cuarto", "358 462-4000", True, 0.7),
-    (uid(), "DEPOSITO", "Depósito central", "Ruta 9 km 695, Córdoba", "351 422-5000", False, 0.0),
+    # id, code, name, address, phone, sells, weight, city
+    (uid(), "CENTRAL", "Casa Central", "Av. Colón 1250", "351 422-1000", True, 1.35, "Córdoba"),
+    (uid(), "NVA-CBA", "Nueva Córdoba", "Bv. San Juan 455", "351 422-2000", True, 1.0, "Córdoba"),
+    (uid(), "VILLA-A", "Villa Allende", "Av. Goycoechea 820", "3543 43-3000", True, 0.8, "Villa Allende"),
+    (uid(), "RIO-IV", "Río Cuarto", "Constitución 640", "358 462-4000", True, 0.7, "Río Cuarto"),
+    (uid(), "DEPOSITO", "Depósito central", "Ruta 9 km 695", "351 422-5000", False, 0.0, "Córdoba"),
 ]
 STORES = [b for b in BRANCHES if b[5]]
 DEPOT = BRANCHES[4]
@@ -268,12 +268,13 @@ emit("\n-- ── Empresa y sucursales ─────────────�
 insert("tenants", ["id", "slug", "legal_name", "trade_name", "tax_id", "status", "time_zone", "currency_code"],
        [[TENANT, "almacenes-del-centro", "Almacenes del Centro SRL", "Almacenes del Centro", cuit("30", 71_888_999), "ACTIVE",
          "America/Argentina/Buenos_Aires", "ARS"]])
-insert("branches", ["id", "tenant_id", "code", "name", "address", "phone", "status"],
-       [[b[0], TENANT, b[1], b[2], b[3], b[4], True] for b in BRANCHES])
+insert("branches", ["id", "tenant_id", "code", "name", "address", "city", "province", "phone", "status"],
+       [[b[0], TENANT, b[1], b[2], b[3], b[7], "Córdoba", b[4], True] for b in BRANCHES])
 insert("fiscal_profiles", ["id", "tenant_id", "tax_id", "legal_name", "vat_condition_code", "gross_income_registration", "environment",
-                           "certificate_secret_ref", "private_key_secret_ref", "is_active", "activity_start_date", "commercial_address"],
+                           "certificate_secret_ref", "private_key_secret_ref", "is_active", "activity_start_date", "commercial_address",
+                           "commercial_city", "commercial_province", "phone"],
        [[uid(), TENANT, cuit("30", 71_888_999), "Almacenes del Centro SRL", "RESPONSABLE_INSCRIPTO", "904-123456-7", "HOMOLOGATION",
-         "file:empresa.crt", "file:empresa.key", True, "2015-03-01", "Av. Colón 1250, Córdoba"]])
+         "file:empresa.crt", "file:empresa.key", True, "2015-03-01", "Av. Colón 1250", "Córdoba", "Córdoba", "351 422-1000"]])
 insert("fiscal_points_of_sale", ["id", "tenant_id", "branch_id", "number", "environment", "is_active"],
        [[uid(), TENANT, b[0], i + 1, "HOMOLOGATION", True] for i, b in enumerate(STORES)])
 
@@ -301,10 +302,15 @@ for username, first, last, tenant_role, global_role, branch_index in DEMO_USERS:
 
 # ── Clientes y proveedores ──────────────────────────────────────
 emit("\n-- ── Clientes y proveedores ───────────────────────────────────────────────────")
+STREETS = ["Av. Colón", "27 de Abril", "Bv. Chacabuco", "Obispo Trejo", "Av. Hipólito Yrigoyen", "Duarte Quirós", "Av. Vélez Sarsfield",
+           "Belgrano", "Ituzaingó", "Rivadavia"]
+CITIES = ["Córdoba", "Córdoba", "Córdoba", "Villa Allende", "Río Cuarto"]
+# Número de cuenta correlativo (se imprime en los comprobantes); los empleados no llevan cuenta.
 insert("persons", ["id", "tenant_id", "first_name", "last_name", "national_id", "document_type", "vat_condition", "email", "phone",
-                   "address", "person_type", "isActive", "marketing_consent", "marketing_consent_at"],
+                   "address", "city", "province", "account_number", "person_type", "isActive", "marketing_consent", "marketing_consent_at"],
        [[p["id"], TENANT, p["first"], p["last"], p["doc"], p["doc_type"], p["vat"], p["email"], p["phone"],
-         "Córdoba, Argentina", p["type"], True, p["consent"], at(-120 * 86400) if p["consent"] else None] for p in ALL_PEOPLE])
+         f"{STREETS[i % len(STREETS)]} {100 + (i * 137) % 2400}", CITIES[i % len(CITIES)], "Córdoba", i + 1, p["type"], True, p["consent"],
+         at(-120 * 86400) if p["consent"] else None] for i, p in enumerate(ALL_PEOPLE)])
 
 # ── Catálogo, precios y stock ───────────────────────────────────
 emit("\n-- ── Catálogo ─────────────────────────────────────────────────────────────────")
@@ -632,7 +638,8 @@ insert("stock_transfer_items", ["id", "tenant_id", "transfer_id", "product_id", 
 
 # Numeradores: los próximos pedidos / transferencias continúan la numeración.
 insert("document_sequences", ["tenant_id", "name", "value"], [[TENANT, "PURCHASE_ORDER", 5], [TENANT, "STOCK_TRANSFER", 2], [TENANT, "SALE_RETURN", 0],
-                                                         [TENANT, "SALES_ORDER", order_counter]])
+                                                         [TENANT, "SALES_ORDER", order_counter],
+                                                         [TENANT, "PERSON_ACCOUNT", len(ALL_PEOPLE)]])
 
 # ── Promociones ────────────────────────────────────────────────
 emit("\n-- ── Promociones ──────────────────────────────────────────────────────────────")

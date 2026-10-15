@@ -13,6 +13,10 @@ import {
   TaxConditionEnum,
 } from '../../common/enums/afip.enum';
 import { isValidCuit, isValidDni, normalizeTaxId } from '../../common/validators/argentina-id';
+import { nextSequence } from '../../common/sequences/sequences';
+
+/** Correlativo de números de cuenta de clientes y proveedores (uno por empresa). */
+export const PERSON_ACCOUNT_SEQUENCE = 'PERSON_ACCOUNT';
 
 export interface NormalizedFiscalIdentity {
   documentType: IdentificationTypeEnum | null;
@@ -96,15 +100,22 @@ export class PersonsService {
       createPersonDto.vatCondition,
     );
     try{
-      const personNew: PersonEntity = this.personRepository.create({
-        ...createPersonDto,
-        ...fiscal,
-        email: createPersonDto.email || null,
-        marketingConsent: createPersonDto.marketingConsent ?? false,
-        marketingConsentAt: createPersonDto.marketingConsent ? new Date() : null,
-        tenantId,
+      // El número de cuenta se toma del correlativo de la empresa dentro de la misma transacción del alta.
+      return await this.personRepository.manager.transaction(async (manager) => {
+        const accountNumber = await nextSequence(manager, tenantId, PERSON_ACCOUNT_SEQUENCE);
+        const personNew: PersonEntity = manager.create(PersonEntity, {
+          ...createPersonDto,
+          ...fiscal,
+          email: createPersonDto.email || null,
+          city: createPersonDto.city || null,
+          province: createPersonDto.province || null,
+          marketingConsent: createPersonDto.marketingConsent ?? false,
+          marketingConsentAt: createPersonDto.marketingConsent ? new Date() : null,
+          accountNumber,
+          tenantId,
+        });
+        return manager.save(PersonEntity, personNew);
       });
-      return await this.personRepository.save(personNew);
     } catch (error) {
       if ( error instanceof NotFoundException || error instanceof ConflictException || error instanceof BadRequestException ) {
         throw error;
@@ -140,6 +151,7 @@ export class PersonsService {
             .orWhere('person.email LIKE :pattern', { pattern })
             .orWhere('person.phone LIKE :pattern', { pattern })
             .orWhere('person.nationalId = :digits', { digits });
+          if (/^\d{1,9}$/.test(digits)) where.orWhere('person.accountNumber = :account', { account: Number(digits) });
         }),
       );
     }

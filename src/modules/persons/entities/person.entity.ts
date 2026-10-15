@@ -21,6 +21,7 @@ export enum PersonType {
 @Index('UQ_persons_tenant_id', ['tenantId', 'id'], { unique: true })
 @Index('UQ_persons_tenant_national_id', ['tenantId', 'nationalId'], { unique: true })
 @Index('UQ_persons_tenant_email', ['tenantId', 'email'], { unique: true })
+@Index('UQ_persons_tenant_account', ['tenantId', 'accountNumber'], { unique: true })
 export class PersonEntity extends BaseAuditEntity {
   @Column({ name: 'tenant_id', type: 'varchar', length: 36 })
   tenantId!: string;
@@ -59,6 +60,16 @@ export class PersonEntity extends BaseAuditEntity {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   address?: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  city?: string | null;
+
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  province?: string | null;
+
+  /** Número de cuenta del cliente/proveedor (correlativo por empresa). Se imprime en los comprobantes. */
+  @Column({ name: 'account_number', type: 'int', unsigned: true, nullable: true })
+  accountNumber?: number | null;
 
   @OneToOne(() => UserEntity, (user) => user.person)
   user?: UserEntity | null;

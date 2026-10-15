@@ -1,4 +1,5 @@
 import { SalePaymentEntity } from '../sales/entities/sale-payment.entity';
+import { Letterhead, loadLetterhead, loadPrintCustomer } from './printable';
 import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   BadRequestException,
@@ -102,6 +103,9 @@ export class FiscalService {
         privateKeySecretRef: dto.privateKeySecretRef ?? profile.privateKeySecretRef ?? null,
         activityStartDate: dto.activityStartDate?.slice(0, 10) ?? profile.activityStartDate ?? null,
         commercialAddress: dto.commercialAddress?.trim() || profile.commercialAddress || null,
+        commercialCity: dto.commercialCity !== undefined ? dto.commercialCity.trim() || null : profile.commercialCity ?? null,
+        commercialProvince: dto.commercialProvince !== undefined ? dto.commercialProvince.trim() || null : profile.commercialProvince ?? null,
+        phone: dto.phone !== undefined ? dto.phone.trim() || null : profile.phone ?? null,
         isActive: true,
       });
       const saved = await manager.save(FiscalProfileEntity, profile);
@@ -117,6 +121,11 @@ export class FiscalService {
       });
       return saved;
     });
+  }
+
+  /** Encabezado imprimible de la empresa (sin datos de certificados ni ambiente). */
+  async letterhead(tenantId: string, branchId: string | null): Promise<Letterhead> {
+    return loadLetterhead(this.dataSource.manager, tenantId, branchId);
   }
 
   async listPointsOfSale(tenantId: string): Promise<FiscalPointOfSaleEntity[]> {
@@ -304,9 +313,10 @@ export class FiscalService {
             .getRepository(SaleReturnEntity)
             .findOne({ where: { id: document.sourceId, tenantId } })
             .then((saleReturn) => (saleReturn ? this.dataSource.getRepository(SaleEntity).findOne({ where: { id: saleReturn.saleId, tenantId } }) : null));
-    const customer = sourceSale?.customerPersonId
-      ? await this.dataSource.getRepository(PersonEntity).findOne({ where: { id: sourceSale.customerPersonId, tenantId } })
-      : null;
+    const [customer, letterhead] = await Promise.all([
+      loadPrintCustomer(this.dataSource.manager, tenantId, sourceSale?.customerPersonId),
+      loadLetterhead(this.dataSource.manager, tenantId, document.branchId, profile),
+    ]);
     // Quién vendió, quién cobró y cómo se pagó (se imprimen en el comprobante).
     const [names, payments] = sourceSale
       ? await Promise.all([
@@ -319,19 +329,9 @@ export class FiscalService {
       : null;
     return {
       document,
-      issuer: profile
-        ? {
-            legalName: profile.legalName,
-            cuit: profile.taxId,
-            vatCondition: profile.vatConditionCode,
-            grossIncomeRegistration: profile.grossIncomeRegistration ?? null,
-            activityStartDate: profile.activityStartDate ?? null,
-            commercialAddress: profile.commercialAddress ?? null,
-          }
-        : null,
-      receiver: customer
-        ? { name: `${customer.firstName} ${customer.lastName}`.replace(/\s+-$/, '').trim(), address: customer.address ?? null }
-        : null,
+      // Encabezado completo de la empresa (domicilio del local, teléfono, IIBB, inicio de actividades).
+      issuer: { ...letterhead, commercialAddress: letterhead.address },
+      receiver: customer,
       associated: associated
         ? { voucherType: associated.voucherType, pointOfSale: associated.pointOfSale, number: associated.number, issueDate: associated.issueDate }
         : null,

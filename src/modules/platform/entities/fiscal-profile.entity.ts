@@ -67,6 +67,15 @@ export class FiscalProfileEntity {
   @Column({ name: 'commercial_address', type: 'varchar', length: 255, nullable: true })
   commercialAddress?: string | null;
 
+  @Column({ name: 'commercial_city', type: 'varchar', length: 100, nullable: true })
+  commercialCity?: string | null;
+
+  @Column({ name: 'commercial_province', type: 'varchar', length: 60, nullable: true })
+  commercialProvince?: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  phone?: string | null;
+
   @ManyToOne(() => TenantEntity, (tenant) => tenant.fiscalProfiles, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'tenant_id' })
   tenant!: TenantEntity;

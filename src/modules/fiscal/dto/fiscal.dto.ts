@@ -53,6 +53,28 @@ export class UpsertFiscalProfileDto {
   @IsString()
   @MaxLength(255)
   commercialAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  commercialCity?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  commercialProvince?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  @Matches(/^[0-9+()\s-]*$/, { message: 'El teléfono solo admite números, espacios, +, (, ) y guiones.' })
+  phone?: string;
+}
+
+export class LetterheadQueryDto {
+  @IsOptional()
+  @IsUUID('4')
+  branchId?: string;
 }
 
 export class CreatePointOfSaleDto {

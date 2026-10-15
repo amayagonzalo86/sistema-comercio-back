@@ -31,6 +31,16 @@ export class CreateBranchDto {
     @Length(5, 255, { message: 'La dirección debe tener entre 5 y 255 caracteres' })
     readonly address?: string;
 
+    @IsString({ message: 'La localidad debe ser una cadena de texto' })
+    @IsOptional()
+    @MaxLength(100, { message: 'La localidad admite hasta 100 caracteres' })
+    readonly city?: string;
+
+    @IsString({ message: 'La provincia debe ser una cadena de texto' })
+    @IsOptional()
+    @MaxLength(60, { message: 'La provincia admite hasta 60 caracteres' })
+    readonly province?: string;
+
     @IsString({ message: 'El teléfono debe ser una cadena de texto' })
     @IsOptional()
     @MaxLength(30, { message: 'El teléfono debe tener como máximo 30 caracteres' })
