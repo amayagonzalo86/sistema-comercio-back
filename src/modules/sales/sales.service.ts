@@ -46,6 +46,7 @@ import {
   TIERRA_DEL_FUEGO_EXEMPTION_NOTE,
   VatExemptionReason,
   VatRegime,
+  showsFiscalTransparency,
   voucherMismatchMessage,
 } from '../fiscal/vat/vat';
 import { loadActivePromotions } from '../marketing/promotion-loader';
@@ -380,6 +381,7 @@ export class SalesService {
         customerVatCondition: customerCondition,
         vatExemptionReason: exemption?.reason ?? null,
         vatExemptionNote: exemption?.note ?? null,
+        vatRegime,
         fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
@@ -555,6 +557,7 @@ export class SalesService {
           vatChargeMode: policy.chargeMode,
           vatExemptionReason: sale.vatExemptionReason ?? null,
           vatExemptionNote: sale.vatExemptionNote ?? null,
+          vatRegime: sale.vatRegime,
           salesOrderId: sale.salesOrderId ?? null,
           sellerUserId: sale.sellerUserId ?? null,
         },
@@ -713,6 +716,7 @@ export class SalesService {
       customerVatCondition: customerCondition,
       vatExemptionReason: exemption?.reason ?? null,
       vatExemptionNote: exemption?.note ?? null,
+      vatRegime,
     } as SaleEntity;
     return {
       voucherClass: policy.voucherClass,
@@ -871,12 +875,13 @@ function assertRequestedVoucher(requested: VoucherClass | undefined, resolved: V
 
 /**
  * Notas fiscales que el comprobante debe mostrar según la normativa vigente:
- * - Comprobante B: "IVA contenido" (Régimen de Transparencia Fiscal al Consumidor, Ley 27.743).
+ * - Comprobante B: "IVA contenido" (Régimen de Transparencia Fiscal al Consumidor, Ley 27.743),
+ *   salvo en Tierra del Fuego, donde la operación se rige por la Ley 19.640.
  * - Comprobante A a monotributista: leyenda de la RG 5003/2021.
  */
-function buildFiscalNotes(sale: SaleEntity): Record<string, unknown> {
+export function buildFiscalNotes(sale: Pick<SaleEntity, 'voucherClass' | 'taxTotal' | 'customerVatCondition' | 'vatExemptionReason' | 'vatExemptionNote' | 'vatRegime'>): Record<string, unknown> {
   const notes: Record<string, unknown> = {};
-  if (sale.voucherClass === VoucherClass.B && Number(sale.taxTotal) > 0) {
+  if (showsFiscalTransparency(sale)) {
     notes.fiscalTransparency = {
       title: FISCAL_TRANSPARENCY_TITLE,
       vatContained: sale.taxTotal,

@@ -1,5 +1,6 @@
 import { SalePaymentEntity } from '../sales/entities/sale-payment.entity';
 import { Letterhead, loadLetterhead, loadPrintCustomer } from './printable';
+import { showsFiscalTransparency } from './vat/vat';
 import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   BadRequestException,
@@ -344,6 +345,15 @@ export class FiscalService {
             payments: payments.map((payment) => ({ method: payment.method, amount: payment.amount })),
           }
         : null,
+      // Leyendas: Transparencia Fiscal (Ley 27.743) solo fuera de Tierra del Fuego; allí, la de la Ley 19.640.
+      vatRegime: sourceSale?.vatRegime ?? null,
+      fiscalTransparency: showsFiscalTransparency({
+        voucherClass: document.voucherClass,
+        taxTotal: document.vatTotal,
+        vatExemptionReason: sourceSale?.vatExemptionReason ?? null,
+        vatRegime: sourceSale?.vatRegime ?? null,
+      }),
+      vatExemptionNote: sourceSale?.vatExemptionNote ?? null,
       formattedNumber:
         document.number !== null && document.number !== undefined
           ? `${String(document.pointOfSale).padStart(5, '0')}-${String(document.number).padStart(8, '0')}`
