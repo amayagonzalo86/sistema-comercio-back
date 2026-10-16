@@ -313,9 +313,9 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(letterhead.body).not.toHaveProperty('certificateSecretRef');
     expectStatus(await api('get', '/fiscal/documents'), 200);
     // Buscador del historial de comprobantes: por número, por CUIT/DNI y por nombre del cliente.
-    const byNumber = await api('get', '/fiscal/documents?search=00003-00000001');
-    expect(byNumber.body.items.map((item: { id: string }) => item.id)).toEqual([invoice.body.id]);
-    expect(byNumber.body.items[0].customerName).toBe('Inscripto Cliente');
+    const docByNumber = await api('get', '/fiscal/documents?search=00003-00000001');
+    expect(docByNumber.body.items.map((item: { id: string }) => item.id)).toEqual([invoice.body.id]);
+    expect(docByNumber.body.items[0].customerName).toBe('Inscripto Cliente');
     expect((await api('get', '/fiscal/documents?search=3-1')).body.total).toBe(1);
     const byCuit = await api('get', '/fiscal/documents?search=20-12345678-6');
     expect(byCuit.body.total).toBe(2); // la factura y la nota de crédito de la devolución
@@ -822,8 +822,8 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await api('delete', `/sales-quotes/${discard.body.id}`), 200);
     expect((await api('get', `/sales-quotes/${discard.body.id}`)).body.status).toBe('DISCARDED');
     expectStatus(await api('delete', `/sales-quotes/${discard.body.id}`), 409);
-    const history = await api('get', '/sales-quotes?status=ALL');
-    expect(history.body.total).toBe(3); // convertido, vencido y descartado: ninguno se borró
+    const quoteHistory = await api('get', '/sales-quotes?status=ALL');
+    expect(quoteHistory.body.total).toBe(3); // convertido, vencido y descartado: ninguno se borró
     token = adminToken;
   });
 });
