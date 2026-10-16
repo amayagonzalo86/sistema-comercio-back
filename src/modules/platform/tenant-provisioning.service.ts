@@ -1,3 +1,4 @@
+import { PriceListEntity, PriceListPaymentCondition } from '../sales/price-list/entities/price-list.entity';
 import {
   ConflictException,
   Injectable,
@@ -48,6 +49,21 @@ export class TenantProvisioningService {
         acceptedAt: new Date(),
       });
       await queryRunner.manager.save(TenantMembershipEntity, membership);
+
+      // Toda empresa arranca con su lista principal (precio de la sucursal, sin ajuste).
+      await queryRunner.manager.save(
+        PriceListEntity,
+        queryRunner.manager.create(PriceListEntity, {
+          tenantId: savedTenant.id,
+          name: 'Precio de lista',
+          description: 'Precio de la sucursal, sin descuentos ni recargos.',
+          percentage: '0.00',
+          paymentCondition: PriceListPaymentCondition.ANY,
+          isDefault: true,
+          isActive: true,
+          sortOrder: 10,
+        }),
+      );
 
       const auditEvent = queryRunner.manager.create(AuditEventEntity, {
         tenantId: savedTenant.id,

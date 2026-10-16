@@ -77,6 +77,7 @@ export class SalesOrdersService {
           .map((line) => ({ productId: line.productId, quantity: Number(line.quantity).toFixed(3) }))
           .sort((a, b) => a.productId.localeCompare(b.productId)),
         notes,
+        priceListId: dto.priceListId ?? null,
       }))
       .digest('hex');
 
@@ -86,7 +87,7 @@ export class SalesOrdersService {
     // Mismas reglas que la venta: precio de la sucursal, promociones, IVA y clase de comprobante.
     const quote = await this.salesService.quote(
       tenantId,
-      { branchId: dto.branchId, customerPersonId: dto.customerPersonId, lines: dto.lines },
+      { branchId: dto.branchId, customerPersonId: dto.customerPersonId, lines: dto.lines, priceListId: dto.priceListId },
       actor.branchId,
     );
 
@@ -105,6 +106,7 @@ export class SalesOrdersService {
             sellerUserId: actor.id,
             status: SalesOrderStatus.PENDING,
             notes,
+            priceListId: quote.priceList?.id ?? null,
             currency: tenant.currencyCode,
             voucherClass: quote.voucherClass,
             estimatedTotal: quote.total,

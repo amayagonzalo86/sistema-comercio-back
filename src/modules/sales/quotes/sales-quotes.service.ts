@@ -108,6 +108,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
           .map((line) => ({ productId: line.productId, quantity: Number(line.quantity).toFixed(3) }))
           .sort((a, b) => a.productId.localeCompare(b.productId)),
         notes,
+        priceListId: dto.priceListId ?? null,
       }))
       .digest('hex');
 
@@ -119,7 +120,11 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Mismas reglas de precio, promociones e IVA que la venta.
-    const quote = await this.salesService.quote(tenantId, { branchId: dto.branchId, customerPersonId: dto.customerPersonId, lines: dto.lines }, actor.branchId);
+    const quote = await this.salesService.quote(
+      tenantId,
+      { branchId: dto.branchId, customerPersonId: dto.customerPersonId, lines: dto.lines, priceListId: dto.priceListId },
+      actor.branchId,
+    );
     const saved = await this.dataSource.transaction(async (manager) => {
       const tenant = await manager.findOne(TenantEntity, { where: { id: tenantId }, select: { id: true, currencyCode: true } });
       if (!tenant) throw new NotFoundException('La empresa no existe.');
@@ -136,6 +141,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
           currency: tenant.currencyCode,
           voucherClass: quote.voucherClass,
           vatRegime: quote.vatRegime,
+          priceListId: quote.priceList?.id ?? null,
           subtotal: quote.subtotal,
           taxTotal: quote.taxTotal,
           discountTotal: quote.discountTotal,
@@ -223,6 +229,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
         customerPersonId: quote.customerPersonId ?? undefined,
         lines: quote.lines.map((line) => ({ productId: line.productId, quantity: Number(line.quantity) })),
         notes: [`Presupuesto X N.º ${quote.number}`, quote.notes].filter(Boolean).join(' · ').slice(0, 300),
+        priceListId: quote.priceListId ?? undefined,
       },
       context,
     );

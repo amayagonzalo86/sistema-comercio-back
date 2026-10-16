@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Req, UseGuards, BadRequestException, Query, ForbiddenException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Req, UploadedFile, UseGuards, UseInterceptors, BadRequestException, Query, ForbiddenException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { MAX_PRODUCT_IMAGE_BYTES } from './product-images';
 import { Request } from 'express';
 import { buildAuditContext } from '../../../common/http/request-context';
 import { UpdateProductVatDto } from './dto/update-product-vat.dto';
@@ -85,6 +87,29 @@ export class ProductsController {
     return this.catalogService.edit(tenantId, actor.id, productId, dto, this.auditContext(request));
   }
 
+  /** Foto del producto (PNG, JPG o WebP de hasta 3 MB; se valida el contenido real del archivo). */
+  @Post(':id/image')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK)
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('image', { limits: { fileSize: MAX_PRODUCT_IMAGE_BYTES, files: 1, fields: 0 } }))
+  uploadImage(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) productId: string,
+    @UploadedFile() file: { buffer: Buffer; size: number } | undefined,
+  ): Promise<{ imageUrl: string | null }> {
+    if (!file?.buffer) throw new BadRequestException('Adjuntá la imagen en el campo "image".');
+    const actor = request.user as { id: string };
+    return this.catalogService.setImage(tenantId, actor.id, productId, file.buffer, this.auditContext(request));
+  }
+
+  @Delete(':id/image')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK)
+  removeImage(@GetTenantId() tenantId: string, @Req() request: Request, @Param('id', ParseUUIDPipe) productId: string): Promise<{ imageUrl: null }> {
+    const actor = request.user as { id: string };
+    return this.catalogService.removeImage(tenantId, actor.id, productId, this.auditContext(request));
+  }
+
   /** Activa o desactiva un producto (no se borra: conserva el historial de ventas). */
   @Patch(':id/status')
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
@@ -107,7 +132,7 @@ export class ProductsController {
     @Param('id', ParseUUIDPipe) productId: string,
     @Param('branchId', ParseUUIDPipe) branchId: string,
     @Body() dto: UpsertBranchPriceDto,
-  ): Promise<BranchPriceView> {
+  ): Promise<Omit<BranchPriceView, 'listPrices'>> {
     const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
     if (actor.branchId && actor.branchId !== branchId) {
       throw new ForbiddenException('Solo puede modificar precios de su sucursal.');

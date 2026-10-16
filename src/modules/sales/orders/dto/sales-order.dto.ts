@@ -44,6 +44,11 @@ export class CreateSalesOrderDto {
   @IsString()
   @MaxLength(300)
   notes?: string;
+
+  /** Lista de precios (si no se indica, la principal). */
+  @IsOptional()
+  @IsUUID('4')
+  priceListId?: string;
 }
 
 /** GET /sales-orders — cola de pedidos (por defecto los más recientes primero). */

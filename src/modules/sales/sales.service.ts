@@ -1,4 +1,5 @@
 import { loadPrintCustomer } from '../fiscal/printable';
+import { applyPriceList, assertPaymentCondition, priceListSummary, resolvePriceList } from './price-list/pricing';
 import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   BadRequestException,
@@ -79,6 +80,8 @@ export interface SaleQuote {
   allowedVoucherClasses: VoucherClass[];
   /** Régimen de IVA aplicado (Tierra del Fuego: sin IVA por Ley 19.640). */
   vatRegime: VatRegime;
+  /** Lista de precios aplicada (null si la empresa no tiene listas). */
+  priceList: ReturnType<typeof priceListSummary>;
   /** Si se pidió un comprobante que no corresponde, el motivo (para mostrarlo antes de cobrar). */
   requestedVoucherError: string | null;
   vatChargeMode: string;
@@ -155,6 +158,7 @@ export class SalesService {
         salesOrderId: dto.salesOrderId ?? null,
         voucherClass: dto.voucherClass ?? null,
         vatRegime: dto.vatRegime ?? null,
+        priceListId: dto.priceListId ?? null,
       }))
       .digest('hex');
 
@@ -224,6 +228,9 @@ export class SalesService {
       const exemption = effectiveExemption(dto.vatExemption, vatRegime);
       const policy = this.resolvePolicy(issuerCondition, customerCondition, exemption?.reason ?? null);
       assertRequestedVoucher(dto.voucherClass, policy.voucherClass, issuerCondition);
+      // Lista de precios: la elegida, la del pedido o la principal; "solo efectivo" exige cobrar todo en efectivo.
+      const priceList = await resolvePriceList(queryRunner.manager, tenantId, dto.priceListId ?? salesOrder?.priceListId ?? null);
+      assertPaymentCondition(priceList, dto.payments);
       if (policy.requiresCustomerCuit && !isValidCuit(customerTaxId)) {
         throw new BadRequestException(
           `Un comprobante ${policy.voucherClass} requiere que el cliente tenga una CUIT válida cargada.`,
@@ -252,7 +259,7 @@ export class SalesService {
         }
 
         const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
-        const unitPriceCents = toMinorUnits(Number(stock.sellingPrice));
+        const unitPriceCents = applyPriceList(toMinorUnits(Number(stock.sellingPrice)), priceList, line.productId);
         const vatTreatment = stock.product.vatTreatment ?? VatTreatment.TAXED;
         const promotion = bestPromotion(
           promotions,
@@ -382,6 +389,9 @@ export class SalesService {
         vatExemptionReason: exemption?.reason ?? null,
         vatExemptionNote: exemption?.note ?? null,
         vatRegime,
+        priceListId: priceList?.id ?? null,
+        priceListName: priceList?.name ?? null,
+        priceListPercentage: priceList?.percentage ?? null,
         fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
@@ -558,6 +568,7 @@ export class SalesService {
           vatExemptionReason: sale.vatExemptionReason ?? null,
           vatExemptionNote: sale.vatExemptionNote ?? null,
           vatRegime: sale.vatRegime,
+          priceList: sale.priceListName ? { id: sale.priceListId, name: sale.priceListName, percentage: sale.priceListPercentage } : null,
           salesOrderId: sale.salesOrderId ?? null,
           sellerUserId: sale.sellerUserId ?? null,
         },
@@ -643,6 +654,7 @@ export class SalesService {
     const timeZone = tenant.timeZone || 'America/Argentina/Buenos_Aires';
     const promotions = await loadActivePromotions(manager, tenantId, localToday(timeZone));
     const weekday = localWeekday(timeZone);
+    const priceList = await resolvePriceList(manager, tenantId, dto.priceListId ?? null);
 
     const stocks = await manager.find(ProductBranchEntity, {
       where: { tenantId, branchId: dto.branchId, productId: In(dto.lines.map((line) => line.productId)), isActive: true },
@@ -656,7 +668,7 @@ export class SalesService {
         throw new NotFoundException(`El producto ${line.productId} no está activo en esta sucursal.`);
       }
       const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
-      const unitPriceCents = toMinorUnits(Number(stock.sellingPrice));
+      const unitPriceCents = applyPriceList(toMinorUnits(Number(stock.sellingPrice)), priceList, line.productId);
       const promotion = bestPromotion(
         promotions,
         {
@@ -723,6 +735,7 @@ export class SalesService {
       issuerVatCondition: issuerCondition,
       allowedVoucherClasses: allowedVoucherClasses(issuerCondition),
       vatRegime,
+      priceList: priceListSummary(priceList),
       requestedVoucherError:
         dto.voucherClass && dto.voucherClass !== policy.voucherClass
           ? voucherMismatchMessage(dto.voucherClass, policy.voucherClass, issuerCondition)

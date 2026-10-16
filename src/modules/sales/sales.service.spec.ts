@@ -1,3 +1,5 @@
+import { PriceListEntity } from './price-list/entities/price-list.entity';
+import { ProductPriceListEntity } from './price-list/entities/product-price-list.entity';
 import { DataSource, Repository } from 'typeorm';
 import { BadRequestException } from '@nestjs/common';
 import { BranchEntity } from '../branches/entities/branch.entity';
@@ -56,6 +58,7 @@ function setup() {
       return { ...value, id: 'cash-movement-1' };
     }),
     find: jest.fn(async () => []),
+    findOne: jest.fn(async () => null),
   });
   const repositories = new Map<Function, ReturnType<typeof createRepository>>([
     [SaleEntity, createRepository(SaleEntity)],
@@ -63,6 +66,9 @@ function setup() {
     [SalePaymentEntity, createRepository(SalePaymentEntity)],
     [CashMovementEntity, createRepository(CashMovementEntity)],
     [InventoryMovementEntity, createRepository(InventoryMovementEntity)],
+    // Sin listas de precios configuradas: se usa el precio de la sucursal.
+    [PriceListEntity, createRepository(PriceListEntity)],
+    [ProductPriceListEntity, createRepository(ProductPriceListEntity)],
   ]);
   const queryBuilder = (result: unknown) => ({
     leftJoinAndSelect: jest.fn().mockReturnThis(),

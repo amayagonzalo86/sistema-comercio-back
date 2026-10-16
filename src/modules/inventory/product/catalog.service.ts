@@ -6,7 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { Brackets, DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
+import { Brackets, DataSource, EntityManager, In, SelectQueryBuilder } from 'typeorm';
+import { PriceListEntity } from '../../sales/price-list/entities/price-list.entity';
+import { ProductPriceListEntity } from '../../sales/price-list/entities/product-price-list.entity';
+import { applyPriceList, ResolvedPriceList } from '../../sales/price-list/pricing';
+import { deleteProductImage, productImageUrl, saveProductImage } from './product-images';
 import { recordAudit } from '../../../common/audit/audit';
 import { likePattern, Paginated, paginated } from '../../../common/dto/page-query.dto';
 import { RequestAuditContext } from '../../../common/http/request-context';
@@ -45,6 +49,8 @@ export interface BranchPriceView {
   profitMargin: number;
   isActive: boolean;
   belowMinimum: boolean;
+  /** Precio en cada lista activa (precio de la sucursal con el descuento o recargo de la lista). */
+  listPrices: Array<{ priceListId: string; price: string }>;
 }
 
 export interface ProductListItem {
@@ -59,6 +65,8 @@ export interface ProductListItem {
   vatTreatment: string;
   priceIncludesVat: boolean;
   status: boolean;
+  /** URL de la foto del producto (servida por GET /product-images/:archivo). */
+  imageUrl: string | null;
   /** Presente cuando se filtra por sucursal. */
   branch?: BranchPriceView;
   /** Presente sin filtro de sucursal: stock sumado de todas las sucursales activas. */
@@ -114,8 +122,9 @@ export class CatalogService {
       if (query.lowStock) qb.andWhere('pb.stock <= pb.minStock');
       this.applySort(qb, query.sort, true);
       const [rows, total] = await qb.skip(skip).take(query.limit).getManyAndCount();
+      const lists = await this.loadPriceLists(tenantId, rows.map((row) => row.productId));
       return paginated(
-        rows.map((row) => ({ ...this.toListItem(row.product), branch: this.toBranchView(row) })),
+        rows.map((row) => ({ ...this.toListItem(row.product), branch: { ...this.toBranchView(row), listPrices: listPricesFor(row, lists) } })),
         total,
         query.page,
         query.limit,
@@ -235,6 +244,54 @@ export class CatalogService {
     });
   }
 
+  /** Reemplaza la foto del producto. La anterior se borra recién cuando la nueva quedó guardada. */
+  async setImage(tenantId: string, actorUserId: string, productId: string, buffer: Buffer, context: RequestAuditContext): Promise<{ imageUrl: string | null }> {
+    const name = await saveProductImage(buffer);
+    let previous: string | null = null;
+    try {
+      previous = await this.dataSource.transaction(async (manager) => {
+        const product = await this.lockProduct(manager, tenantId, productId);
+        const before = product.imagePath ?? null;
+        await manager.update(ProductEntity, { id: productId, tenantId }, { imagePath: name });
+        await recordAudit(manager, {
+          tenantId,
+          actorUserId,
+          eventType: 'PRODUCT_IMAGE_UPDATED',
+          aggregateType: 'PRODUCT',
+          aggregateId: productId,
+          metadata: { sku: product.sku, bytes: buffer.length, replaced: Boolean(before) },
+          context,
+        });
+        return before;
+      });
+    } catch (error) {
+      await deleteProductImage(name);
+      throw error;
+    }
+    await deleteProductImage(previous);
+    return { imageUrl: productImageUrl(name) };
+  }
+
+  async removeImage(tenantId: string, actorUserId: string, productId: string, context: RequestAuditContext): Promise<{ imageUrl: null }> {
+    const previous = await this.dataSource.transaction(async (manager) => {
+      const product = await this.lockProduct(manager, tenantId, productId);
+      if (!product.imagePath) return null;
+      await manager.update(ProductEntity, { id: productId, tenantId }, { imagePath: null });
+      await recordAudit(manager, {
+        tenantId,
+        actorUserId,
+        eventType: 'PRODUCT_IMAGE_REMOVED',
+        aggregateType: 'PRODUCT',
+        aggregateId: productId,
+        metadata: { sku: product.sku },
+        context,
+      });
+      return product.imagePath;
+    });
+    await deleteProductImage(previous);
+    return { imageUrl: null };
+  }
+
   async setStatus(
     tenantId: string,
     actorUserId: string,
@@ -269,7 +326,7 @@ export class CatalogService {
     branchId: string,
     dto: UpsertBranchPriceDto,
     context: RequestAuditContext,
-  ): Promise<BranchPriceView> {
+  ): Promise<Omit<BranchPriceView, 'listPrices'>> {
     return this.dataSource.transaction(async (manager) => {
       let row = await manager
         .createQueryBuilder(ProductBranchEntity, 'pb')
@@ -577,10 +634,38 @@ export class CatalogService {
       vatTreatment: product.vatTreatment,
       priceIncludesVat: product.priceIncludesVat,
       status: product.status,
+      imageUrl: productImageUrl(product.imagePath),
     };
   }
 
-  private toBranchView(row: ProductBranchEntity): BranchPriceView {
+  /** Listas activas con los porcentajes propios de los productos de la página. */
+  private async loadPriceLists(tenantId: string, productIds: string[]): Promise<ResolvedPriceList[]> {
+    const lists = await this.dataSource.getRepository(PriceListEntity).find({
+      where: { tenantId, isActive: true },
+      order: { sortOrder: 'ASC', name: 'ASC' },
+    });
+    if (lists.length === 0) return [];
+    const overrides = productIds.length
+      ? await this.dataSource.getRepository(ProductPriceListEntity).find({
+          where: { tenantId, priceListId: In(lists.map((list) => list.id)), productId: In(productIds) },
+          select: { priceListId: true, productId: true, appliedPercentage: true },
+        })
+      : [];
+    return lists.map((list) => ({
+      id: list.id,
+      name: list.name,
+      percentage: Number(list.percentage).toFixed(2),
+      percentageBasisPoints: BigInt(Math.round(Number(list.percentage) * 100)),
+      paymentCondition: list.paymentCondition,
+      overrides: new Map(
+        overrides
+          .filter((override) => override.priceListId === list.id)
+          .map((override) => [override.productId, BigInt(Math.round(Number(override.appliedPercentage) * 100))]),
+      ),
+    }));
+  }
+
+  private toBranchView(row: ProductBranchEntity): Omit<BranchPriceView, 'listPrices'> {
     return {
       branchId: row.branchId,
       stock: Number(row.stock),
@@ -592,4 +677,9 @@ export class CatalogService {
       belowMinimum: milli(row.stock, true) <= milli(row.minStock),
     };
   }
+}
+
+function listPricesFor(row: ProductBranchEntity, lists: ResolvedPriceList[]): Array<{ priceListId: string; price: string }> {
+  const baseCents = BigInt(Math.round(Number(row.sellingPrice) * 100));
+  return lists.map((list) => ({ priceListId: list.id, price: (Number(applyPriceList(baseCents, list, row.productId)) / 100).toFixed(2) }));
 }

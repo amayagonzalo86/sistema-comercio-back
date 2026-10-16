@@ -99,6 +99,11 @@ export class CreateSaleDto {
   @IsOptional()
   @IsUUID('4')
   salesOrderId?: string;
+
+  /** Lista de precios (si no se indica, la principal de la empresa). */
+  @IsOptional()
+  @IsUUID('4')
+  priceListId?: string;
 }
 
 /** POST /sales/quote — calcula la venta (promociones, IVA y total) sin registrarla. */
@@ -134,4 +139,9 @@ export class QuoteSaleDto {
   @IsOptional()
   @IsEnum(VoucherClass)
   voucherClass?: VoucherClass;
+
+  /** Lista de precios (si no se indica, la principal de la empresa). */
+  @IsOptional()
+  @IsUUID('4')
+  priceListId?: string;
 }

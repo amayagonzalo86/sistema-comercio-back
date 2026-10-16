@@ -50,6 +50,10 @@ export class SalesOrderEntity {
   @Column({ type: 'varchar', length: 300, nullable: true })
   notes?: string | null;
 
+  /** Lista de precios elegida por el vendedor (la caja cobra con esa lista). */
+  @Column({ name: 'price_list_id', type: 'varchar', length: 36, nullable: true })
+  priceListId?: string | null;
+
   @Column({ type: 'char', length: 3 })
   currency!: string;
 

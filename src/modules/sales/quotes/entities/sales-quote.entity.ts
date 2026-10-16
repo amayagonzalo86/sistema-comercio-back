@@ -85,6 +85,9 @@ export class SalesQuoteEntity {
   @Column({ name: 'expires_at', type: 'timestamp', precision: 6 })
   expiresAt!: Date;
 
+  @Column({ name: 'price_list_id', type: 'varchar', length: 36, nullable: true })
+  priceListId?: string | null;
+
   @Column({ type: 'enum', enum: SalesQuoteStatus, default: SalesQuoteStatus.ACTIVE })
   status!: SalesQuoteStatus;
 
