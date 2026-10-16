@@ -219,8 +219,8 @@ describe('Flujo comercial completo (e2e)', () => {
     const pricedCatalog = await api('get', `/products?branchId=${A}&search=Gaseosa`);
     const listPrices = pricedCatalog.body.items[0].branch.listPrices as Array<{ priceListId: string; price: string }>;
     expect(listPrices).toEqual(expect.arrayContaining([
-      { priceListId: govList.body.id, price: '4000.00' },
-      { priceListId: cashList.body.id, price: '950.00' },
+      expect.objectContaining({ priceListId: govList.body.id, price: '4000.00' }),
+      expect.objectContaining({ priceListId: cashList.body.id, price: '950.00' }),
     ]));
     // Foto del producto: se valida el contenido real; el nombre lo genera el sistema.
     const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
