@@ -88,6 +88,16 @@ export class SaleEntity {
   @Column({ name: 'vat_exemption_note', type: 'varchar', length: 200, nullable: true })
   vatExemptionNote?: string | null;
 
+  /** Lista de precios usada (se guardan nombre y porcentaje por si la lista cambia o se elimina). */
+  @Column({ name: 'price_list_id', type: 'varchar', length: 36, nullable: true })
+  priceListId?: string | null;
+
+  @Column({ name: 'price_list_name', type: 'varchar', length: 150, nullable: true })
+  priceListName?: string | null;
+
+  @Column({ name: 'price_list_percentage', type: 'decimal', precision: 7, scale: 2, nullable: true })
+  priceListPercentage?: string | null;
+
   /** Régimen de IVA con el que se vendió (Tierra del Fuego: sin IVA ni apartado de Transparencia Fiscal). */
   @Column({ name: 'vat_regime', type: 'enum', enum: VatRegime, default: VatRegime.GENERAL })
   vatRegime!: VatRegime;

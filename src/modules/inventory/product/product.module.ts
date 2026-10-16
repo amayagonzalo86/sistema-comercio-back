@@ -8,12 +8,13 @@ import { ProductPriceHistoryEntity } from './entities/product-price-history.enti
 import { CatalogService } from './catalog.service';
 import { ProductsService } from '../product/product.service';
 import { ProductsController } from '../product/product.controller';
+import { ProductImagesController } from './product-images.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ProductEntity, ProductBranchEntity, BranchEntity, InventoryMovementEntity, ProductPriceHistoryEntity]),
   ],
-  controllers: [ProductsController],
+  controllers: [ProductsController, ProductImagesController],
   providers: [ProductsService, CatalogService],
   exports: [ProductsService, CatalogService],
 })

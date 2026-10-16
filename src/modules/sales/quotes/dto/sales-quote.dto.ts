@@ -26,6 +26,11 @@ export class CreateSalesQuoteDto {
   @IsString()
   @MaxLength(300)
   notes?: string;
+
+  /** Lista de precios (si no se indica, la principal). */
+  @IsOptional()
+  @IsUUID('4')
+  priceListId?: string;
 }
 
 export class SalesQuoteQueryDto extends PageQueryDto {

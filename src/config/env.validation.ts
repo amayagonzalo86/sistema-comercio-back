@@ -104,6 +104,11 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   FISCAL_SECRETS_DIR?: string;
+
+  /** Carpeta para archivos subidos (fotos de productos). Por defecto ./uploads; en producción, fuera del código. */
+  @IsOptional()
+  @IsString()
+  UPLOADS_DIR?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

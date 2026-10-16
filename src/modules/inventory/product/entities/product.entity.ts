@@ -82,6 +82,10 @@ export class ProductEntity {
   @Column({ type: 'boolean', default: true })
   status!: boolean;
 
+  /** Nombre del archivo de la foto en UPLOADS_DIR/products (aleatorio, sin datos del usuario). */
+  @Column({ name: 'image_path', type: 'varchar', length: 120, nullable: true })
+  imagePath?: string | null;
+
   @OneToMany(() => ProductBranchEntity, (pb) => pb.product, { cascade: true })
   branchSettings!: ProductBranchEntity[];
 

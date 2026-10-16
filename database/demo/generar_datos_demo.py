@@ -282,6 +282,11 @@ insert("tenants", ["id", "slug", "legal_name", "trade_name", "tax_id", "status",
          "America/Argentina/Buenos_Aires", "ARS"]])
 insert("branches", ["id", "tenant_id", "code", "name", "address", "city", "province", "phone", "status"],
        [[b[0], TENANT, b[1], b[2], b[3], b[7], "Córdoba", b[4], True] for b in BRANCHES])
+# Listas de precios: principal sin ajuste, descuento por pago en efectivo y recargo para organismos públicos.
+insert("price_lists", ["id", "tenant_id", "name", "description", "percentage", "payment_condition", "is_default", "is_active", "sort_order"],
+       [[uid(), TENANT, "Precio de lista", "Precio de la sucursal, sin descuentos ni recargos.", D("0.00"), "ANY", True, True, 10],
+        [uid(), TENANT, "Ventas en efectivo", "Descuento por pago en efectivo.", D("-5.00"), "CASH_ONLY", False, True, 20],
+        [uid(), TENANT, "Lista gobierno", "Recargo para ventas a organismos públicos.", D("300.00"), "ANY", False, True, 30]])
 insert("fiscal_profiles", ["id", "tenant_id", "tax_id", "legal_name", "vat_condition_code", "gross_income_registration", "environment",
                            "certificate_secret_ref", "private_key_secret_ref", "is_active", "activity_start_date", "commercial_address",
                            "commercial_city", "commercial_province", "phone"],

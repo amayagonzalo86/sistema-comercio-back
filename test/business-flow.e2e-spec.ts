@@ -184,6 +184,75 @@ describe('Flujo comercial completo (e2e)', () => {
       201,
     );
 
+    // ── Listas de precios: descuento en efectivo, precio de lista y recargo gobierno ──
+    const initialLists = await api('get', '/price-lists');
+    expectStatus(initialLists, 200);
+    if (!(initialLists.body as Array<{ isDefault: boolean }>).some((list) => list.isDefault)) {
+      expectStatus(await api('post', '/price-lists', { name: 'Precio de lista', percentage: 0, isDefault: true }), 201);
+    }
+    const cashList = await api('post', '/price-lists', { name: 'Ventas en efectivo', percentage: -5, paymentCondition: 'CASH_ONLY' });
+    expectStatus(cashList, 201);
+    expect(cashList.body).toMatchObject({ percentage: '-5.00', paymentCondition: 'CASH_ONLY', isDefault: false });
+    const govList = await api('post', '/price-lists', { name: 'Lista gobierno', percentage: 300 });
+    expectStatus(govList, 201);
+    expectStatus(await api('post', '/price-lists', { name: 'lista GOBIERNO', percentage: 10 }), 409);
+    expectStatus(await api('post', '/price-lists', { name: 'Imposible', percentage: -100 }), 400);
+    const lineFor = (body: { lines: Array<{ unitPrice: string }> }) => body.lines[0].unitPrice;
+    const govQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }], priceListId: govList.body.id });
+    expectStatus(govQuote, 200);
+    expect(lineFor(govQuote.body)).toBe('4000.00'); // $1000 + 300 %
+    expect(govQuote.body.priceList).toMatchObject({ name: 'Lista gobierno', percentage: '300.00' });
+    const cashQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }], priceListId: cashList.body.id });
+    expect(lineFor(cashQuote.body)).toBe('950.00'); // $1000 − 5 %
+    const defaultQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }] });
+    expect(lineFor(defaultQuote.body)).toBe('1000.00');
+    // "Ventas en efectivo" solo se cobra en efectivo.
+    const cardWithCashList = await api(
+      'post',
+      '/sales',
+      { branchId: A, lines: [{ productId, quantity: 1 }], priceListId: cashList.body.id, payments: [{ method: 'DEBIT_CARD', amount: 1000 }] },
+      true,
+    );
+    expectStatus(cardWithCashList, 400);
+    expect(cardWithCashList.body.message).toContain('efectivo');
+    // El catálogo muestra el precio en cada lista.
+    const pricedCatalog = await api('get', `/products?branchId=${A}&search=Gaseosa`);
+    const listPrices = pricedCatalog.body.items[0].branch.listPrices as Array<{ priceListId: string; price: string }>;
+    expect(listPrices).toEqual(expect.arrayContaining([
+      { priceListId: govList.body.id, price: '4000.00' },
+      { priceListId: cashList.body.id, price: '950.00' },
+    ]));
+    // Foto del producto: se valida el contenido real; el nombre lo genera el sistema.
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
+    const upload = await request(app.getHttpServer())
+      .post(`/api/v1/products/${productId}/image`)
+      .set('Authorization', `Bearer ${token}`)
+      .attach('image', png, 'foto.png');
+    expectStatus(upload, 200);
+    expect(upload.body.imageUrl).toMatch(/^\/api\/v1\/product-images\/[0-9a-f-]{36}\.png$/);
+    const served = await request(app.getHttpServer()).get(upload.body.imageUrl as string);
+    expect(served.status).toBe(200);
+    expect(served.headers['content-type']).toContain('image/png');
+    expect(served.headers['x-content-type-options']).toBe('nosniff');
+    const fake = await request(app.getHttpServer())
+      .post(`/api/v1/products/${productId}/image`)
+      .set('Authorization', `Bearer ${token}`)
+      .attach('image', Buffer.from('<script>alert(1)</script>'), 'foto.png');
+    expectStatus(fake, 400);
+    expect((await request(app.getHttpServer()).get('/api/v1/product-images/..%2F..%2Fpackage.json')).status).toBe(404);
+    const withImage = await api('get', `/products?branchId=${A}&search=Gaseosa`);
+    expect(withImage.body.items[0].imageUrl).toBe(upload.body.imageUrl);
+    // Editar y eliminar (baja lógica): la lista eliminada ya no se ofrece ni se puede usar.
+    const editedGov = await api('patch', `/price-lists/${govList.body.id}`, { percentage: 250, description: 'Organismos públicos' });
+    expect(editedGov.body.percentage).toBe('250.00');
+    const tempList = await api('post', '/price-lists', { name: 'Temporal', percentage: 1 });
+    expectStatus(await api('delete', `/price-lists/${tempList.body.id}`), 200);
+    expect((await api('get', '/price-lists')).body.map((list: { id: string }) => list.id)).not.toContain(tempList.body.id);
+    expectStatus(await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }], priceListId: tempList.body.id }), 400);
+    const defaultList = ((await api('get', '/price-lists')).body as Array<{ id: string; isDefault: boolean }>).find((list) => list.isDefault)!;
+    expectStatus(await api('delete', `/price-lists/${defaultList.id}`), 400); // la principal no se elimina
+    expectStatus(await api('patch', `/price-lists/${govList.body.id}`, { percentage: 300 }), 200);
+
     // Cotización: 3 × $1000 − 10 % = $2700 neto + IVA $567 = $3267 (factura A a RI)
     const quote = await api('post', '/sales/quote', { branchId: A, customerPersonId: customer.body.id, lines: [{ productId, quantity: 3 }] });
     expectStatus(quote, 200);
