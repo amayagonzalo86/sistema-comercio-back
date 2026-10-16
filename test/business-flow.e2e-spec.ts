@@ -314,9 +314,11 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await api('get', '/fiscal/documents'), 200);
     // Buscador del historial de comprobantes: por número, por CUIT/DNI y por nombre del cliente.
     const docByNumber = await api('get', '/fiscal/documents?search=00003-00000001');
-    expect(docByNumber.body.items.map((item: { id: string }) => item.id)).toEqual([invoice.body.id]);
-    expect(docByNumber.body.items[0].customerName).toBe('Inscripto Cliente');
-    expect((await api('get', '/fiscal/documents?search=3-1')).body.total).toBe(1);
+    // Factura A y nota de crédito A comparten el n.º 00003-00000001 (cada tipo tiene su propia numeración).
+    expect(docByNumber.body.items.map((item: { id: string }) => item.id).sort()).toEqual([invoice.body.id, creditNote.body.id].sort());
+    expect(docByNumber.body.items.every((item: { customerName: string }) => item.customerName === 'Inscripto Cliente')).toBe(true);
+    expect((await api('get', '/fiscal/documents?search=3-1')).body.total).toBe(2);
+    expect((await api('get', '/fiscal/documents?search=00003-00000002')).body.total).toBe(0);
     const byCuit = await api('get', '/fiscal/documents?search=20-12345678-6');
     expect(byCuit.body.total).toBe(2); // la factura y la nota de crédito de la devolución
     const byName = await api('get', `/fiscal/documents?search=${encodeURIComponent('inscripto')}`);
