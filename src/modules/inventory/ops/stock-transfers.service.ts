@@ -243,6 +243,8 @@ export class StockTransfersService {
               productId: item.productId,
               branchId: transfer.destinationBranchId,
               costPrice: originRow?.costPrice ?? Number(item.unitCost),
+              freightPercentage: originRow?.freightPercentage ?? 0,
+              freightAmount: originRow?.freightAmount ?? 0,
               profitMargin: originRow?.profitMargin ?? 0,
               sellingPrice: originRow?.sellingPrice ?? 0,
               stock: 0,

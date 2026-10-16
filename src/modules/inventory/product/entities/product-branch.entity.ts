@@ -45,6 +45,15 @@ export class ProductBranchEntity {
     @Column({ name: 'cost_price', type: 'decimal', precision: 12, scale: 2, default: 0.0, transformer: columnNumericTransformer })
     costPrice!: number;
 
+    /** Flete como porcentaje del costo (costo total = costo + flete % + flete $). */
+    @Column({ name: 'freight_percentage', type: 'decimal', precision: 6, scale: 2, default: 0.0, transformer: columnNumericTransformer })
+    freightPercentage!: number;
+
+    /** Flete fijo por unidad. */
+    @Column({ name: 'freight_amount', type: 'decimal', precision: 12, scale: 2, default: 0.0, transformer: columnNumericTransformer })
+    freightAmount!: number;
+
+    /** Margen de ganancia sobre el costo total (costo + flete). */
     @Column({ name: 'profit_margin', type: 'decimal', precision: 5, scale: 2, default: 30.0, transformer: columnNumericTransformer })
     profitMargin!: number;
 

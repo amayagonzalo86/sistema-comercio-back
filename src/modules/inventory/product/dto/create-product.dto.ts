@@ -59,6 +59,11 @@ export class CreateProductDto {
     @MaxLength(2000)
     readonly description?: string;
 
+    /** Proveedor habitual (etiquetas y aumentos por proveedor). */
+    @IsOptional()
+    @IsUUID('4')
+    readonly supplierPersonId?: string;
+
     @IsString()
     @IsOptional()
     @MaxLength(80)

@@ -75,3 +75,15 @@ export function actorTenantRoles(actor: TenantRoleActor): string[] {
 export function hasAnyTenantRole(actor: TenantRoleActor, allowed: ReadonlySet<string>): boolean {
   return actorTenantRoles(actor).some((role) => allowed.has(role));
 }
+
+/** Roles que venden o cobran: ven precios pero no costos, fletes ni márgenes. */
+const PRICE_ONLY_ROLES: ReadonlySet<string> = new Set([TenantRole.SELLER, TenantRole.CASHIER]);
+
+/**
+ * Puede ver costos y márgenes quien tenga al menos un rol de gestión, depósito o contaduría.
+ * Un vendedor o cajero (solo esos roles) ve únicamente precios de venta.
+ */
+export function canSeeProductCosts(actor: TenantRoleActor): boolean {
+  const roles = actorTenantRoles(actor);
+  return roles.length === 0 || roles.some((role) => !PRICE_ONLY_ROLES.has(role));
+}

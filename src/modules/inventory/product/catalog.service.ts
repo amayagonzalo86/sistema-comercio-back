@@ -14,17 +14,28 @@ import { deleteProductImage, productImageUrl, saveProductImage } from './product
 import { recordAudit } from '../../../common/audit/audit';
 import { likePattern, Paginated, paginated } from '../../../common/dto/page-query.dto';
 import { RequestAuditContext } from '../../../common/http/request-context';
-import { cents, formatMoney, milli } from '../../../common/utils/money';
+import { cents, formatMoney, milli, roundDivide } from '../../../common/utils/money';
+import { parseTaxCondition, TaxConditionEnum } from '../../../common/enums/afip.enum';
+import { printableName } from '../../fiscal/printable';
+import { resolveVatRegime, VatRegime, VatTreatment } from '../../fiscal/vat/vat';
+import { PersonEntity, PersonType } from '../../persons/entities/person.entity';
+import { FiscalProfileEntity } from '../../platform/entities/fiscal-profile.entity';
+import { TenantEntity } from '../../platform/entities/tenant.entity';
 import { BranchEntity } from '../../branches/entities/branch.entity';
 import {
+  addAmount,
   adjustPrices,
+  applyFreight,
+  changeBasisPoints,
   marginBasisPoints,
+  totalCost,
   MAX_PRICE_CENTS,
   priceFromMargin,
   PriceRounding,
   PriceSnapshot,
 } from './domain/pricing';
 import {
+  BulkPriceMode,
   BulkPriceUpdateDto,
   EditProductDto,
   PriceHistoryQueryDto,
@@ -44,13 +55,23 @@ export interface BranchPriceView {
   branchId: string;
   stock: number;
   minStock: number;
-  costPrice: number;
+  /** Costo, flete y margen: null para vendedores y cajeros (no los pueden ver). */
+  costPrice: number | null;
+  freightPercentage: number | null;
+  freightAmount: number | null;
+  /** Costo + flete: base del margen. */
+  totalCost: number | null;
   sellingPrice: number;
-  profitMargin: number;
+  profitMargin: number | null;
   isActive: boolean;
   belowMinimum: boolean;
-  /** Precio en cada lista activa (precio de la sucursal con el descuento o recargo de la lista). */
-  listPrices: Array<{ priceListId: string; price: string }>;
+  /**
+   * Precio en cada lista activa: price es el precio de la sucursal con el ajuste de la lista y finalPrice,
+   * lo que paga un consumidor final (con IVA si corresponde; en Tierra del Fuego, sin IVA).
+   */
+  listPrices: Array<{ priceListId: string; price: string; finalPrice: string }>;
+  /** Precio final de la sucursal sin lista. */
+  finalPrice: string;
 }
 
 export interface ProductListItem {
@@ -67,6 +88,7 @@ export interface ProductListItem {
   status: boolean;
   /** URL de la foto del producto (servida por GET /product-images/:archivo). */
   imageUrl: string | null;
+  supplier: { id: string; name: string } | null;
   /** Presente cuando se filtra por sucursal. */
   branch?: BranchPriceView;
   /** Presente sin filtro de sucursal: stock sumado de todas las sucursales activas. */
@@ -83,6 +105,10 @@ export interface BulkPriceRowPreview {
   oldSellingPrice: string;
   newSellingPrice: string;
   newProfitMargin: string;
+  oldFreightPercentage: string;
+  newFreightPercentage: string;
+  /** Variación del precio de venta en % (para los aumentos en pesos). */
+  sellingChangePercentage: string | null;
 }
 
 export interface BulkPriceResult {
@@ -102,6 +128,7 @@ export class CatalogService {
     tenantId: string,
     query: ProductListQueryDto,
     branchScope: string | null,
+    canSeeCosts = true,
   ): Promise<Paginated<ProductListItem>> {
     const branchId = branchScope ?? query.branchId ?? null;
     if (branchScope && query.branchId && query.branchId !== branchScope) {
@@ -122,9 +149,16 @@ export class CatalogService {
       if (query.lowStock) qb.andWhere('pb.stock <= pb.minStock');
       this.applySort(qb, query.sort, true);
       const [rows, total] = await qb.skip(skip).take(query.limit).getManyAndCount();
-      const lists = await this.loadPriceLists(tenantId, rows.map((row) => row.productId));
+      const [lists, addsVat, suppliers] = await Promise.all([
+        this.loadPriceLists(tenantId, rows.map((row) => row.productId)),
+        this.consumerAddsVat(tenantId, branchId),
+        this.supplierNames(tenantId, rows.map((row) => row.product)),
+      ]);
       return paginated(
-        rows.map((row) => ({ ...this.toListItem(row.product), branch: { ...this.toBranchView(row), listPrices: listPricesFor(row, lists) } })),
+        rows.map((row) => ({
+          ...this.toListItem(row.product, suppliers),
+          branch: { ...this.toBranchView(row, canSeeCosts), ...listPricesFor(row, lists, addsVat) },
+        })),
         total,
         query.page,
         query.limit,
@@ -159,8 +193,9 @@ export class CatalogService {
       for (const row of sums) stockByProduct.set(row.productId, Number(row.stock));
     }
 
+    const suppliers = await this.supplierNames(tenantId, products);
     return paginated(
-      products.map((product) => ({ ...this.toListItem(product), totalStock: stockByProduct.get(product.id) ?? 0 })),
+      products.map((product) => ({ ...this.toListItem(product, suppliers), totalStock: stockByProduct.get(product.id) ?? 0 })),
       total,
       query.page,
       query.limit,
@@ -227,6 +262,10 @@ export class CatalogService {
       if (dto.category !== undefined) assign('category', dto.category || null);
       if (dto.brand !== undefined) assign('brand', dto.brand || null);
       if (dto.unitOfMeasure !== undefined) assign('unitOfMeasure', dto.unitOfMeasure);
+      if (dto.supplierPersonId !== undefined) {
+        if (dto.supplierPersonId) await assertSupplier(manager, tenantId, dto.supplierPersonId);
+        assign('supplierPersonId', dto.supplierPersonId || null);
+      }
 
       if (Object.keys(changes).length > 0) {
         await manager.save(ProductEntity, product);
@@ -326,7 +365,7 @@ export class CatalogService {
     branchId: string,
     dto: UpsertBranchPriceDto,
     context: RequestAuditContext,
-  ): Promise<Omit<BranchPriceView, 'listPrices'>> {
+  ): Promise<Omit<BranchPriceView, 'listPrices' | 'finalPrice'>> {
     return this.dataSource.transaction(async (manager) => {
       let row = await manager
         .createQueryBuilder(ProductBranchEntity, 'pb')
@@ -355,27 +394,31 @@ export class CatalogService {
         created = true;
       }
 
-      const before: PriceSnapshot = {
-        costCents: cents(row.costPrice),
-        sellingCents: cents(row.sellingPrice),
-        marginBp: cents(row.profitMargin),
-      };
+      const before: PriceSnapshot = snapshotOf(row);
       const costCents = dto.costPrice !== undefined ? cents(dto.costPrice) : before.costCents;
+      const freightBp = dto.freightPercentage !== undefined ? cents(dto.freightPercentage) : before.freightBp ?? 0n;
+      const freightCents = dto.freightAmount !== undefined ? cents(dto.freightAmount) : before.freightCents ?? 0n;
+      // El margen se calcula sobre el costo total (costo + flete).
+      const baseCents = totalCost(costCents, freightBp, freightCents);
+      const freightChanged = freightBp !== (before.freightBp ?? 0n) || freightCents !== (before.freightCents ?? 0n);
       let sellingCents: bigint;
       let marginBp: bigint;
       if (dto.sellingPrice !== undefined) {
         sellingCents = cents(dto.sellingPrice);
-        marginBp = marginBasisPoints(costCents, sellingCents) ?? (dto.profitMargin !== undefined ? cents(dto.profitMargin) : before.marginBp);
-      } else if (dto.profitMargin !== undefined) {
-        marginBp = cents(dto.profitMargin);
-        sellingCents = costCents > 0n ? priceFromMargin(costCents, marginBp, PriceRounding.NONE) : before.sellingCents;
+        marginBp = marginBasisPoints(baseCents, sellingCents) ?? (dto.profitMargin !== undefined ? cents(dto.profitMargin) : before.marginBp);
+      } else if (dto.profitMargin !== undefined || dto.costPrice !== undefined || freightChanged) {
+        // Cambió el costo, el flete o el margen: el precio acompaña manteniendo el margen.
+        marginBp = dto.profitMargin !== undefined ? cents(dto.profitMargin) : before.marginBp;
+        sellingCents = baseCents > 0n ? priceFromMargin(baseCents, marginBp, PriceRounding.NONE) : before.sellingCents;
       } else {
         sellingCents = before.sellingCents;
-        marginBp = marginBasisPoints(costCents, sellingCents) ?? before.marginBp;
+        marginBp = marginBasisPoints(baseCents, sellingCents) ?? before.marginBp;
       }
       if (sellingCents > MAX_PRICE_CENTS) throw new BadRequestException('El precio resultante excede el máximo admitido.');
 
       row.costPrice = Number(formatMoney(costCents));
+      row.freightPercentage = Number(formatMoney(freightBp));
+      row.freightAmount = Number(formatMoney(freightCents));
       row.sellingPrice = Number(formatMoney(sellingCents));
       row.profitMargin = Number(formatMoney(marginBp));
       if (dto.minStock !== undefined) row.minStock = Number(dto.minStock);
@@ -409,7 +452,14 @@ export class CatalogService {
         metadata: {
           branchId,
           before: { cost: formatMoney(before.costCents), selling: formatMoney(before.sellingCents) },
-          after: { cost: formatMoney(costCents), selling: formatMoney(sellingCents), minStock: saved.minStock, isActive: saved.isActive },
+          after: {
+            cost: formatMoney(costCents),
+            freightPercentage: formatMoney(freightBp),
+            freightAmount: formatMoney(freightCents),
+            selling: formatMoney(sellingCents),
+            minStock: saved.minStock,
+            isActive: saved.isActive,
+          },
           reason: dto.reason?.trim() ?? null,
         },
         context,
@@ -434,8 +484,12 @@ export class CatalogService {
       }
       branchIds = [branchScope];
     }
-    const percentBp = cents(dto.percentage, true);
-    if (percentBp === 0n) throw new BadRequestException('El porcentaje no puede ser cero.');
+    const mode = dto.mode ?? BulkPriceMode.PERCENTAGE;
+    const percentBp = mode === BulkPriceMode.AMOUNT ? 0n : cents(dto.percentage, true);
+    const amountCents = mode === BulkPriceMode.AMOUNT ? cents(dto.amount ?? 0, true) : 0n;
+    if (mode === BulkPriceMode.PERCENTAGE && percentBp === 0n) throw new BadRequestException('El porcentaje no puede ser cero.');
+    if (mode === BulkPriceMode.AMOUNT && amountCents === 0n) throw new BadRequestException('El importe no puede ser cero.');
+    if (mode === BulkPriceMode.FREIGHT && (percentBp < 0n || percentBp > 30_000n)) throw new BadRequestException('El flete debe estar entre 0 % y 300 %.');
 
     const buildQuery = (manager: EntityManager): SelectQueryBuilder<ProductBranchEntity> => {
       const qb = manager
@@ -449,6 +503,7 @@ export class CatalogService {
       if (scope.categories?.length) qb.andWhere('p.category IN (:...categories)', { categories: scope.categories });
       if (scope.brands?.length) qb.andWhere('p.brand IN (:...brands)', { brands: scope.brands });
       if (scope.productIds?.length) qb.andWhere('p.id IN (:...productIds)', { productIds: scope.productIds });
+      if (scope.supplierIds?.length) qb.andWhere('p.supplierPersonId IN (:...supplierIds)', { supplierIds: scope.supplierIds });
       return qb.orderBy('p.name', 'ASC').addOrderBy('pb.branchId', 'ASC');
     };
 
@@ -456,20 +511,21 @@ export class CatalogService {
       const changes: Array<{ row: ProductBranchEntity; before: PriceSnapshot; after: PriceSnapshot }> = [];
       let unchanged = 0;
       for (const row of rows) {
-        const before: PriceSnapshot = {
-          costCents: cents(row.costPrice),
-          sellingCents: cents(row.sellingPrice),
-          marginBp: cents(row.profitMargin),
-        };
+        const before: PriceSnapshot = snapshotOf(row);
         let after: PriceSnapshot;
         try {
-          after = adjustPrices(before, dto.target, percentBp, dto.rounding);
+          after =
+            mode === BulkPriceMode.FREIGHT
+              ? applyFreight(before, percentBp, dto.rounding)
+              : mode === BulkPriceMode.AMOUNT
+                ? addAmount(before, dto.target, amountCents, dto.rounding)
+                : adjustPrices(before, dto.target, percentBp, dto.rounding);
         } catch (error) {
           throw new BadRequestException(
             `No se puede ajustar ${row.product.sku}: ${error instanceof Error ? error.message : 'valor inválido'}`,
           );
         }
-        if (after.costCents === before.costCents && after.sellingCents === before.sellingCents) {
+        if (after.costCents === before.costCents && after.sellingCents === before.sellingCents && (after.freightBp ?? 0n) === (before.freightBp ?? 0n)) {
           unchanged += 1;
         } else {
           changes.push({ row, before, after });
@@ -488,6 +544,12 @@ export class CatalogService {
       oldSellingPrice: formatMoney(change.before.sellingCents),
       newSellingPrice: formatMoney(change.after.sellingCents),
       newProfitMargin: formatMoney(change.after.marginBp),
+      oldFreightPercentage: formatMoney(change.before.freightBp ?? 0n),
+      newFreightPercentage: formatMoney(change.after.freightBp ?? 0n),
+      sellingChangePercentage: (() => {
+        const bp = changeBasisPoints(change.before.sellingCents, change.after.sellingCents);
+        return bp === null ? null : formatMoney(bp);
+      })(),
     });
 
     if (dto.dryRun) {
@@ -508,6 +570,7 @@ export class CatalogService {
 
       for (const change of changes) {
         change.row.costPrice = Number(formatMoney(change.after.costCents));
+        change.row.freightPercentage = Number(formatMoney(change.after.freightBp ?? 0n));
         change.row.sellingPrice = Number(formatMoney(change.after.sellingCents));
         change.row.profitMargin = Number(formatMoney(change.after.marginBp));
       }
@@ -537,7 +600,9 @@ export class CatalogService {
         aggregateType: 'PRICE_BATCH',
         aggregateId: batchId,
         metadata: {
-          percentage: dto.percentage,
+          mode,
+          percentage: mode === BulkPriceMode.AMOUNT ? null : dto.percentage,
+          amount: mode === BulkPriceMode.AMOUNT ? dto.amount : null,
           target: dto.target,
           rounding: dto.rounding,
           scope: { ...scope, branchIds },
@@ -591,6 +656,7 @@ export class CatalogService {
     if (query.status === ProductStatusFilter.INACTIVE) qb.andWhere('p.status = false');
     if (query.category) qb.andWhere('p.category = :category', { category: query.category });
     if (query.brand) qb.andWhere('p.brand = :brand', { brand: query.brand });
+    if (query.supplierId) qb.andWhere('p.supplierPersonId = :supplierId', { supplierId: query.supplierId });
     if (query.search) {
       const pattern = likePattern(query.search);
       qb.andWhere(
@@ -621,7 +687,7 @@ export class CatalogService {
     qb.addOrderBy('p.id', 'ASC');
   }
 
-  private toListItem(product: ProductEntity): ProductListItem {
+  private toListItem(product: ProductEntity, suppliers: Map<string, string> = new Map()): ProductListItem {
     return {
       id: product.id,
       sku: product.sku,
@@ -635,7 +701,68 @@ export class CatalogService {
       priceIncludesVat: product.priceIncludesVat,
       status: product.status,
       imageUrl: productImageUrl(product.imagePath),
+      supplier: product.supplierPersonId ? { id: product.supplierPersonId, name: suppliers.get(product.supplierPersonId) ?? '' } : null,
     };
+  }
+
+  /** Nombre de los proveedores habituales de una página de productos. */
+  private async supplierNames(tenantId: string, products: ProductEntity[]): Promise<Map<string, string>> {
+    const ids = [...new Set(products.map((product) => product.supplierPersonId).filter((id): id is string => Boolean(id)))];
+    if (ids.length === 0) return new Map();
+    const rows = await this.dataSource.getRepository(PersonEntity).find({ where: { tenantId, id: In(ids) }, select: { id: true, firstName: true, lastName: true } });
+    return new Map(rows.map((row) => [row.id, printableName(row.firstName, row.lastName)]));
+  }
+
+  /**
+   * Si el precio final al consumidor lleva IVA encima del precio cargado: no en Tierra del Fuego (Ley 19.640)
+   * ni cuando la empresa no es Responsable Inscripto (Monotributo/Exento venden a precio final).
+   */
+  private async consumerAddsVat(tenantId: string, branchId: string | null): Promise<boolean> {
+    const [tenant, branch, profile] = await Promise.all([
+      this.dataSource.getRepository(TenantEntity).findOne({ where: { id: tenantId }, select: { id: true, defaultVatRegime: true } }),
+      branchId ? this.dataSource.getRepository(BranchEntity).findOne({ where: { id: branchId, tenantId }, select: { id: true, vatRegime: true } }) : null,
+      this.dataSource.getRepository(FiscalProfileEntity).findOne({ where: { tenantId, isActive: true }, select: { id: true, vatConditionCode: true } }),
+    ]);
+    if (resolveVatRegime(tenant?.defaultVatRegime, branch?.vatRegime) === VatRegime.TIERRA_DEL_FUEGO) return false;
+    const condition = profile ? parseTaxCondition(profile.vatConditionCode) : TaxConditionEnum.RESPONSABLE_INSCRIPTO;
+    return condition === TaxConditionEnum.RESPONSABLE_INSCRIPTO;
+  }
+
+  /**
+   * Precios de un producto en cada sucursal y cada lista, con el precio final al consumidor.
+   * No incluye costos: lo puede consultar el vendedor para cotizar.
+   */
+  async listPrices(tenantId: string, productId: string, branchScope: string | null) {
+    const product = await this.dataSource.getRepository(ProductEntity).findOne({ where: { id: productId, tenantId } });
+    if (!product) throw new NotFoundException('Producto no encontrado.');
+    const rows = await this.dataSource.getRepository(ProductBranchEntity).find({
+      where: { tenantId, productId, ...(branchScope ? { branchId: branchScope } : {}) },
+      relations: { branch: true },
+      order: { branchId: 'ASC' },
+    });
+    const lists = await this.loadPriceLists(tenantId, [productId]);
+    const result = [];
+    for (const row of rows) {
+      row.product = product;
+      const addsVat = await this.consumerAddsVat(tenantId, row.branchId);
+      const prices = listPricesFor(row, lists, addsVat);
+      result.push({
+        branchId: row.branchId,
+        branchName: row.branch?.name ?? null,
+        isActive: row.isActive,
+        sellingPrice: Number(row.sellingPrice).toFixed(2),
+        finalPrice: prices.finalPrice,
+        vatIncluded: addsVat && product.vatTreatment === VatTreatment.TAXED && !product.priceIncludesVat,
+        lists: lists.map((list) => ({
+          priceListId: list.id,
+          name: list.name,
+          percentage: list.percentage,
+          paymentCondition: list.paymentCondition,
+          ...prices.listPrices.find((item) => item.priceListId === list.id),
+        })),
+      });
+    }
+    return result;
   }
 
   /** Listas activas con los porcentajes propios de los productos de la página. */
@@ -665,21 +792,56 @@ export class CatalogService {
     }));
   }
 
-  private toBranchView(row: ProductBranchEntity): Omit<BranchPriceView, 'listPrices'> {
+  private toBranchView(row: ProductBranchEntity, canSeeCosts = true): Omit<BranchPriceView, 'listPrices' | 'finalPrice'> {
+    const total = Number(formatMoney(totalCost(cents(row.costPrice), cents(row.freightPercentage ?? 0), cents(row.freightAmount ?? 0))));
     return {
       branchId: row.branchId,
       stock: Number(row.stock),
       minStock: Number(row.minStock),
-      costPrice: Number(row.costPrice),
+      costPrice: canSeeCosts ? Number(row.costPrice) : null,
+      freightPercentage: canSeeCosts ? Number(row.freightPercentage ?? 0) : null,
+      freightAmount: canSeeCosts ? Number(row.freightAmount ?? 0) : null,
+      totalCost: canSeeCosts ? total : null,
       sellingPrice: Number(row.sellingPrice),
-      profitMargin: Number(row.profitMargin),
+      profitMargin: canSeeCosts ? Number(row.profitMargin) : null,
       isActive: row.isActive,
       belowMinimum: milli(row.stock, true) <= milli(row.minStock),
     };
   }
 }
 
-function listPricesFor(row: ProductBranchEntity, lists: ResolvedPriceList[]): Array<{ priceListId: string; price: string }> {
-  const baseCents = BigInt(Math.round(Number(row.sellingPrice) * 100));
-  return lists.map((list) => ({ priceListId: list.id, price: (Number(applyPriceList(baseCents, list, row.productId)) / 100).toFixed(2) }));
+/** Precio final al consumidor: agrega el IVA cuando el precio está cargado sin IVA y corresponde cobrarlo. */
+function consumerFinalCents(priceCents: bigint, product: ProductEntity, addsVat: boolean): bigint {
+  if (!addsVat || product.priceIncludesVat || product.vatTreatment !== VatTreatment.TAXED) return priceCents;
+  const rateBp = BigInt(Math.round(Number(product.taxRate) * 100));
+  return roundDivide(priceCents * (10_000n + rateBp), 10_000n);
+}
+
+function listPricesFor(row: ProductBranchEntity, lists: ResolvedPriceList[], addsVat: boolean): Pick<BranchPriceView, 'listPrices' | 'finalPrice'> {
+  const baseCents = cents(row.sellingPrice);
+  return {
+    finalPrice: formatMoney(consumerFinalCents(baseCents, row.product, addsVat)),
+    listPrices: lists.map((list) => {
+      const price = applyPriceList(baseCents, list, row.productId);
+      return { priceListId: list.id, price: formatMoney(price), finalPrice: formatMoney(consumerFinalCents(price, row.product, addsVat)) };
+    }),
+  };
+}
+
+function snapshotOf(row: ProductBranchEntity): PriceSnapshot {
+  return {
+    costCents: cents(row.costPrice),
+    sellingCents: cents(row.sellingPrice),
+    marginBp: cents(row.profitMargin),
+    freightBp: cents(row.freightPercentage ?? 0),
+    freightCents: cents(row.freightAmount ?? 0),
+  };
+}
+
+/** El proveedor habitual tiene que ser un proveedor activo de la empresa. */
+export async function assertSupplier(manager: EntityManager, tenantId: string, supplierId: string): Promise<void> {
+  const supplier = await manager.findOne(PersonEntity, { where: { id: supplierId, tenantId }, select: { id: true, personType: true, isActive: true } });
+  if (!supplier || supplier.personType === PersonType.CUSTOMER) {
+    throw new BadRequestException('El proveedor no existe o no está cargado como proveedor.');
+  }
 }
