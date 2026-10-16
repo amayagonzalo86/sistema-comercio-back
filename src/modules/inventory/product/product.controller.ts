@@ -4,7 +4,7 @@ import { MAX_PRODUCT_IMAGE_BYTES } from './product-images';
 import { Request } from 'express';
 import { buildAuditContext } from '../../../common/http/request-context';
 import { UpdateProductVatDto } from './dto/update-product-vat.dto';
-import { BranchPriceView, BulkPriceResult, CatalogService, ProductListItem } from './catalog.service';
+import { BranchPriceView, BulkPriceResult, CatalogService, ProductListItem, ProductListPricesView } from './catalog.service';
 import {
   BulkPriceUpdateDto,
   EditProductDto,
@@ -30,6 +30,7 @@ import { InventoryMovementEntity } from './entities/inventory-movement.entity';
 import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
 import { InventoryAuditContext } from './inventory-audit-context';
 import { requireAssignedBranch, requireBranchAccess } from '../../../common/security/tenant-branch-access';
+import { canSeeProductCosts } from '../../../common/security/tenant-roles';
 
 @Controller('products')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -47,8 +48,8 @@ export class ProductsController {
     @Req() request: Request,
     @Query() query: ProductListQueryDto,
   ): Promise<Paginated<ProductListItem>> {
-    const actor = request.user as { branchId?: string | null; tenantRole?: string };
-    return this.catalogService.list(tenantId, query, requireAssignedBranch(actor));
+    const actor = request.user as { branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
+    return this.catalogService.list(tenantId, query, requireAssignedBranch(actor), canSeeProductCosts(actor));
   }
 
   /** Categorías y marcas existentes, para armar filtros. */
@@ -63,7 +64,7 @@ export class ProductsController {
    * Enviar primero con "dryRun": true para ver la vista previa y luego con false para aplicar.
    */
   @Post('price-updates')
-  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE)
   @HttpCode(HttpStatus.OK)
   bulkPriceUpdate(
     @GetTenantId() tenantId: string,
@@ -125,14 +126,14 @@ export class ProductsController {
 
   /** Precio, costo, margen y stock mínimo en una sucursal (la habilita si no estaba). */
   @Put(':id/branches/:branchId')
-  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE)
   upsertBranchPrice(
     @GetTenantId() tenantId: string,
     @Req() request: Request,
     @Param('id', ParseUUIDPipe) productId: string,
     @Param('branchId', ParseUUIDPipe) branchId: string,
     @Body() dto: UpsertBranchPriceDto,
-  ): Promise<Omit<BranchPriceView, 'listPrices'>> {
+  ): Promise<Omit<BranchPriceView, 'listPrices' | 'finalPrice'>> {
     const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
     if (actor.branchId && actor.branchId !== branchId) {
       throw new ForbiddenException('Solo puede modificar precios de su sucursal.');
@@ -220,12 +221,23 @@ export class ProductsController {
     return this.productsService.findStockMovements(tenantId, productId, branchId, query);
   }
 
+  /** Ficha del producto. Vendedores y cajeros la ven sin costo, flete ni margen. */
   @Get(':id')
-  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.STOCK_CLERK)
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE, UserRoleEnum.USER)
   async findOne( @Param('id', ParseUUIDPipe) id: string, @GetTenantId() tenantId: string, @Req() request: Request ): Promise<ProductEntity> {
-    const actor = request.user as { branchId?: string | null; tenantRole?: string };
+    const actor = request.user as { branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
     requireAssignedBranch(actor);
-    return await this.productsService.findOne(id, tenantId, actor.branchId ?? null);
+    const product = await this.productsService.findOne(id, tenantId, actor.branchId ?? null);
+    if (!canSeeProductCosts(actor)) product.branchSettings = product.branchSettings.map(withoutCosts);
+    return product;
+  }
+
+  /** Precio del producto en cada sucursal y lista, con el precio final al consumidor (sin costos: sirve para cotizar). */
+  @Get(':id/list-prices')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE, UserRoleEnum.USER)
+  listPrices(@Param('id', ParseUUIDPipe) id: string, @GetTenantId() tenantId: string, @Req() request: Request): Promise<ProductListPricesView[]> {
+    const actor = request.user as { branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
+    return this.catalogService.listPrices(tenantId, id, requireAssignedBranch(actor));
   }
 
   @Get('branch/:branchId')
@@ -235,8 +247,16 @@ export class ProductsController {
     @Req() request: Request,
     @GetTenantId() tenantId: string,
   ): Promise<ProductBranchEntity[]> {
-    requireBranchAccess(request.user as { branchId?: string | null; tenantRole?: string }, branchId);
-    return this.productsService.findByBranch(tenantId, branchId);
+    const actor = request.user as { branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
+    requireBranchAccess(actor, branchId);
+    const rows = await this.productsService.findByBranch(tenantId, branchId);
+    return canSeeProductCosts(actor) ? rows : rows.map(withoutCosts);
   }
 
+}
+
+/** Copia del precio por sucursal sin costo, flete ni margen (para vendedores y cajeros). */
+function withoutCosts(setting: ProductBranchEntity): ProductBranchEntity {
+  const { costPrice: _cost, profitMargin: _margin, freightPercentage: _freightPercentage, freightAmount: _freightAmount, ...visible } = setting;
+  return visible as ProductBranchEntity;
 }

@@ -24,7 +24,7 @@ import { PurchaseReceiptItemEntity } from './entities/purchase-receipt-item.enti
 import { SupplierPayableEntity } from './entities/supplier-payable.entity';
 import { applyReceiptToOrder } from './purchase-orders.service';
 import { ProductPriceHistoryEntity } from '../inventory/product/entities/product-price-history.entity';
-import { priceFromMargin, PriceRounding } from '../inventory/product/domain/pricing';
+import { priceFromMargin, totalCost, PriceRounding } from '../inventory/product/domain/pricing';
 import { Paginated, paginated } from '../../common/dto/page-query.dto';
 import { PurchaseReceiptQueryDto } from './dto/purchase-order.dto';
 
@@ -250,7 +250,12 @@ export class PurchasesService {
           // Mantiene el margen del producto en la sucursal ante el nuevo costo promedio.
           const previousSellingCents = toMinorUnits(Number(line.stock.sellingPrice));
           const marginBp = toMinorUnits(Number(line.stock.profitMargin));
-          const nextSellingCents = priceFromMargin(weightedCostCents, marginBp, PriceRounding.NONE);
+          // El margen se aplica sobre el costo total (costo + flete de la sucursal).
+          const nextSellingCents = priceFromMargin(
+            totalCost(weightedCostCents, toMinorUnits(Number(line.stock.freightPercentage ?? 0)), toMinorUnits(Number(line.stock.freightAmount ?? 0))),
+            marginBp,
+            PriceRounding.NONE,
+          );
           line.stock.sellingPrice = Number(formatCents(nextSellingCents));
           await queryRunner.manager.save(ProductPriceHistoryEntity, queryRunner.manager.create(ProductPriceHistoryEntity, {
             tenantId,

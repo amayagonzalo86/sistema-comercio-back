@@ -29,6 +29,7 @@ const columnNumericTransformer = {
   from: (data: string): number => parseFloat(data),
 };
 
+@Index('IDX_products_tenant_supplier', ['tenantId', 'supplierPersonId'])
 @Entity('products')
 @Index('UQ_products_tenant_sku', ['tenantId', 'sku'], { unique: true })
 @Index('UQ_products_tenant_id', ['tenantId', 'id'], { unique: true })
@@ -81,6 +82,10 @@ export class ProductEntity {
 
   @Column({ type: 'boolean', default: true })
   status!: boolean;
+
+  /** Proveedor habitual (etiquetas y aumentos por proveedor). */
+  @Column({ name: 'supplier_person_id', type: 'varchar', length: 36, nullable: true })
+  supplierPersonId?: string | null;
 
   /** Nombre del archivo de la foto en UPLOADS_DIR/products (aleatorio, sin datos del usuario). */
   @Column({ name: 'image_path', type: 'varchar', length: 120, nullable: true })

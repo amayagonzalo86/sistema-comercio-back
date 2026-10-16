@@ -67,6 +67,10 @@ export class PersonEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 60, nullable: true })
   province?: string | null;
 
+  /** Lista de precios habitual del cliente (el punto de venta la propone al elegirlo). */
+  @Column({ name: 'price_list_id', type: 'varchar', length: 36, nullable: true })
+  priceListId?: string | null;
+
   /** Número de cuenta del cliente/proveedor (correlativo por empresa). Se imprime en los comprobantes. */
   @Column({ name: 'account_number', type: 'int', unsigned: true, nullable: true })
   accountNumber?: number | null;

@@ -7,6 +7,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -91,6 +92,11 @@ export class CreatePersonDto {
   @IsString()
   @MaxLength(60)
   province?: string | null;
+
+  /** Lista de precios habitual del cliente (efectivo, gobierno, mayorista…). null = la principal. */
+  @IsOptional()
+  @IsUUID('4', { message: 'Lista de precios inválida' })
+  priceListId?: string | null;
 
   /** El cliente aceptó recibir promociones (registrar solo con aceptación expresa). */
   @IsOptional()

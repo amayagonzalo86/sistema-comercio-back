@@ -420,7 +420,8 @@ export class SalesService {
           arcaVatRateId: vat.arcaVatRateId,
           priceIncludesVat: Boolean(stock.product.priceIncludesVat),
           total: formatCents(vat.totalCents),
-          unitCost: formatCents(costSnapshotCents(stock.costPrice)),
+          // Costo de la venta = costo total (costo + flete): el margen de los reportes refleja el costo puesto en el local.
+          unitCost: formatCents(landedCostCents(stock.costPrice, stock.freightPercentage, stock.freightAmount)),
           discountAmount: formatCents(promotion?.discountCents ?? 0n),
           promotionId: promotion?.promotionId ?? null,
           promotionName: promotion?.name.slice(0, 120) ?? null,
@@ -914,6 +915,15 @@ export function buildFiscalNotes(sale: Pick<SaleEntity, 'voucherClass' | 'taxTot
 }
 
 /** Costo para el snapshot de margen: un costo no cargado o inválido no debe impedir vender. */
+function landedCostCents(cost: unknown, freightPercentage: unknown, freightAmount: unknown): bigint {
+  const costCents = costSnapshotCents(cost);
+  const percentage = Number(freightPercentage ?? 0);
+  const amount = Number(freightAmount ?? 0);
+  const freightBp = Number.isFinite(percentage) && percentage > 0 ? BigInt(Math.round(percentage * 100)) : 0n;
+  const freightCents = Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * 100)) : 0n;
+  return (costCents * (10_000n + freightBp) + 5_000n) / 10_000n + freightCents;
+}
+
 function costSnapshotCents(value: unknown): bigint {
   const numeric = Number(value ?? 0);
   return Number.isFinite(numeric) && numeric >= 0 ? toMinorUnits(numeric) : 0n;

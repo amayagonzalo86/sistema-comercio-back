@@ -219,8 +219,8 @@ describe('Flujo comercial completo (e2e)', () => {
     const pricedCatalog = await api('get', `/products?branchId=${A}&search=Gaseosa`);
     const listPrices = pricedCatalog.body.items[0].branch.listPrices as Array<{ priceListId: string; price: string }>;
     expect(listPrices).toEqual(expect.arrayContaining([
-      { priceListId: govList.body.id, price: '4000.00' },
-      { priceListId: cashList.body.id, price: '950.00' },
+      expect.objectContaining({ priceListId: govList.body.id, price: '4000.00' }),
+      expect.objectContaining({ priceListId: cashList.body.id, price: '950.00' }),
     ]));
     // Foto del producto: se valida el contenido real; el nombre lo genera el sistema.
     const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
@@ -252,6 +252,63 @@ describe('Flujo comercial completo (e2e)', () => {
     const defaultList = ((await api('get', '/price-lists')).body as Array<{ id: string; isDefault: boolean }>).find((list) => list.isDefault)!;
     expectStatus(await api('delete', `/price-lists/${defaultList.id}`), 400); // la principal no se elimina
     expectStatus(await api('patch', `/price-lists/${govList.body.id}`, { percentage: 300 }), 200);
+
+    // Precio final al consumidor (Gaseosa: $1000 + IVA 21 %), también por lista.
+    const finalCatalog = await api('get', `/products?branchId=${A}&search=Gaseosa`);
+    expect(finalCatalog.body.items[0].branch.finalPrice).toBe('1210.00');
+    expect(finalCatalog.body.items[0].branch.listPrices).toEqual(
+      expect.arrayContaining([{ priceListId: govList.body.id, price: '4000.00', finalPrice: '4840.00' }]),
+    );
+
+    // ── Flete y aumentos por proveedor ──
+    const screw = await api('post', '/products', {
+      sku: 'TOR-001',
+      name: 'Tornillo autoperforante',
+      category: 'Ferretería',
+      taxRate: 21,
+      priceIncludesVat: true,
+      supplierPersonId: supplier.body.id,
+      branchSettings: [{ branchId: A, costPrice: 1000, profitMargin: 50, sellingPrice: 1500, stock: 10, minStock: 1 }],
+    });
+    expectStatus(screw, 201);
+    const screwId = screw.body.id as string;
+    expectStatus(await api('post', '/products', { sku: 'TOR-002', name: 'Inválido', taxRate: 21, supplierPersonId: customer.body.id, branchSettings: [] }), 400);
+    // Flete 10 %: costo total $1100 y el precio acompaña manteniendo el 50 %.
+    const withFreight = await api('put', `/products/${screwId}/branches/${A}`, { freightPercentage: 10 });
+    expectStatus(withFreight, 200);
+    expect(withFreight.body).toMatchObject({ freightPercentage: 10, totalCost: 1100, sellingPrice: 1650, profitMargin: 50 });
+    // Flete masivo por proveedor (vista previa): 20 % → costo total $1200 → $1800.
+    const freightPreview = await api('post', '/products/price-updates', {
+      mode: 'FREIGHT',
+      percentage: 20,
+      scope: { supplierIds: [supplier.body.id], branchIds: [A] },
+      reason: 'Flete del proveedor',
+      dryRun: true,
+    });
+    expectStatus(freightPreview, 200);
+    expect(freightPreview.body.preview).toEqual([
+      expect.objectContaining({ sku: 'TOR-001', oldFreightPercentage: '10.00', newFreightPercentage: '20.00', newSellingPrice: '1800.00' }),
+    ]);
+    // Aumento en pesos del proveedor: +$100 al costo, mantiene el margen e informa el % equivalente.
+    const amountUpdate = await api('post', '/products/price-updates', {
+      mode: 'AMOUNT',
+      amount: 100,
+      target: 'COST_KEEP_MARGIN',
+      scope: { productIds: [screwId], branchIds: [A] },
+      reason: 'Lista nueva del proveedor',
+      dryRun: false,
+    });
+    expectStatus(amountUpdate, 200);
+    expect(amountUpdate.body.preview[0]).toMatchObject({ newCostPrice: '1100.00', newSellingPrice: '1815.00', sellingChangePercentage: '10.00' });
+    const bySupplier = await api('get', `/products?branchId=${A}&supplierId=${supplier.body.id}`);
+    expect(bySupplier.body.items.map((item: { sku: string }) => item.sku)).toEqual(['TOR-001']);
+    expect(bySupplier.body.items[0].supplier).toMatchObject({ id: supplier.body.id });
+    expect(bySupplier.body.items[0].branch).toMatchObject({ costPrice: 1100, freightPercentage: 10, totalCost: 1210, sellingPrice: 1815 });
+    // Selección puntual (etiquetas): solo los productos pedidos.
+    const byIds = await api('get', `/products?branchId=${A}&ids=${screwId},${productId}&sort=sku`);
+    expectStatus(byIds, 200);
+    expect(byIds.body.items.map((item: { id: string }) => item.id).sort()).toEqual([productId, screwId].sort());
+    expectStatus(await api('get', '/products?ids=no-es-uuid'), 400);
 
     // Cotización: 3 × $1000 − 10 % = $2700 neto + IVA $567 = $3267 (factura A a RI)
     const quote = await api('post', '/sales/quote', { branchId: A, customerPersonId: customer.body.id, lines: [{ productId, quantity: 3 }] });
@@ -834,6 +891,19 @@ describe('Flujo comercial completo (e2e)', () => {
     // ── Presupuestos X: 24 h, solo quien lo emitió lo pasa a pedido; nunca se borran (quedan en el historial) ──
     const veraToken = sellerLogin.body.tokens.accessToken as string;
     token = veraToken;
+    // El vendedor ve la ficha y los precios por lista, pero no costos, fletes ni márgenes.
+    const sellerProduct = await api('get', `/products/${productId}`);
+    expectStatus(sellerProduct, 200);
+    expect(sellerProduct.body.branchSettings[0]).not.toHaveProperty('costPrice');
+    expect(sellerProduct.body.branchSettings[0]).not.toHaveProperty('profitMargin');
+    expect(sellerProduct.body.branchSettings[0]).toHaveProperty('sellingPrice');
+    const sellerCatalog = await api('get', `/products?branchId=${A}&search=Gaseosa`);
+    expect(sellerCatalog.body.items[0].branch).toMatchObject({ costPrice: null, profitMargin: null, freightPercentage: null });
+    const sellerListPrices = await api('get', `/products/${productId}/list-prices`);
+    expectStatus(sellerListPrices, 200);
+    expect(sellerListPrices.body[0].lists.length).toBeGreaterThanOrEqual(3);
+    expect(JSON.stringify(sellerListPrices.body)).not.toContain('costPrice');
+    expectStatus(await api('post', '/products/price-updates', { percentage: 5, reason: 'No autorizado', dryRun: true }), 403);
     const quoteX = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 2 }], notes: 'Cliente vuelve mañana' }, true);
     expectStatus(quoteX, 201);
     expect(quoteX.body.number).toBe(1);

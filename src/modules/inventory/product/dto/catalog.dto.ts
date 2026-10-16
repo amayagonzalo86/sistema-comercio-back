@@ -16,6 +16,7 @@ import {
   Min,
   MinLength,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { PageQueryDto } from '../../../../common/dto/page-query.dto';
 import { UnitOfMeasure } from '../entities/product.entity';
@@ -63,6 +64,21 @@ export class ProductListQueryDto extends PageQueryDto {
   @IsOptional()
   @IsUUID('4')
   branchId?: string;
+
+  /** Proveedor habitual del producto. */
+  @IsOptional()
+  @IsUUID('4')
+  supplierId?: string;
+
+  /** Productos puntuales (ej.: selección para imprimir etiquetas): UUIDs separados por coma, hasta 100. */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : value,
+  )
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  ids?: string[];
 
   @IsOptional()
   @IsEnum(ProductStatusFilter)
@@ -121,6 +137,11 @@ export class EditProductDto {
   @IsOptional()
   @IsEnum(UnitOfMeasure)
   unitOfMeasure?: UnitOfMeasure;
+
+  /** Proveedor habitual (null = sin proveedor). */
+  @IsOptional()
+  @IsUUID('4')
+  supplierPersonId?: string | null;
 }
 
 export class UpdateProductStatusDto {
@@ -147,7 +168,21 @@ export class UpsertBranchPriceDto {
   @Max(9999999999.99)
   sellingPrice?: number;
 
-  /** Si se envía sin sellingPrice, el precio se recalcula como costo × (1 + margen). */
+  /** Flete en % del costo (0 a 300). El margen se calcula sobre costo + flete. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(300)
+  freightPercentage?: number;
+
+  /** Flete fijo por unidad. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(9999999999.99)
+  freightAmount?: number;
+
+  /** Si se envía sin sellingPrice, el precio se recalcula como costo total × (1 + margen). */
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
@@ -191,6 +226,13 @@ export class PriceUpdateScopeDto {
   @IsUUID('4', { each: true })
   productIds?: string[];
 
+  /** Proveedores habituales de los productos a ajustar. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  supplierIds?: string[];
+
   /** Sucursales a ajustar. Vacío = todas. */
   @IsOptional()
   @IsArray()
@@ -203,12 +245,34 @@ export class PriceUpdateScopeDto {
  * POST /products/price-updates — ajuste masivo de precios.
  * Con dryRun=true devuelve la vista previa sin modificar nada.
  */
+/** Qué hace el ajuste masivo. */
+export enum BulkPriceMode {
+  /** Porcentaje sobre costo o precio (15 = +15 %). */
+  PERCENTAGE = 'PERCENTAGE',
+  /** Importe fijo en pesos sobre costo o precio; se informa el % equivalente de cada producto. */
+  AMOUNT = 'AMOUNT',
+  /** Fija el flete (% sobre el costo) y recalcula el precio manteniendo el margen. */
+  FREIGHT = 'FREIGHT',
+}
+
 export class BulkPriceUpdateDto {
-  /** Porcentaje a aplicar: 15 = +15 %, -10 = -10 %. */
+  @IsOptional()
+  @IsEnum(BulkPriceMode)
+  mode: BulkPriceMode = BulkPriceMode.PERCENTAGE;
+
+  /** PERCENTAGE: porcentaje a aplicar (15 = +15 %, -10 = -10 %). FREIGHT: flete a fijar (0 a 300 %). */
+  @ValidateIf((dto: BulkPriceUpdateDto) => dto.mode !== BulkPriceMode.AMOUNT)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(-90)
   @Max(500)
   percentage!: number;
+
+  /** AMOUNT: pesos a sumar (o restar, negativo) por unidad. */
+  @ValidateIf((dto: BulkPriceUpdateDto) => dto.mode === BulkPriceMode.AMOUNT)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(-999999999.99)
+  @Max(999999999.99)
+  amount?: number;
 
   @IsEnum(PriceTarget)
   target: PriceTarget = PriceTarget.SELLING_PRICE;

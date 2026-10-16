@@ -1,3 +1,4 @@
+import { assertSupplier } from './catalog.service';
 import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -49,6 +50,7 @@ export class ProductsService {
     await queryRunner.startTransaction();
 
     try {
+      if (productData.supplierPersonId) await assertSupplier(queryRunner.manager, tenantId, productData.supplierPersonId);
       // a. Guardar Cabecera del Producto
       const newProduct = queryRunner.manager.create(ProductEntity, {
         ...productData,

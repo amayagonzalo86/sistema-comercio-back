@@ -14,6 +14,7 @@ import {
 } from '../../common/enums/afip.enum';
 import { isValidCuit, isValidDni, normalizeTaxId } from '../../common/validators/argentina-id';
 import { nextSequence } from '../../common/sequences/sequences';
+import { PriceListEntity } from '../sales/price-list/entities/price-list.entity';
 
 /** Correlativo de números de cuenta de clientes y proveedores (uno por empresa). */
 export const PERSON_ACCOUNT_SEQUENCE = 'PERSON_ACCOUNT';
@@ -99,6 +100,7 @@ export class PersonsService {
       createPersonDto.nationalId,
       createPersonDto.vatCondition,
     );
+    await this.assertPriceList(tenantId, createPersonDto.priceListId);
     try{
       // El número de cuenta se toma del correlativo de la empresa dentro de la misma transacción del alta.
       return await this.personRepository.manager.transaction(async (manager) => {
@@ -108,6 +110,7 @@ export class PersonsService {
           ...fiscal,
           email: createPersonDto.email || null,
           city: createPersonDto.city || null,
+          priceListId: createPersonDto.priceListId || null,
           province: createPersonDto.province || null,
           marketingConsent: createPersonDto.marketingConsent ?? false,
           marketingConsentAt: createPersonDto.marketingConsent ? new Date() : null,
@@ -175,6 +178,7 @@ export class PersonsService {
 
   async update(tenantId: string, id: string, dto: UpdatePersonDto): Promise<PersonEntity> {
     const person = await this.findOne(tenantId, id);
+    await this.assertPriceList(tenantId, dto.priceListId);
     const touchesFiscal = dto.documentType !== undefined || dto.nationalId !== undefined || dto.vatCondition !== undefined;
     const fiscal = touchesFiscal
       ? normalizeFiscalIdentity(
@@ -186,6 +190,7 @@ export class PersonsService {
     const consentBefore = person.marketingConsent;
     Object.assign(person, dto, fiscal);
     if (dto.email !== undefined) person.email = dto.email || null;
+    if (dto.priceListId !== undefined) person.priceListId = dto.priceListId || null;
     if (dto.marketingConsent !== undefined && dto.marketingConsent !== consentBefore) {
       person.marketingConsentAt = dto.marketingConsent ? new Date() : null;
     }
@@ -198,6 +203,13 @@ export class PersonsService {
       this.logger.error(`Error al actualizar la persona: ${error instanceof Error ? error.message : String(error)}`);
       throw new InternalServerErrorException('No se pudo actualizar la persona');
     }
+  }
+
+  /** La lista habitual del cliente tiene que ser una lista activa de la empresa. */
+  private async assertPriceList(tenantId: string, priceListId: string | null | undefined): Promise<void> {
+    if (!priceListId) return;
+    const list = await this.personRepository.manager.findOne(PriceListEntity, { where: { id: priceListId, tenantId, isActive: true }, select: { id: true } });
+    if (!list) throw new BadRequestException('La lista de precios no existe o está desactivada.');
   }
 
   /** Baja lógica: se conserva por su historial de ventas, compras y cuenta corriente. */
