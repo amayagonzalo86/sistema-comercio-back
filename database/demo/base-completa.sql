@@ -2,7 +2,9 @@
 --  BASE COMPLETA · ERP Comercio (esquema + administrador + datos de demostración)
 --
 --  ⚠ BORRA Y RECREA TODAS LAS TABLAS de la base `sistema_comercio`.
---    Usar solo en desarrollo / pruebas. NO ejecutar en producción.
+--    Usar solo para instalar la demo por primera vez. NO ejecutar en producción.
+--    Si la base ya tiene comprobantes o ventas reales, se detiene sin borrar nada.
+--    Para actualizar una base existente (conservando los datos): npm run migration:run
 --
 --  MySQL Workbench: File > Run SQL Script... > elegir este archivo > Run.
 --  Ejecución (PowerShell, desde la carpeta del backend):
@@ -22,6 +24,18 @@ SET FOREIGN_KEY_CHECKS = 0;
 SET UNIQUE_CHECKS = 1;
 -- MySQL Workbench trae activado el "modo seguro" (error 1175 en DELETE): se desactiva solo en esta sesión.
 SET SQL_SAFE_UPDATES = 0;
+
+-- ── PROTECCIÓN: no se ejecuta si la base ya tiene operaciones reales ─────────
+-- Este archivo BORRA todas las tablas. Si encuentra comprobantes emitidos o ventas que no son de la demo,
+-- se detiene con el error "Check constraint 'base_con_datos_reales_no_se_borra_nada' is violated"
+-- y NO borra nada. Para actualizar una base con datos usá: npm run migration:run
+CREATE TABLE IF NOT EXISTS `fiscal_documents` (`id` varchar(36) NOT NULL PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS `sales` (`id` varchar(36) NOT NULL PRIMARY KEY, `idempotency_key` varchar(100) NULL);
+DROP TABLE IF EXISTS `erp_proteccion`;
+CREATE TABLE `erp_proteccion` (`ok` TINYINT NOT NULL, CONSTRAINT `base_con_datos_reales_no_se_borra_nada` CHECK (`ok` = 1));
+INSERT INTO `erp_proteccion` (`ok`)
+SELECT IF((SELECT COUNT(*) FROM `fiscal_documents`) > 0 OR (SELECT COUNT(*) FROM `sales` WHERE `idempotency_key` NOT LIKE 'demo-%') > 0, 0, 1);
+DROP TABLE IF EXISTS `erp_proteccion`;
 
 
 /*!50503 SET NAMES utf8mb4 */;

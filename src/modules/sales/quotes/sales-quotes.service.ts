@@ -21,13 +21,13 @@ import { TenantEntity } from '../../platform/entities/tenant.entity';
 import { SalesOrdersService, SalesOrderView } from '../orders/sales-orders.service';
 import { SalesService } from '../sales.service';
 import { CreateSalesQuoteDto, SalesQuoteQueryDto } from './dto/sales-quote.dto';
-import { SalesQuoteEntity } from './entities/sales-quote.entity';
+import { SalesQuoteEntity, SalesQuoteStatus } from './entities/sales-quote.entity';
 
 /** Vigencia real de un presupuesto X en el sistema: pasado este plazo se borra de la base. */
 export const QUOTE_VALIDITY_MS = 24 * 60 * 60 * 1000;
 /** Validez que se informa al cliente en el presupuesto impreso (decisión comercial de la empresa). */
 export const QUOTE_PRINTED_VALIDITY_HOURS = 72;
-const PURGE_EVERY_MS = 60 * 60 * 1000;
+const EXPIRE_EVERY_MS = 60 * 60 * 1000;
 /** Ven y descartan presupuestos de cualquier vendedor de su alcance (no los convierten: eso es solo de quien lo emitió). */
 const SUPERVISOR_ROLES = new Set(['OWNER', 'ADMIN', 'MANAGER']);
 
@@ -55,9 +55,9 @@ export interface SalesQuoteDetailView extends SalesQuoteView {
 
 /**
  * Presupuestos "X" (no válidos como factura). Reglas:
- * - Valen 24 horas desde su emisión; vencidos se borran de la base (al consultarlos y cada hora).
+ * - Valen 24 horas desde su emisión; después quedan VENCIDOS (no se borran: forman el historial).
  * - Solo quien lo emitió puede pasarlo a pedido de venta, y solo mientras está vigente.
- *   Al pasarlo a pedido se borra: el pedido lo cobra la caja con los precios del momento.
+ *   Al pasarlo a pedido queda CONVERTIDO con el pedido asociado; el pedido lo cobra la caja con los precios del momento.
  * - Un vendedor ve solo sus presupuestos; encargado/administración ven los de su alcance.
  */
 @Injectable()
@@ -73,8 +73,8 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     this.timer = setInterval(() => {
-      this.purgeExpired().catch((error: unknown) => this.logger.warn(`No se pudieron borrar presupuestos vencidos: ${String(error)}`));
-    }, PURGE_EVERY_MS);
+      this.expireDue().catch((error: unknown) => this.logger.warn(`No se pudieron marcar presupuestos vencidos: ${String(error)}`));
+    }, EXPIRE_EVERY_MS);
     this.timer.unref();
   }
 
@@ -82,13 +82,15 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** Borra los presupuestos vencidos (de todas las empresas). Devuelve cuántos borró. */
-  async purgeExpired(manager: EntityManager = this.dataSource.manager): Promise<number> {
+  /** Marca como vencidos los presupuestos vigentes que pasaron las 24 h (de todas las empresas). No borra nada. */
+  async expireDue(manager: EntityManager = this.dataSource.manager): Promise<number> {
+    const now = new Date();
     const result = await manager
       .createQueryBuilder()
-      .delete()
-      .from(SalesQuoteEntity)
-      .where('expires_at <= :now', { now: new Date() })
+      .update(SalesQuoteEntity)
+      .set({ status: SalesQuoteStatus.EXPIRED, closedAt: now })
+      .where('status = :active', { active: SalesQuoteStatus.ACTIVE })
+      .andWhere('expires_at <= :now', { now })
       .execute();
     return result.affected ?? 0;
   }
@@ -109,7 +111,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
       }))
       .digest('hex');
 
-    await this.purgeExpired();
+    await this.expireDue();
     const prior = await this.dataSource.getRepository(SalesQuoteEntity).findOne({ where: { tenantId, idempotencyKey: key } });
     if (prior) {
       if (prior.requestFingerprint !== fingerprint) throw new ConflictException('Idempotency-Key ya fue utilizado para otro presupuesto.');
@@ -167,7 +169,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
   }
 
   async list(tenantId: string, actor: QuoteActor, query: SalesQuoteQueryDto): Promise<Paginated<SalesQuoteView>> {
-    await this.purgeExpired();
+    await this.expireDue();
     if (actor.branchId && query.branchId && query.branchId !== actor.branchId) throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
     const branchId = actor.branchId ?? query.branchId;
     const supervisor = hasAnyTenantRole(actor, SUPERVISOR_ROLES);
@@ -177,6 +179,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
         ...(branchId ? { branchId } : {}),
         // Un vendedor (o cajero) ve solo los presupuestos que emitió.
         ...(supervisor ? {} : { sellerUserId: actor.id }),
+        ...(query.status === 'ALL' ? {} : { status: query.status as SalesQuoteStatus }),
       },
       order: { createdAt: 'DESC', id: 'DESC' },
       skip: (query.page - 1) * query.limit,
@@ -200,14 +203,15 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
    * El pedido se crea con una clave idempotente derivada del presupuesto: un doble clic no crea dos pedidos.
    */
   async convert(tenantId: string, actor: QuoteActor, quoteId: string, context: RequestAuditContext): Promise<SalesOrderView> {
-    await this.purgeExpired();
+    await this.expireDue();
     const quote = await this.dataSource.getRepository(SalesQuoteEntity).findOne({ where: { id: quoteId, tenantId } });
     if (!quote) {
-      throw new NotFoundException('El presupuesto no existe o venció (los presupuestos valen 24 horas). Armá uno nuevo.');
+      throw new NotFoundException('El presupuesto no existe.');
     }
     if (quote.sellerUserId !== actor.id) {
       throw new ForbiddenException('Solo quien emitió el presupuesto puede pasarlo a pedido.');
     }
+    assertActive(quote);
     if (actor.branchId && actor.branchId !== quote.branchId) throw new ForbiddenException('No tiene acceso a la sucursal del presupuesto.');
 
     const order = await this.salesOrders.create(
@@ -224,8 +228,12 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
     );
 
     await this.dataSource.transaction(async (manager) => {
-      const deleted = await manager.delete(SalesQuoteEntity, { id: quote.id, tenantId });
-      if (deleted.affected) {
+      const converted = await manager.update(
+        SalesQuoteEntity,
+        { id: quote.id, tenantId, status: SalesQuoteStatus.ACTIVE },
+        { status: SalesQuoteStatus.CONVERTED, convertedOrderId: order.id, closedAt: new Date(), closedByUserId: actor.id },
+      );
+      if (converted.affected) {
         await recordAudit(manager, {
           tenantId,
           actorUserId: actor.id,
@@ -240,11 +248,16 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
     return order;
   }
 
-  /** Descarta un presupuesto antes de que venza: quien lo emitió o un supervisor. */
+  /** Descarta un presupuesto vigente (queda en el historial como DESCARTADO): quien lo emitió o un supervisor. */
   async remove(tenantId: string, actor: QuoteActor, quoteId: string, context: RequestAuditContext): Promise<{ message: string }> {
     const quote = await this.visibleQuote(tenantId, actor, { id: quoteId });
+    assertActive(quote);
     await this.dataSource.transaction(async (manager) => {
-      await manager.delete(SalesQuoteEntity, { id: quote.id, tenantId });
+      await manager.update(
+        SalesQuoteEntity,
+        { id: quote.id, tenantId, status: SalesQuoteStatus.ACTIVE },
+        { status: SalesQuoteStatus.DISCARDED, closedAt: new Date(), closedByUserId: actor.id },
+      );
       await recordAudit(manager, {
         tenantId,
         actorUserId: actor.id,
@@ -259,14 +272,14 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async visibleQuote(tenantId: string, actor: QuoteActor, where: { id: string } | { number: number }): Promise<SalesQuoteEntity> {
-    await this.purgeExpired();
+    await this.expireDue();
     const quote = await this.dataSource.getRepository(SalesQuoteEntity).findOne({ where: { ...where, tenantId } });
     const visible =
       quote &&
       (!actor.branchId || actor.branchId === quote.branchId) &&
       (quote.sellerUserId === actor.id || hasAnyTenantRole(actor, SUPERVISOR_ROLES));
     if (!quote || !visible) {
-      throw new NotFoundException('El presupuesto no existe o venció (los presupuestos valen 24 horas).');
+      throw new NotFoundException('El presupuesto no existe.');
     }
     return quote;
   }
@@ -299,8 +312,21 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
       sellerName: sellers.get(quote.sellerUserId) ?? null,
       customerName: quote.customerPersonId ? customerName.get(quote.customerPersonId) ?? null : null,
       branchName: branchName.get(quote.branchId) ?? null,
-      remainingMs: Math.max(0, new Date(quote.expiresAt).getTime() - now),
+      remainingMs: quote.status === SalesQuoteStatus.ACTIVE ? Math.max(0, new Date(quote.expiresAt).getTime() - now) : 0,
       printedValidityHours: QUOTE_PRINTED_VALIDITY_HOURS,
     }));
+  }
+}
+
+/** Solo un presupuesto vigente se puede pasar a pedido o descartar. */
+function assertActive(quote: SalesQuoteEntity): void {
+  if (quote.status === SalesQuoteStatus.EXPIRED) {
+    throw new ConflictException(`El presupuesto N.º ${quote.number} venció (vale 24 horas). Armá uno nuevo.`);
+  }
+  if (quote.status === SalesQuoteStatus.CONVERTED) {
+    throw new ConflictException(`El presupuesto N.º ${quote.number} ya se pasó a pedido.`);
+  }
+  if (quote.status === SalesQuoteStatus.DISCARDED) {
+    throw new ConflictException(`El presupuesto N.º ${quote.number} fue descartado.`);
   }
 }

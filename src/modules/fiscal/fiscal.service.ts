@@ -13,10 +13,10 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { DataSource } from 'typeorm';
+import { Brackets, DataSource, SelectQueryBuilder } from 'typeorm';
 import { recordAudit } from '../../common/audit/audit';
 import { parseTaxCondition, TaxConditionEnum } from '../../common/enums/afip.enum';
-import { Paginated, paginated } from '../../common/dto/page-query.dto';
+import { likePattern, Paginated, paginated } from '../../common/dto/page-query.dto';
 import { RequestAuditContext } from '../../common/http/request-context';
 import { cents, formatMoney } from '../../common/utils/money';
 import { BranchEntity } from '../branches/entities/branch.entity';
@@ -274,7 +274,11 @@ export class FiscalService {
     });
   }
 
-  async listDocuments(tenantId: string, query: FiscalDocumentQueryDto, branchScope: string | null): Promise<Paginated<FiscalDocumentEntity>> {
+  async listDocuments(
+    tenantId: string,
+    query: FiscalDocumentQueryDto,
+    branchScope: string | null,
+  ): Promise<Paginated<FiscalDocumentEntity & { customerName: string | null }>> {
     if (branchScope && query.branchId && query.branchId !== branchScope) {
       throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
     }
@@ -285,13 +289,33 @@ export class FiscalService {
     if (query.sourceType) qb.andWhere('d.sourceType = :sourceType', { sourceType: query.sourceType });
     if (query.from) qb.andWhere('d.issueDate >= :from', { from: query.from.slice(0, 10) });
     if (query.to) qb.andWhere('d.issueDate <= :to', { to: query.to.slice(0, 10) });
-    const [items, total] = await qb
+    if (query.voucherClass) qb.andWhere('d.voucherClass = :voucherClass', { voucherClass: query.voucherClass });
+    if (query.search) applyDocumentSearch(qb, query.search);
+    const [rows, total] = await qb
       .orderBy('d.createdAt', 'DESC')
       .addOrderBy('d.id', 'DESC')
       .skip((query.page - 1) * query.limit)
       .take(query.limit)
       .getManyAndCount();
+    const names = await this.customerNames(tenantId, rows);
+    const items = rows.map((row) => Object.assign(row, { customerName: names.get(row.id) ?? null }));
     return paginated(items, total, query.page, query.limit);
+  }
+
+  /** Cliente de cada comprobante (de la venta o de la venta devuelta), para el listado. */
+  private async customerNames(tenantId: string, documents: FiscalDocumentEntity[]): Promise<Map<string, string>> {
+    if (documents.length === 0) return new Map();
+    const ids = documents.map((document) => document.id);
+    const rows = (await this.dataSource.query(
+      `SELECT d.id AS documentId, TRIM(CONCAT_WS(' ', NULLIF(p.last_name, '-'), p.first_name)) AS name
+         FROM fiscal_documents d
+         LEFT JOIN sale_returns r ON d.source_type = 'SALE_RETURN' AND r.id = d.source_id AND r.tenant_id = d.tenant_id
+         JOIN sales s ON s.tenant_id = d.tenant_id AND s.id = IF(d.source_type = 'SALE', d.source_id, r.sale_id)
+         JOIN persons p ON p.tenant_id = s.tenant_id AND p.id = s.customer_person_id
+        WHERE d.tenant_id = ? AND d.id IN (${ids.map(() => '?').join(', ')})`,
+      [tenantId, ...ids],
+    )) as Array<{ documentId: string; name: string }>;
+    return new Map(rows.map((row) => [String(row.documentId), String(row.name)]));
   }
 
   /** Comprobante con todos los datos para imprimirlo (emisor, receptor, ítems, totales y QR). */
@@ -672,3 +696,35 @@ function describe(messages: Array<{ code: string; message: string }> | null | un
   return (messages ?? []).map((item) => `${item.code} ${item.message}`.trim()).join('; ').slice(0, 1000);
 }
 
+/**
+ * Filtro del buscador de comprobantes. Todo va como parámetro (sin concatenar texto del usuario en el SQL).
+ * - "00003-00001287" o "3-1287": punto de venta y número.
+ * - Solo dígitos: número de comprobante, CUIT/DNI del cliente o CAE.
+ * - Texto: nombre o razón social del cliente.
+ */
+function applyDocumentSearch(qb: SelectQueryBuilder<FiscalDocumentEntity>, term: string): void {
+  const formatted = /^(\d{1,5})\s*-\s*(\d{1,8})$/.exec(term);
+  if (formatted) {
+    qb.andWhere('d.pointOfSale = :searchPos AND d.number = :searchNumber', { searchPos: Number(formatted[1]), searchNumber: Number(formatted[2]) });
+    return;
+  }
+  const digits = term.replace(/[\s.-]/g, '');
+  const customerMatch = `d.sourceId IN (
+      SELECT s.id FROM sales s JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
+       WHERE s.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))
+    OR d.sourceId IN (
+      SELECT r.id FROM sale_returns r JOIN sales s ON s.id = r.sale_id AND s.tenant_id = r.tenant_id
+        JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
+       WHERE r.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))`;
+  const params = { searchName: likePattern(term), searchDigits: digits };
+  if (/^\d{1,14}$/.test(digits)) {
+    qb.andWhere(
+      new Brackets((where) => {
+        if (digits.length <= 8) where.orWhere('d.number = :searchNumber', { searchNumber: Number(digits) });
+        where.orWhere('d.docNumber = :searchDigits', params).orWhere('d.cae = :searchDigits', params).orWhere(customerMatch, params);
+      }),
+    );
+    return;
+  }
+  qb.andWhere(`(${customerMatch})`, params);
+}

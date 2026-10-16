@@ -107,4 +107,18 @@ export class FiscalDocumentQueryDto extends PageQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  /**
+   * Busca en todo el historial: número de comprobante ("00003-00001287", "3-1287" o "1287"),
+   * CUIT/DNI del cliente, nombre o razón social del cliente, o CAE.
+   */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @IsOptional()
+  @IsIn(['A', 'B', 'C', 'E'])
+  voucherClass?: string;
 }
