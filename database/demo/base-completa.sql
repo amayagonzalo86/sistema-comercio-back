@@ -317,6 +317,7 @@ CREATE TABLE `persons` (
   `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `city` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `province` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `price_list_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `account_number` int unsigned DEFAULT NULL,
   `person_type` enum('CUSTOMER','SUPPLIER','BOTH') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'BOTH',
   `isActive` tinyint NOT NULL DEFAULT '1',
@@ -357,6 +358,8 @@ CREATE TABLE `product_branches` (
   `product_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `cost_price` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `freight_percentage` decimal(6,2) NOT NULL DEFAULT '0.00',
+  `freight_amount` decimal(12,2) NOT NULL DEFAULT '0.00',
   `profit_margin` decimal(5,2) NOT NULL DEFAULT '30.00',
   `selling_price` decimal(12,2) NOT NULL DEFAULT '0.00',
   `stock` decimal(12,3) NOT NULL DEFAULT '0.000',
@@ -425,6 +428,7 @@ CREATE TABLE `products` (
   `vat_treatment` enum('TAXED','EXEMPT','NOT_TAXED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'TAXED',
   `price_includes_vat` tinyint NOT NULL DEFAULT '0',
   `status` tinyint NOT NULL DEFAULT '1',
+  `supplier_person_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `image_path` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -436,6 +440,7 @@ CREATE TABLE `products` (
   KEY `IDX_products_tenant_brand` (`tenant_id`,`brand`),
   KEY `IDX_products_tenant_category` (`tenant_id`,`category`),
   KEY `IDX_products_tenant_barcode` (`tenant_id`,`barcode`),
+  KEY `IDX_products_tenant_supplier` (`tenant_id`,`supplier_person_id`),
   CONSTRAINT `FK_9c365ebf78f0e8a6d9e4827ea70` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `promotions`;
@@ -22245,6 +22250,25 @@ INSERT INTO `promotions` (`id`,`tenant_id`,`name`,`description`,`type`,`percent_
 ('2a9b7aea-21f5-4d10-a099-6d6fd04ef2ef','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','3x2 en yerbas Del Litoral','Llevando 3, se paga la más barata gratis','BUY_X_PAY_Y',NULL,3,2,NULL,'["Almac\\u00e9n"]','["Del Litoral"]',NULL,NULL,NULL,DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','-03:00')), INTERVAL -10 DAY),DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','-03:00')), INTERVAL 20 DAY),1,(SELECT id FROM users WHERE username = 'admin' LIMIT 1)),
 ('291e55e5-cf4f-4060-9d21-7ffe46250825','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Miércoles 15 % en lácteos',NULL,'PERCENTAGE',1500,NULL,NULL,NULL,'["L\\u00e1cteos"]',NULL,NULL,'[3]',NULL,NULL,NULL,1,(SELECT id FROM users WHERE username = 'admin' LIMIT 1)),
 ('2e35a74e-7dba-453a-906a-7388bf0c1b5a','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Liquidación limpieza Río Cuarto','Rotar stock de limpieza','PERCENTAGE',2000,NULL,NULL,NULL,'["Limpieza"]',NULL,'["abd9a46e-c302-40aa-9d89-e68cb494d8fb"]',NULL,NULL,DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','-03:00')), INTERVAL 5 DAY),DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','-03:00')), INTERVAL 35 DAY),1,(SELECT id FROM users WHERE username = 'admin' LIMIT 1));
+
+-- ── Proveedor habitual (el de la última compra) y cliente con lista propia ──
+UPDATE `products` p
+JOIN (
+  SELECT ranked.product_id, ranked.supplier_person_id
+  FROM (
+    SELECT i.product_id, r.supplier_person_id,
+           ROW_NUMBER() OVER (PARTITION BY i.product_id ORDER BY r.created_at DESC, r.id DESC) AS rn
+    FROM `purchase_receipt_items` i
+    JOIN `purchase_receipts` r ON r.id = i.purchase_receipt_id
+    WHERE r.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
+  ) ranked
+  WHERE ranked.rn = 1
+) last_supplier ON last_supplier.product_id = p.id
+SET p.supplier_person_id = last_supplier.supplier_person_id
+WHERE p.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND p.supplier_person_id IS NULL;
+INSERT INTO `persons` (`id`,`tenant_id`,`first_name`,`last_name`,`national_id`,`document_type`,`vat_condition`,`email`,`phone`,`address`,`city`,`province`,`account_number`,`person_type`,`isActive`,`marketing_consent`,`price_list_id`) VALUES
+('5d0c6c1e-8a43-4f0e-9b7a-2f61c0a9e301','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Municipalidad de Villa Allende','','30999123453',80,'EXENTO','compras@villaallende.gob.ar','3543 43-9000','Av. Goycoechea 586','Villa Allende','Córdoba',37,'CUSTOMER',1,0,'9a26bc96-9880-4d20-8486-81df16fbc640');
+UPDATE `document_sequences` SET `value` = 37 WHERE `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND `name` = 'PERSON_ACCOUNT';
 
 COMMIT;
 
