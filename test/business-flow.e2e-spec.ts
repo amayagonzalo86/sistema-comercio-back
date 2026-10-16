@@ -304,6 +304,11 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(bySupplier.body.items.map((item: { sku: string }) => item.sku)).toEqual(['TOR-001']);
     expect(bySupplier.body.items[0].supplier).toMatchObject({ id: supplier.body.id });
     expect(bySupplier.body.items[0].branch).toMatchObject({ costPrice: 1100, freightPercentage: 10, totalCost: 1210, sellingPrice: 1815 });
+    // Selección puntual (etiquetas): solo los productos pedidos.
+    const byIds = await api('get', `/products?branchId=${A}&ids=${screwId},${productId}&sort=sku`);
+    expectStatus(byIds, 200);
+    expect(byIds.body.items.map((item: { id: string }) => item.id).sort()).toEqual([productId, screwId].sort());
+    expectStatus(await api('get', '/products?ids=no-es-uuid'), 400);
 
     // Cotización: 3 × $1000 − 10 % = $2700 neto + IVA $567 = $3267 (factura A a RI)
     const quote = await api('post', '/sales/quote', { branchId: A, customerPersonId: customer.body.id, lines: [{ productId, quantity: 3 }] });

@@ -670,6 +670,7 @@ export class CatalogService {
     if (query.category) qb.andWhere('p.category = :category', { category: query.category });
     if (query.brand) qb.andWhere('p.brand = :brand', { brand: query.brand });
     if (query.supplierId) qb.andWhere('p.supplierPersonId = :supplierId', { supplierId: query.supplierId });
+    if (query.ids?.length) qb.andWhere('p.id IN (:...ids)', { ids: query.ids });
     if (query.search) {
       const pattern = likePattern(query.search);
       qb.andWhere(

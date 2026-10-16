@@ -70,6 +70,16 @@ export class ProductListQueryDto extends PageQueryDto {
   @IsUUID('4')
   supplierId?: string;
 
+  /** Productos puntuales (ej.: selección para imprimir etiquetas): UUIDs separados por coma, hasta 100. */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : value,
+  )
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  ids?: string[];
+
   @IsOptional()
   @IsEnum(ProductStatusFilter)
   status: ProductStatusFilter = ProductStatusFilter.ACTIVE;
