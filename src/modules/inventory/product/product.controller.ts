@@ -4,7 +4,7 @@ import { MAX_PRODUCT_IMAGE_BYTES } from './product-images';
 import { Request } from 'express';
 import { buildAuditContext } from '../../../common/http/request-context';
 import { UpdateProductVatDto } from './dto/update-product-vat.dto';
-import { BranchPriceView, BulkPriceResult, CatalogService, ProductListItem } from './catalog.service';
+import { BranchPriceView, BulkPriceResult, CatalogService, ProductListItem, ProductListPricesView } from './catalog.service';
 import {
   BulkPriceUpdateDto,
   EditProductDto,
@@ -235,7 +235,7 @@ export class ProductsController {
   /** Precio del producto en cada sucursal y lista, con el precio final al consumidor (sin costos: sirve para cotizar). */
   @Get(':id/list-prices')
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.STOCK_CLERK, UserRoleEnum.WAREHOUSE, UserRoleEnum.USER)
-  listPrices(@Param('id', ParseUUIDPipe) id: string, @GetTenantId() tenantId: string, @Req() request: Request) {
+  listPrices(@Param('id', ParseUUIDPipe) id: string, @GetTenantId() tenantId: string, @Req() request: Request): Promise<ProductListPricesView[]> {
     const actor = request.user as { branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
     return this.catalogService.listPrices(tenantId, id, requireAssignedBranch(actor));
   }

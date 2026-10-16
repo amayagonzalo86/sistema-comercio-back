@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Brackets, DataSource, EntityManager, In, SelectQueryBuilder } from 'typeorm';
-import { PriceListEntity } from '../../sales/price-list/entities/price-list.entity';
+import { PriceListEntity, PriceListPaymentCondition } from '../../sales/price-list/entities/price-list.entity';
 import { ProductPriceListEntity } from '../../sales/price-list/entities/product-price-list.entity';
 import { applyPriceList, ResolvedPriceList } from '../../sales/price-list/pricing';
 import { deleteProductImage, productImageUrl, saveProductImage } from './product-images';
@@ -93,6 +93,19 @@ export interface ProductListItem {
   branch?: BranchPriceView;
   /** Presente sin filtro de sucursal: stock sumado de todas las sucursales activas. */
   totalStock?: number;
+}
+
+/** Precios de un producto en una sucursal, por lista (sin costos). */
+export interface ProductListPricesView {
+  branchId: string;
+  branchName: string | null;
+  isActive: boolean;
+  sellingPrice: string;
+  /** Precio final al consumidor sin lista (con IVA cuando corresponde sumarlo). */
+  finalPrice: string;
+  /** true si el precio cargado no incluye IVA y el final se lo suma. */
+  vatAdded: boolean;
+  lists: Array<{ priceListId: string; name: string; percentage: string; paymentCondition: PriceListPaymentCondition; price: string; finalPrice: string }>;
 }
 
 export interface BulkPriceRowPreview {
@@ -732,7 +745,7 @@ export class CatalogService {
    * Precios de un producto en cada sucursal y cada lista, con el precio final al consumidor.
    * No incluye costos: lo puede consultar el vendedor para cotizar.
    */
-  async listPrices(tenantId: string, productId: string, branchScope: string | null) {
+  async listPrices(tenantId: string, productId: string, branchScope: string | null): Promise<ProductListPricesView[]> {
     const product = await this.dataSource.getRepository(ProductEntity).findOne({ where: { id: productId, tenantId } });
     if (!product) throw new NotFoundException('Producto no encontrado.');
     const rows = await this.dataSource.getRepository(ProductBranchEntity).find({
@@ -741,7 +754,7 @@ export class CatalogService {
       order: { branchId: 'ASC' },
     });
     const lists = await this.loadPriceLists(tenantId, [productId]);
-    const result = [];
+    const result: ProductListPricesView[] = [];
     for (const row of rows) {
       row.product = product;
       const addsVat = await this.consumerAddsVat(tenantId, row.branchId);
@@ -752,14 +765,18 @@ export class CatalogService {
         isActive: row.isActive,
         sellingPrice: Number(row.sellingPrice).toFixed(2),
         finalPrice: prices.finalPrice,
-        vatIncluded: addsVat && product.vatTreatment === VatTreatment.TAXED && !product.priceIncludesVat,
-        lists: lists.map((list) => ({
-          priceListId: list.id,
-          name: list.name,
-          percentage: list.percentage,
-          paymentCondition: list.paymentCondition,
-          ...prices.listPrices.find((item) => item.priceListId === list.id),
-        })),
+        vatAdded: addsVat && product.vatTreatment === VatTreatment.TAXED && !product.priceIncludesVat,
+        lists: lists.map((list) => {
+          const price = prices.listPrices.find((item) => item.priceListId === list.id);
+          return {
+            priceListId: list.id,
+            name: list.name,
+            percentage: list.percentage,
+            paymentCondition: list.paymentCondition,
+            price: price?.price ?? Number(row.sellingPrice).toFixed(2),
+            finalPrice: price?.finalPrice ?? prices.finalPrice,
+          };
+        }),
       });
     }
     return result;
