@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 import { PageQueryDto } from '../../../../common/dto/page-query.dto';
 import { CreateSaleLineDto } from '../../dto/create-sale.dto';
 
@@ -32,4 +32,9 @@ export class SalesQuoteQueryDto extends PageQueryDto {
   @IsOptional()
   @IsUUID('4')
   branchId?: string;
+
+  /** Vigentes (por defecto), un estado del historial o todos. */
+  @IsOptional()
+  @IsIn(['ACTIVE', 'EXPIRED', 'CONVERTED', 'DISCARDED', 'ALL'])
+  status: 'ACTIVE' | 'EXPIRED' | 'CONVERTED' | 'DISCARDED' | 'ALL' = 'ACTIVE';
 }

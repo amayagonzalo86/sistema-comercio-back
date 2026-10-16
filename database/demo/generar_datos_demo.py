@@ -246,6 +246,18 @@ SET SQL_SAFE_UPDATES = 0;
 """)
 
 emit("""
+-- ── PROTECCIÓN: la recarga de la demo no borra operaciones reales ───────────
+-- Si la empresa demo tiene comprobantes emitidos o ventas hechas en el sistema, se detiene con el error
+-- "Check constraint 'demo_con_datos_reales_no_se_borra_nada' is violated" y NO borra nada.
+DROP TABLE IF EXISTS `erp_proteccion_demo`;
+CREATE TABLE `erp_proteccion_demo` (`ok` TINYINT NOT NULL, CONSTRAINT `demo_con_datos_reales_no_se_borra_nada` CHECK (`ok` = 1));
+INSERT INTO `erp_proteccion_demo` (`ok`)
+SELECT IF((SELECT COUNT(*) FROM `fiscal_documents` WHERE `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f') > 0
+       OR (SELECT COUNT(*) FROM `sales` WHERE `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND `idempotency_key` NOT LIKE 'demo-%') > 0, 0, 1);
+DROP TABLE IF EXISTS `erp_proteccion_demo`;
+""")
+
+emit("""
 START TRANSACTION;
 
 -- ── Limpieza de una carga anterior de la demo ───────────────────────────────""")

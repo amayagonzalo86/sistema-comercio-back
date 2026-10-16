@@ -312,6 +312,20 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(letterhead.body).toMatchObject({ branchName: 'Sucursal Centro', address: 'San Martín 123', grossIncomeRegistration: '999-1267752' });
     expect(letterhead.body).not.toHaveProperty('certificateSecretRef');
     expectStatus(await api('get', '/fiscal/documents'), 200);
+    // Buscador del historial de comprobantes: por número, por CUIT/DNI y por nombre del cliente.
+    const docByNumber = await api('get', '/fiscal/documents?search=00003-00000001');
+    // Factura A y nota de crédito A comparten el n.º 00003-00000001 (cada tipo tiene su propia numeración).
+    expect(docByNumber.body.items.map((item: { id: string }) => item.id).sort()).toEqual([invoice.body.id, creditNote.body.id].sort());
+    expect(docByNumber.body.items.every((item: { customerName: string }) => item.customerName === 'Inscripto Cliente')).toBe(true);
+    expect((await api('get', '/fiscal/documents?search=3-1')).body.total).toBe(2);
+    expect((await api('get', '/fiscal/documents?search=00003-00000002')).body.total).toBe(0);
+    const byCuit = await api('get', '/fiscal/documents?search=20-12345678-6');
+    expect(byCuit.body.total).toBe(2); // la factura y la nota de crédito de la devolución
+    const byName = await api('get', `/fiscal/documents?search=${encodeURIComponent('inscripto')}`);
+    expect(byName.body.total).toBe(2);
+    expect((await api('get', '/fiscal/documents?search=Nadie%20Existe')).body.total).toBe(0);
+    expect((await api('get', '/fiscal/documents?voucherClass=B')).body.total).toBe(0);
+    expectStatus(await api('get', `/fiscal/documents?search=${encodeURIComponent("' OR 1=1 --")}`), 200);
     expectStatus(await api('get', '/fiscal/status'), 200);
 
     // Transferencia de 5 unidades de Centro a Norte
@@ -748,7 +762,7 @@ describe('Flujo comercial completo (e2e)', () => {
     const regimeAudit = await api('get', '/audit-events?eventType=VAT_REGIME_CHANGED');
     expect(regimeAudit.body.items.length).toBeGreaterThanOrEqual(3);
 
-    // ── Presupuestos X: 24 h, solo quien lo emitió lo pasa a pedido, vencidos se borran ──
+    // ── Presupuestos X: 24 h, solo quien lo emitió lo pasa a pedido; nunca se borran (quedan en el historial) ──
     const veraToken = sellerLogin.body.tokens.accessToken as string;
     token = veraToken;
     const quoteX = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 2 }], notes: 'Cliente vuelve mañana' }, true);
@@ -756,6 +770,7 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(quoteX.body.number).toBe(1);
     expect(quoteX.body.total).toBe('2395.80');
     expect(quoteX.body.sellerName).toBe('Vera Vendedora');
+    expect(quoteX.body.status).toBe('ACTIVE');
     expect(quoteX.body.remainingMs).toBeGreaterThan(23.9 * 3600 * 1000);
     expect(new Date(quoteX.body.expiresAt).getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
     expect((await api('get', '/sales-quotes')).body.total).toBe(1);
@@ -779,29 +794,38 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await api('get', `/sales-quotes/by-number/1`), 200);
     expectStatus(await api('post', `/sales-quotes/${quoteX.body.id}/convert`), 403); // solo quien lo emitió
 
-    // Quien lo emitió lo pasa a pedido: el presupuesto se borra y el pedido queda para cobrar en caja.
+    // Quien lo emitió lo pasa a pedido: el presupuesto queda CONVERTIDO (no se borra) y el pedido, para cobrar en caja.
     token = veraToken;
     const fromQuote = await api('post', `/sales-quotes/${quoteX.body.id}/convert`);
     expectStatus(fromQuote, 201);
     expect(fromQuote.body.status).toBe('PENDING');
     expect(fromQuote.body.notes).toContain('Presupuesto X N.º 1');
     expect(fromQuote.body.sellerName).toBe('Vera Vendedora');
-    expectStatus(await api('get', `/sales-quotes/${quoteX.body.id}`), 404);
-    expectStatus(await api('post', `/sales-quotes/${quoteX.body.id}/convert`), 404);
+    const convertedQuote = await api('get', `/sales-quotes/${quoteX.body.id}`);
+    expectStatus(convertedQuote, 200);
+    expect(convertedQuote.body).toMatchObject({ status: 'CONVERTED', convertedOrderId: fromQuote.body.id, remainingMs: 0 });
+    expectStatus(await api('post', `/sales-quotes/${quoteX.body.id}/convert`), 409);
+    expect((await api('get', '/sales-quotes')).body.total).toBe(0);
+    expect((await api('get', '/sales-quotes?status=CONVERTED')).body.total).toBe(1);
 
-    // Vencido: no se puede usar y se borra de la base.
+    // Vencido: no se puede usar, pero queda en el historial como VENCIDO.
     const stale = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 1 }] }, true);
     expectStatus(stale, 201);
     const dataSource = app.get(DataSource);
     await dataSource.query('UPDATE sales_quotes SET expires_at = ? WHERE id = ?', [new Date(Date.now() - 60_000), stale.body.id]);
-    expectStatus(await api('post', `/sales-quotes/${stale.body.id}/convert`), 404);
-    const remaining = (await dataSource.query('SELECT COUNT(*) AS total FROM sales_quotes WHERE id = ?', [stale.body.id])) as Array<{ total: string | number }>;
-    expect(Number(remaining[0].total)).toBe(0);
+    expectStatus(await api('post', `/sales-quotes/${stale.body.id}/convert`), 409);
+    const remaining = (await dataSource.query('SELECT status FROM sales_quotes WHERE id = ?', [stale.body.id])) as Array<{ status: string }>;
+    expect(remaining[0].status).toBe('EXPIRED');
+    expect((await api('get', `/sales-quotes/${stale.body.id}`)).body.status).toBe('EXPIRED');
     const discard = await api('post', '/sales-quotes', { branchId: A, customerPersonId: customer.body.id, lines: [{ productId, quantity: 1 }] }, true);
     expectStatus(discard, 201);
     const discardDetail = await api('get', `/sales-quotes/${discard.body.id}`);
     expect(discardDetail.body.customer).toMatchObject({ name: 'Inscripto Cliente', accountNumber: customerAccount, city: 'Río Grande' });
     expectStatus(await api('delete', `/sales-quotes/${discard.body.id}`), 200);
+    expect((await api('get', `/sales-quotes/${discard.body.id}`)).body.status).toBe('DISCARDED');
+    expectStatus(await api('delete', `/sales-quotes/${discard.body.id}`), 409);
+    const quoteHistory = await api('get', '/sales-quotes?status=ALL');
+    expect(quoteHistory.body.total).toBe(3); // convertido, vencido y descartado: ninguno se borró
     token = adminToken;
   });
 });

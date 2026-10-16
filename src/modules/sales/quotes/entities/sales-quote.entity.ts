@@ -13,12 +13,21 @@ export interface SalesQuoteLine {
   total: string;
 }
 
-/** Presupuesto "X": no es un comprobante fiscal; vence a las 24 h y se borra. */
+export enum SalesQuoteStatus {
+  /** Vigente: se puede pasar a pedido (24 h desde la emisión). */
+  ACTIVE = 'ACTIVE',
+  EXPIRED = 'EXPIRED',
+  CONVERTED = 'CONVERTED',
+  DISCARDED = 'DISCARDED',
+}
+
+/** Presupuesto "X": no es un comprobante fiscal; vale 24 h y después queda en el historial como vencido. */
 @Entity('sales_quotes')
 @Index('UQ_sales_quotes_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true })
 @Index('IDX_sales_quotes_tenant_number', ['tenantId', 'number'])
 @Index('IDX_sales_quotes_seller', ['tenantId', 'sellerUserId', 'createdAt'])
 @Index('IDX_sales_quotes_expires', ['expiresAt'])
+@Index('IDX_sales_quotes_status', ['tenantId', 'status', 'expiresAt'])
 export class SalesQuoteEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -75,6 +84,20 @@ export class SalesQuoteEntity {
 
   @Column({ name: 'expires_at', type: 'timestamp', precision: 6 })
   expiresAt!: Date;
+
+  @Column({ type: 'enum', enum: SalesQuoteStatus, default: SalesQuoteStatus.ACTIVE })
+  status!: SalesQuoteStatus;
+
+  /** Pedido de venta generado al convertirlo. */
+  @Column({ name: 'converted_order_id', type: 'varchar', length: 36, nullable: true })
+  convertedOrderId?: string | null;
+
+  /** Cuándo dejó de estar vigente (venció, se convirtió o se descartó). */
+  @Column({ name: 'closed_at', type: 'timestamp', precision: 6, nullable: true })
+  closedAt?: Date | null;
+
+  @Column({ name: 'closed_by_user_id', type: 'varchar', length: 36, nullable: true })
+  closedByUserId?: string | null;
 
   @Column({ name: 'idempotency_key', type: 'varchar', length: 100 })
   idempotencyKey!: string;

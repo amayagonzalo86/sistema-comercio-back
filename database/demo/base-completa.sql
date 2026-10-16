@@ -2,7 +2,9 @@
 --  BASE COMPLETA · ERP Comercio (esquema + administrador + datos de demostración)
 --
 --  ⚠ BORRA Y RECREA TODAS LAS TABLAS de la base `sistema_comercio`.
---    Usar solo en desarrollo / pruebas. NO ejecutar en producción.
+--    Usar solo para instalar la demo por primera vez. NO ejecutar en producción.
+--    Si la base ya tiene comprobantes o ventas reales, se detiene sin borrar nada.
+--    Para actualizar una base existente (conservando los datos): npm run migration:run
 --
 --  MySQL Workbench: File > Run SQL Script... > elegir este archivo > Run.
 --  Ejecución (PowerShell, desde la carpeta del backend):
@@ -22,6 +24,18 @@ SET FOREIGN_KEY_CHECKS = 0;
 SET UNIQUE_CHECKS = 1;
 -- MySQL Workbench trae activado el "modo seguro" (error 1175 en DELETE): se desactiva solo en esta sesión.
 SET SQL_SAFE_UPDATES = 0;
+
+-- ── PROTECCIÓN: no se ejecuta si la base ya tiene operaciones reales ─────────
+-- Este archivo BORRA todas las tablas. Si encuentra comprobantes emitidos o ventas que no son de la demo,
+-- se detiene con el error "Check constraint 'base_con_datos_reales_no_se_borra_nada' is violated"
+-- y NO borra nada. Para actualizar una base con datos usá: npm run migration:run
+CREATE TABLE IF NOT EXISTS `fiscal_documents` (`id` varchar(36) NOT NULL PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS `sales` (`id` varchar(36) NOT NULL PRIMARY KEY, `idempotency_key` varchar(100) NULL);
+DROP TABLE IF EXISTS `erp_proteccion`;
+CREATE TABLE `erp_proteccion` (`ok` TINYINT NOT NULL, CONSTRAINT `base_con_datos_reales_no_se_borra_nada` CHECK (`ok` = 1));
+INSERT INTO `erp_proteccion` (`ok`)
+SELECT IF((SELECT COUNT(*) FROM `fiscal_documents`) > 0 OR (SELECT COUNT(*) FROM `sales` WHERE `idempotency_key` NOT LIKE 'demo-%') > 0, 0, 1);
+DROP TABLE IF EXISTS `erp_proteccion`;
 
 
 /*!50503 SET NAMES utf8mb4 */;
@@ -764,12 +778,17 @@ CREATE TABLE `sales_quotes` (
   `total` decimal(14,2) NOT NULL DEFAULT '0.00',
   `lines` json NOT NULL,
   `expires_at` timestamp(6) NOT NULL,
+  `status` enum('ACTIVE','EXPIRED','CONVERTED','DISCARDED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `converted_order_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `closed_at` timestamp(6) NULL DEFAULT NULL,
+  `closed_by_user_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `idempotency_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `request_fingerprint` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_sales_quotes_tenant_idempotency` (`tenant_id`,`idempotency_key`),
+  KEY `IDX_sales_quotes_status` (`tenant_id`,`status`,`expires_at`),
   KEY `IDX_sales_quotes_expires` (`expires_at`),
   KEY `IDX_sales_quotes_seller` (`tenant_id`,`seller_user_id`,`created_at`),
   KEY `IDX_sales_quotes_tenant_number` (`tenant_id`,`number`),
@@ -1046,6 +1065,17 @@ SET time_zone = '+00:00';
 SET SQL_SAFE_UPDATES = 0;
 -- Sin variables de sesión (@...): funciona igual en mysql, Workbench (cualquier modo de ejecución) y DBeaver.
 -- Si el administrador no existe (falta npm run seed), la primera inserción falla con "user_id cannot be null".
+
+
+-- ── PROTECCIÓN: la recarga de la demo no borra operaciones reales ───────────
+-- Si la empresa demo tiene comprobantes emitidos o ventas hechas en el sistema, se detiene con el error
+-- "Check constraint 'demo_con_datos_reales_no_se_borra_nada' is violated" y NO borra nada.
+DROP TABLE IF EXISTS `erp_proteccion_demo`;
+CREATE TABLE `erp_proteccion_demo` (`ok` TINYINT NOT NULL, CONSTRAINT `demo_con_datos_reales_no_se_borra_nada` CHECK (`ok` = 1));
+INSERT INTO `erp_proteccion_demo` (`ok`)
+SELECT IF((SELECT COUNT(*) FROM `fiscal_documents` WHERE `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f') > 0
+       OR (SELECT COUNT(*) FROM `sales` WHERE `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND `idempotency_key` NOT LIKE 'demo-%') > 0, 0, 1);
+DROP TABLE IF EXISTS `erp_proteccion_demo`;
 
 
 START TRANSACTION;
