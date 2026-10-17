@@ -32,7 +32,7 @@ function setup(expectedAmount = '10.00') {
     tenantId: session.tenantId,
     userId: 'actor-0000-4000-8000-000000000001',
     branchId: session.branchId,
-    role: TenantRole.CASHIER,
+    role: TenantRole.MANAGER,
     status: MembershipStatus.ACTIVE,
   });
   const userBuilder = makeQueryBuilder({ id: 'actor-0000-4000-8000-000000000001', isActive: true });
