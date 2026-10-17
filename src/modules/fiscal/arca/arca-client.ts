@@ -53,6 +53,39 @@ const DEFAULT_URLS: Record<ArcaEnvironment, { wsaa: string; wsfe: string }> = {
 
 export class ArcaTransportError extends Error {}
 
+/** Código técnico del error de red (fetch lo envuelve en `cause`). */
+export function networkErrorCode(error: unknown): string {
+  if (!(error instanceof Error)) return 'UNKNOWN';
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'TIMEOUT';
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (cause && typeof cause === 'object' && 'code' in cause && typeof (cause as { code: unknown }).code === 'string') {
+    return (cause as { code: string }).code;
+  }
+  if ('code' in error && typeof (error as { code: unknown }).code === 'string') return (error as { code: string }).code;
+  return error.name || 'UNKNOWN';
+}
+
+/** Mensaje claro según el motivo por el que no se pudo hablar con ARCA. */
+export function transportMessage(host: string, code: string): string {
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+    return `No se encontró el servidor de ARCA ${host} (DNS). Revisá la conexión a internet del servidor.`;
+  }
+  if (code === 'TIMEOUT' || code === 'UND_ERR_CONNECT_TIMEOUT' || code === 'ETIMEDOUT' || code === 'UND_ERR_HEADERS_TIMEOUT') {
+    return `ARCA (${host}) no respondió a tiempo. El servicio puede estar caído o lento: reintentá en unos minutos.`;
+  }
+  if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'UND_ERR_SOCKET' || code === 'EPIPE') {
+    return `ARCA (${host}) cortó la conexión (${code}). Suele ser una caída del servicio de ARCA; si persiste, revisá que el firewall o el antivirus no bloqueen ${host}.`;
+  }
+  if (code.startsWith('ERR_SSL') || code.startsWith('ERR_TLS') || code.includes('CERT')) {
+    return `Error de seguridad TLS con ARCA (${host}: ${code}). Revisá la fecha y hora de la PC y que ningún proxy o antivirus intercepte HTTPS.`;
+  }
+  return `No se pudo comunicar con ARCA (${host}: ${code}). Reintentá en unos minutos.`;
+}
+
+const RETRY_DELAY_MS = 1_500;
+/** Consultas sin efecto en ARCA: se pueden reintentar si se corta la conexión. */
+const READ_ONLY_ACTIONS = new Set(['FEDummy', 'FECompUltimoAutorizado', 'FECompConsultar', 'FEParamGetCondicionIvaReceptor']);
+
 /** Cliente SOAP real contra ARCA (URLs reemplazables por variables de entorno si ARCA las cambia). */
 @Injectable()
 export class HttpArcaClient implements ArcaClient {
@@ -88,8 +121,18 @@ export class HttpArcaClient implements ArcaClient {
     return { app: tagValue(xml, 'AppServer'), db: tagValue(xml, 'DbServer'), auth: tagValue(xml, 'AuthServer') };
   }
 
-  private wsfe(environment: ArcaEnvironment, action: string, body: string): Promise<string> {
-    return this.post(this.url(environment, 'wsfe'), body, `"${WSFE_NAMESPACE}${action}"`);
+  private async wsfe(environment: ArcaEnvironment, action: string, body: string): Promise<string> {
+    const url = this.url(environment, 'wsfe');
+    const soapAction = `"${WSFE_NAMESPACE}${action}"`;
+    try {
+      return await this.post(url, body, soapAction);
+    } catch (error) {
+      // Un corte de red en una consulta se reintenta una vez. FECAESolicitar no: si ARCA llegó a autorizarlo,
+      // la emisión lo recupera con FECompConsultar antes de volver a pedir el CAE.
+      if (!(error instanceof ArcaTransportError) || !READ_ONLY_ACTIONS.has(action)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      return this.post(url, body, soapAction);
+    }
   }
 
   private url(environment: ArcaEnvironment, service: 'wsaa' | 'wsfe'): string {
@@ -107,13 +150,15 @@ export class HttpArcaClient implements ArcaClient {
         signal: AbortSignal.timeout(30_000),
       });
     } catch (error) {
-      this.logger.warn(`Sin respuesta de ARCA (${new URL(url).host}): ${error instanceof Error ? error.message : String(error)}`);
-      throw new ArcaTransportError('No se pudo comunicar con ARCA. Reintentá en unos minutos.');
+      const host = new URL(url).host;
+      const code = networkErrorCode(error);
+      this.logger.warn(`Sin respuesta de ARCA (${host}): ${code} ${error instanceof Error ? error.message : String(error)}`);
+      throw new ArcaTransportError(transportMessage(host, code));
     }
     const text = await response.text();
     // WSAA responde 500 con un SOAP Fault legible; se devuelve para que el parser lo interprete.
     if (!response.ok && !text.includes('Fault')) {
-      throw new ArcaTransportError(`ARCA respondió HTTP ${response.status}.`);
+      throw new ArcaTransportError(`ARCA (${new URL(url).host}) respondió HTTP ${response.status}: el servicio no está disponible en este momento.`);
     }
     return text;
   }

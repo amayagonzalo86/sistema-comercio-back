@@ -172,11 +172,13 @@ export class FiscalService {
   async status(tenantId: string) {
     const profile = await this.requireProfile(tenantId);
     let servers: { app: string | null; db: string | null; auth: string | null } | null = null;
+    let serversError: string | null = null;
     let credentials = 'NOT_CHECKED';
     try {
       servers = await this.arca.health(profile.environment);
-    } catch {
+    } catch (error) {
       servers = null;
+      serversError = error instanceof Error ? error.message : 'Sin respuesta de ARCA.';
     }
     try {
       const auth = await this.auth(tenantId, profile);
@@ -184,7 +186,7 @@ export class FiscalService {
     } catch (error) {
       credentials = error instanceof Error ? error.message : 'ERROR';
     }
-    return { environment: profile.environment, cuit: profile.taxId, servers, credentials };
+    return { environment: profile.environment, cuit: profile.taxId, servers, serversError, credentials };
   }
 
   async receiverConditions(tenantId: string) {
