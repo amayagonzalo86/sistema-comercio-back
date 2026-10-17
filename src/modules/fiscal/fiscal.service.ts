@@ -367,6 +367,10 @@ export class FiscalService {
             sellerName: names.get(sourceSale.sellerUserId ?? sourceSale.actorUserId) ?? null,
             cashierName: names.get(sourceSale.actorUserId) ?? null,
             payments: payments.map((payment) => ({ method: payment.method, amount: payment.amount })),
+            // Fecha y hora de la venta (el ticket la imprime) y lista aplicada (descuento de lista).
+            soldAt: sourceSale.createdAt,
+            priceList: sourceSale.priceListName ? { name: sourceSale.priceListName, percentage: sourceSale.priceListPercentage ?? '0.00' } : null,
+            discountTotal: sourceSale.discountTotal,
           }
         : null,
       // Leyendas: Transparencia Fiscal (Ley 27.743) solo fuera de Tierra del Fuego; allí, la de la Ley 19.640.

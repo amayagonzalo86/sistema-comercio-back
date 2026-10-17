@@ -46,6 +46,8 @@ export interface SalesQuoteView extends Omit<SalesQuoteEntity, 'tenant' | 'branc
   remainingMs: number;
   /** Horas de validez que se imprimen en el presupuesto. */
   printedValidityHours: number;
+  /** Lista de precios con que se cotizó (para mostrar el descuento de la lista en el impreso). */
+  priceList: { id: string; name: string; percentage: string } | null;
 }
 
 export interface SalesQuoteDetailView extends SalesQuoteView {
@@ -152,6 +154,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
             name: line.name,
             quantity: line.quantity,
             unitPrice: line.unitPrice,
+            listBasePrice: line.listBasePrice ?? null,
             discount: line.discount,
             total: line.total,
           })),
@@ -300,8 +303,9 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
     if (quotes.length === 0) return [];
     const branchIds = [...new Set(quotes.map((quote) => quote.branchId))];
     const customerIds = [...new Set(quotes.map((quote) => quote.customerPersonId).filter((id): id is string => Boolean(id)))];
+    const listIds = [...new Set(quotes.map((quote) => quote.priceListId).filter((id): id is string => Boolean(id)))];
     const placeholders = (values: string[]) => values.map(() => '?').join(', ');
-    const [sellers, branches, customers] = await Promise.all([
+    const [sellers, branches, customers, lists] = await Promise.all([
       userDisplayNames(this.dataSource.manager, quotes.map((quote) => quote.sellerUserId)),
       this.dataSource.query(`SELECT id, name FROM branches WHERE id IN (${placeholders(branchIds)})`, branchIds) as Promise<Array<{ id: string; name: string }>>,
       customerIds.length
@@ -310,7 +314,14 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
             customerIds,
           ) as Promise<Array<{ id: string; name: string }>>)
         : Promise.resolve([] as Array<{ id: string; name: string }>),
+      // Incluye listas dadas de baja: el presupuesto conserva con qué lista se armó.
+      listIds.length
+        ? (this.dataSource.query(`SELECT id, name, percentage FROM price_lists WHERE id IN (${placeholders(listIds)})`, listIds) as Promise<
+            Array<{ id: string; name: string; percentage: string }>
+          >)
+        : Promise.resolve([] as Array<{ id: string; name: string; percentage: string }>),
     ]);
+    const listById = new Map(lists.map((row) => [String(row.id), { id: String(row.id), name: String(row.name), percentage: Number(row.percentage).toFixed(2) }]));
     const branchName = new Map(branches.map((row) => [String(row.id), String(row.name)]));
     const customerName = new Map(customers.map((row) => [String(row.id), String(row.name)]));
     const now = Date.now();
@@ -321,6 +332,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
       branchName: branchName.get(quote.branchId) ?? null,
       remainingMs: quote.status === SalesQuoteStatus.ACTIVE ? Math.max(0, new Date(quote.expiresAt).getTime() - now) : 0,
       printedValidityHours: QUOTE_PRINTED_VALIDITY_HOURS,
+      priceList: quote.priceListId ? listById.get(quote.priceListId) ?? null : null,
     }));
   }
 }

@@ -590,6 +590,7 @@ CREATE TABLE `sale_items` (
   `name_snapshot` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity` decimal(12,3) NOT NULL,
   `unit_price` decimal(12,2) NOT NULL,
+  `list_base_price` decimal(12,2) DEFAULT NULL,
   `tax_rate` decimal(5,2) NOT NULL,
   `net_amount` decimal(14,2) NOT NULL,
   `tax_amount` decimal(14,2) NOT NULL,

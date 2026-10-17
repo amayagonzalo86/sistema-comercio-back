@@ -28,6 +28,10 @@ export class SaleItemEntity {
   @Column({ name: 'unit_price', type: 'decimal', precision: 12, scale: 2 })
   unitPrice!: string;
 
+  /** Precio de la sucursal antes de la lista de precios (null si no hubo lista o la venta es anterior). */
+  @Column({ name: 'list_base_price', type: 'decimal', precision: 12, scale: 2, nullable: true })
+  listBasePrice?: string | null;
+
   @Column({ name: 'tax_rate', type: 'decimal', precision: 5, scale: 2 })
   taxRate!: string;
 
