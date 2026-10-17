@@ -9,6 +9,8 @@ export interface SalesQuoteLine {
   name: string;
   quantity: string;
   unitPrice: string;
+  /** Precio antes de la lista de precios (solo si la lista lo cambió). */
+  listBasePrice?: string | null;
   discount: string;
   total: string;
 }

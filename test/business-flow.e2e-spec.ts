@@ -204,8 +204,11 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(govQuote.body.priceList).toMatchObject({ name: 'Lista gobierno', percentage: '300.00' });
     const cashQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }], priceListId: cashList.body.id });
     expect(lineFor(cashQuote.body)).toBe('950.00'); // $1000 − 5 %
+    // El ticket muestra el descuento de la lista: se informa el precio previo a la lista.
+    expect(cashQuote.body.lines[0].listBasePrice).toBe('1000.00');
     const defaultQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }] });
     expect(lineFor(defaultQuote.body)).toBe('1000.00');
+    expect(defaultQuote.body.lines[0].listBasePrice).toBeNull();
     // "Ventas en efectivo" solo se cobra en efectivo.
     const cardWithCashList = await api(
       'post',

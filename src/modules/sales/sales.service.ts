@@ -62,6 +62,8 @@ export interface SaleQuoteLine {
   name: string;
   quantity: string;
   unitPrice: string;
+  /** Precio antes de la lista de precios (null si la lista no lo cambió). */
+  listBasePrice: string | null;
   discount: string;
   promotion: { id: string; name: string } | null;
   netAmount: string;
@@ -101,6 +103,8 @@ type PricedLine = {
   stock: ProductBranchEntity;
   quantityMilli: bigint;
   unitPriceCents: bigint;
+  /** Precio de la sucursal antes de la lista. */
+  baseUnitCents: bigint;
   vatTreatment: VatTreatment;
   vat: VatLineResult;
   promotion: AppliedPromotion | null;
@@ -259,7 +263,8 @@ export class SalesService {
         }
 
         const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
-        const unitPriceCents = applyPriceList(toMinorUnits(Number(stock.sellingPrice)), priceList, line.productId);
+        const baseUnitCents = toMinorUnits(Number(stock.sellingPrice));
+        const unitPriceCents = applyPriceList(baseUnitCents, priceList, line.productId);
         const vatTreatment = stock.product.vatTreatment ?? VatTreatment.TAXED;
         const promotion = bestPromotion(
           promotions,
@@ -301,6 +306,7 @@ export class SalesService {
           stock,
           quantityMilli,
           unitPriceCents,
+          baseUnitCents,
           vatTreatment,
           vat,
           promotion,
@@ -402,7 +408,7 @@ export class SalesService {
       }));
 
       const itemRepository = queryRunner.manager.getRepository(SaleItemEntity);
-      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, vatTreatment, vat, promotion }) =>
+      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, baseUnitCents, vatTreatment, vat, promotion }) =>
         itemRepository.create({
           tenantId,
           saleId: sale.id,
@@ -411,6 +417,8 @@ export class SalesService {
           nameSnapshot: stock.product.name,
           quantity: formatMilli(quantityMilli),
           unitPrice: formatCents(unitPriceCents),
+          // Se guarda solo si la lista cambió el precio: el ticket muestra el descuento de la lista.
+          listBasePrice: baseUnitCents !== unitPriceCents ? formatCents(baseUnitCents) : null,
           taxRate: formatCents(vat.appliedRateBasisPoints),
           netAmount: formatCents(vat.netCents),
           taxAmount: formatCents(vat.vatCents),
@@ -669,7 +677,8 @@ export class SalesService {
         throw new NotFoundException(`El producto ${line.productId} no está activo en esta sucursal.`);
       }
       const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
-      const unitPriceCents = applyPriceList(toMinorUnits(Number(stock.sellingPrice)), priceList, line.productId);
+      const baseUnitCents = toMinorUnits(Number(stock.sellingPrice));
+      const unitPriceCents = applyPriceList(baseUnitCents, priceList, line.productId);
       const promotion = bestPromotion(
         promotions,
         {
@@ -707,6 +716,7 @@ export class SalesService {
         name: stock.product.name,
         quantity: formatMilli(quantityMilli),
         unitPrice: formatCents(unitPriceCents),
+        listBasePrice: baseUnitCents !== unitPriceCents ? formatCents(baseUnitCents) : null,
         discount: formatCents(promotion?.discountCents ?? 0n),
         promotion: promotion ? { id: promotion.promotionId, name: promotion.name } : null,
         netAmount: formatCents(vat.netCents),
