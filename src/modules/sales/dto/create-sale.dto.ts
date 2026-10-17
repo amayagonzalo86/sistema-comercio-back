@@ -104,6 +104,14 @@ export class CreateSaleDto {
   @IsOptional()
   @IsUUID('4')
   priceListId?: string;
+
+  /**
+   * Caja donde se cobra (aunque se pague con tarjeta, QR o transferencia): así el cierre X/Z suma todos los
+   * medios de pago. Si hay pago en efectivo, se usa la caja de ese pago.
+   */
+  @IsOptional()
+  @IsUUID('4')
+  cashSessionId?: string;
 }
 
 /** POST /sales/quote — calcula la venta (promociones, IVA y total) sin registrarla. */

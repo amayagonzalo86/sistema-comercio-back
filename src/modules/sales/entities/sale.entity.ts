@@ -23,6 +23,7 @@ export enum SaleFiscalStatus {
 @Index('IDX_sales_tenant_customer', ['tenantId', 'customerPersonId', 'createdAt'])
 @Index('IDX_sales_tenant_seller', ['tenantId', 'sellerUserId', 'createdAt'])
 @Index('IDX_sales_tenant_order', ['tenantId', 'salesOrderId'])
+@Index('IDX_sales_tenant_cash_session', ['tenantId', 'cashSessionId'])
 export class SaleEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -89,6 +90,10 @@ export class SaleEntity {
   vatExemptionNote?: string | null;
 
   /** Lista de precios usada (se guardan nombre y porcentaje por si la lista cambia o se elimina). */
+  /** Caja (sesión) en la que se cobró la venta, con cualquier medio de pago. */
+  @Column({ name: 'cash_session_id', type: 'varchar', length: 36, nullable: true })
+  cashSessionId?: string | null;
+
   @Column({ name: 'price_list_id', type: 'varchar', length: 36, nullable: true })
   priceListId?: string | null;
 

@@ -23,13 +23,23 @@ import { requireAssignedBranch, requireBranchAccess } from '../../common/securit
 import { UserRoleEnum } from '../roles/entities/role.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
-import { CloseCashSessionDto } from './dto/close-cash-session.dto';
+import { CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
+import { CashSessionQueryDto } from './dto/cash-session-query.dto';
+import { actorTenantRoles } from '../../common/security/tenant-roles';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateCashRegisterDto } from './dto/create-cash-register.dto';
 import { OpenCashSessionDto } from './dto/open-cash-session.dto';
 import { CashService } from './cash.service';
 
-type CashActor = { id: string; branchId?: string | null; tenantRole?: string };
+type CashActor = { id: string; branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
+
+/** Caja (apertura, movimientos, cierres X/Z, historial): titular, administración y encargados. */
+const CASH_ADMIN_ROLES = [UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER] as const;
+
+/** El cajero solo ve qué caja está abierta (para cobrar), sin importes. */
+function seesCashAmounts(actor: CashActor): boolean {
+  return actorTenantRoles(actor).some((role) => role === 'OWNER' || role === 'ADMIN' || role === 'MANAGER');
+}
 
 @Controller('cash')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -37,7 +47,7 @@ export class CashController {
   constructor(private readonly cashService: CashService) {}
 
   @Post('registers')
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER)
+  @Roles(...CASH_ADMIN_ROLES)
   @HttpCode(HttpStatus.CREATED)
   createRegister(
     @GetTenantId() tenantId: string,
@@ -64,11 +74,11 @@ export class CashController {
   ) {
     const actor = request.user as CashActor;
     if (branchId) requireBranchAccess(actor, branchId);
-    return this.cashService.listRegisters(tenantId, requireAssignedBranch(actor), branchId);
+    return this.cashService.listRegisters(tenantId, requireAssignedBranch(actor), branchId, seesCashAmounts(actor));
   }
 
   @Post('registers/:registerId/sessions')
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER)
+  @Roles(...CASH_ADMIN_ROLES)
   @HttpCode(HttpStatus.CREATED)
   openSession(
     @GetTenantId() tenantId: string,
@@ -92,22 +102,53 @@ export class CashController {
     );
   }
 
+  /** Historial de cajas. */
+  @Get('sessions')
+  @Roles(...CASH_ADMIN_ROLES)
+  listSessions(@GetTenantId() tenantId: string, @Req() request: Request, @Query() query: CashSessionQueryDto) {
+    const actor = request.user as CashActor;
+    if (query.branchId) requireBranchAccess(actor, query.branchId);
+    return this.cashService.listSessions(tenantId, requireAssignedBranch(actor), query);
+  }
+
+  /** Detalle de una caja con su resumen y sus cierres X/Z. */
   @Get('sessions/:sessionId')
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER)
+  @Roles(...CASH_ADMIN_ROLES)
   findSession(
     @GetTenantId() tenantId: string,
     @Req() request: Request,
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
   ) {
-    return this.cashService.findSession(
-      tenantId,
-      sessionId,
-      requireAssignedBranch(request.user as CashActor),
-    );
+    return this.cashService.sessionDetail(tenantId, sessionId, requireAssignedBranch(request.user as CashActor));
+  }
+
+  /** Cierre X: informe parcial; la caja sigue abierta. */
+  @Post('sessions/:sessionId/x-reports')
+  @Roles(...CASH_ADMIN_ROLES)
+  @HttpCode(HttpStatus.CREATED)
+  xReport(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() dto: CashXReportDto,
+  ) {
+    if (!idempotencyKey) {
+      throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
+    }
+    const actor = request.user as CashActor;
+    return this.cashService.xReport(tenantId, actor.id, sessionId, idempotencyKey, dto, requireAssignedBranch(actor), this.auditContext(request));
+  }
+
+  /** Cierre X o Z para imprimir. */
+  @Get('reports/:reportId')
+  @Roles(...CASH_ADMIN_ROLES)
+  getReport(@GetTenantId() tenantId: string, @Req() request: Request, @Param('reportId', ParseUUIDPipe) reportId: string) {
+    return this.cashService.getReport(tenantId, reportId, requireAssignedBranch(request.user as CashActor));
   }
 
   @Post('sessions/:sessionId/movements')
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER)
+  @Roles(...CASH_ADMIN_ROLES)
   @HttpCode(HttpStatus.CREATED)
   recordMovement(
     @GetTenantId() tenantId: string,
@@ -132,7 +173,7 @@ export class CashController {
   }
 
   @Get('sessions/:sessionId/movements')
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER)
+  @Roles(...CASH_ADMIN_ROLES)
   listMovements(
     @GetTenantId() tenantId: string,
     @Req() request: Request,
@@ -147,8 +188,9 @@ export class CashController {
     );
   }
 
+  /** Cierre Z: arqueo y cierre definitivo de la caja. */
   @Post('sessions/:sessionId/close')
-  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER)
+  @Roles(...CASH_ADMIN_ROLES)
   @HttpCode(HttpStatus.OK)
   closeSession(
     @GetTenantId() tenantId: string,
