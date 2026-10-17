@@ -713,9 +713,9 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(zPrint, 200);
     expect(zPrint.body).toMatchObject({ registerCode: 'CAJA1', type: 'Z' });
     expect(zPrint.body.summary.sales.count).toBe(3);
-    const history = await api('get', `/cash/sessions?branchId=${A}`);
-    expectStatus(history, 200);
-    expect(history.body.items[0]).toMatchObject({ id: session.body.id, zNumber: 1, salesCount: 3 });
+    const cashHistory = await api('get', `/cash/sessions?branchId=${A}`);
+    expectStatus(cashHistory, 200);
+    expect(cashHistory.body.items[0]).toMatchObject({ id: session.body.id, zNumber: 1, salesCount: 3 });
     const closedDetail = await api('get', `/cash/sessions/${session.body.id}`);
     expect(closedDetail.body.reports.map((report: { type: string; number: number }) => `${report.type}${report.number}`)).toEqual(['X1', 'X2', 'Z1']);
     const audit = await api('get', '/audit-events');
