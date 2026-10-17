@@ -12,18 +12,26 @@ jobs:
         run: |
           cat > probe.mjs <<'JS'
           import https from 'node:https';
-          const hosts = ['wswhomo.afip.gov.ar', 'wsaahomo.afip.gov.ar', 'servicios1.afip.gov.ar', 'wsaa.afip.gov.ar'];
-          const paths = { 'wswhomo.afip.gov.ar': '/wsfev1/service.asmx', 'servicios1.afip.gov.ar': '/wsfev1/service.asmx', 'wsaahomo.afip.gov.ar': '/ws/services/LoginCms?wsdl', 'wsaa.afip.gov.ar': '/ws/services/LoginCms?wsdl' };
-          for (const host of hosts) {
-            const url = `https://${host}${paths[host]}`;
-            try { const r = await fetch(url, { signal: AbortSignal.timeout(20000) }); console.log('fetch', host, r.status); }
-            catch (e) { console.log('fetch', host, 'ERROR', e.cause?.code, e.cause?.message ?? e.message); }
+          import crypto from 'node:crypto';
+          const url = 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx';
+          const variants = {
+            default: {},
+            tls12: { maxVersion: 'TLSv1.2' },
+            legacy: { secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT },
+            sec0: { ciphers: 'DEFAULT@SECLEVEL=0' },
+            tls12legacySec0: { maxVersion: 'TLSv1.2', ciphers: 'DEFAULT@SECLEVEL=0', secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT },
+            tls12legacySec1: { maxVersion: 'TLSv1.2', ciphers: 'DEFAULT@SECLEVEL=1', secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT },
+          };
+          for (const [name, options] of Object.entries(variants)) {
             await new Promise((resolve) => {
-              const req = https.get(url, { agent: new https.Agent({ ciphers: 'DEFAULT@SECLEVEL=1' }), timeout: 20000 }, (res) => { console.log('seclevel1', host, res.statusCode, res.socket.getProtocol(), res.socket.getEphemeralKeyInfo()); res.resume(); resolve(); });
-              req.on('error', (e) => { console.log('seclevel1', host, 'ERROR', e.code, e.message); resolve(); });
-              req.on('timeout', () => { req.destroy(new Error('timeout')); });
+              const req = https.get(url, { agent: new https.Agent(options), timeout: 20000 }, (res) => { console.log(name, res.statusCode, res.socket.getProtocol(), res.socket.getCipher().name, JSON.stringify(res.socket.getEphemeralKeyInfo())); res.resume(); resolve(); });
+              req.on('error', (e) => { console.log(name, 'ERROR', e.code, e.message); resolve(); });
+              req.on('timeout', () => req.destroy(new Error('timeout')));
             });
           }
+          console.log('openssl', process.versions.openssl);
           JS
-          node probe.mjs | while IFS= read -r l; do echo "::notice::$l"; done
-          echo | openssl s_client -connect wswhomo.afip.gov.ar:443 -servername wswhomo.afip.gov.ar 2>&1 | grep -iE "Server Temp Key|Cipher|Protocol|verify|error" | head | while IFS= read -r l; do echo "::notice::$l"; done
+          for i in 1 2; do node probe.mjs | while IFS= read -r l; do echo "::notice::try$i $l"; done; sleep 5; done
+          echo | timeout 20 openssl s_client -connect wswhomo.afip.gov.ar:443 -servername wswhomo.afip.gov.ar 2>&1 | grep -iE "Protocol|Cipher is|Temp Key|renegotiation|alert|errno|error" | head | while IFS= read -r l; do echo "::notice::s_client $l"; done
+          echo | timeout 20 openssl s_client -tls1_2 -connect wswhomo.afip.gov.ar:443 -servername wswhomo.afip.gov.ar 2>&1 | grep -iE "Protocol|Cipher is|Temp Key|renegotiation|alert|errno|error" | head | while IFS= read -r l; do echo "::notice::s_client12 $l"; done
+          curl -sS -o /dev/null -w "%{http_code}\n" --max-time 20 https://wswhomo.afip.gov.ar/wsfev1/service.asmx 2>&1 | while IFS= read -r l; do echo "::notice::curl $l"; done
