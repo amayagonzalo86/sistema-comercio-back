@@ -1,0 +1,29 @@
+name: Prueba TLS ARCA (temporal, no mergear)
+on:
+  push:
+    branches: ['tmp/arca-tls-no-mergear']
+jobs:
+  tls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Diagnóstico
+        run: |
+          cat > probe.mjs <<'JS'
+          import https from 'node:https';
+          const hosts = ['wswhomo.afip.gov.ar', 'wsaahomo.afip.gov.ar', 'servicios1.afip.gov.ar', 'wsaa.afip.gov.ar'];
+          const paths = { 'wswhomo.afip.gov.ar': '/wsfev1/service.asmx', 'servicios1.afip.gov.ar': '/wsfev1/service.asmx', 'wsaahomo.afip.gov.ar': '/ws/services/LoginCms?wsdl', 'wsaa.afip.gov.ar': '/ws/services/LoginCms?wsdl' };
+          for (const host of hosts) {
+            const url = `https://${host}${paths[host]}`;
+            try { const r = await fetch(url, { signal: AbortSignal.timeout(20000) }); console.log('fetch', host, r.status); }
+            catch (e) { console.log('fetch', host, 'ERROR', e.cause?.code, e.cause?.message ?? e.message); }
+            await new Promise((resolve) => {
+              const req = https.get(url, { agent: new https.Agent({ ciphers: 'DEFAULT@SECLEVEL=1' }), timeout: 20000 }, (res) => { console.log('seclevel1', host, res.statusCode, res.socket.getProtocol(), res.socket.getEphemeralKeyInfo()); res.resume(); resolve(); });
+              req.on('error', (e) => { console.log('seclevel1', host, 'ERROR', e.code, e.message); resolve(); });
+              req.on('timeout', () => { req.destroy(new Error('timeout')); });
+            });
+          }
+          JS
+          node probe.mjs
+          echo | openssl s_client -connect wswhomo.afip.gov.ar:443 -servername wswhomo.afip.gov.ar 2>&1 | grep -iE "Server Temp Key|Cipher|Protocol|verify|error" | head
