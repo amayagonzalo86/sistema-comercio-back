@@ -25,5 +25,5 @@ jobs:
             });
           }
           JS
-          node probe.mjs
-          echo | openssl s_client -connect wswhomo.afip.gov.ar:443 -servername wswhomo.afip.gov.ar 2>&1 | grep -iE "Server Temp Key|Cipher|Protocol|verify|error" | head
+          node probe.mjs | while IFS= read -r l; do echo "::notice::$l"; done
+          echo | openssl s_client -connect wswhomo.afip.gov.ar:443 -servername wswhomo.afip.gov.ar 2>&1 | grep -iE "Server Temp Key|Cipher|Protocol|verify|error" | head | while IFS= read -r l; do echo "::notice::$l"; done
