@@ -87,6 +87,9 @@ export class CashSessionEntity {
   @Column({ name: 'closed_at', type: 'timestamp', precision: 6, nullable: true })
   closedAt?: Date | null;
 
+  @Column({ name: 'closing_notes', type: 'varchar', length: 500, nullable: true })
+  closingNotes?: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamp', precision: 6 })
   createdAt!: Date;
 

@@ -678,6 +678,46 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await api('post', '/sales', { ...charge, salesOrderId: spare.body.id, lines: [{ productId, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 1197.9 }] }, true), 409);
     const finalDashboard = await api('get', '/reports/dashboard');
     expect(finalDashboard.body.operations.salesOrdersPending).toBe(0);
+
+    // ── Caja: venta con tarjeta imputada a la caja, cierre X (sigue abierta) y cierre Z ──
+    const cardSale = await api(
+      'post',
+      '/sales',
+      { branchId: A, lines: [{ productId, quantity: 1 }], payments: [{ method: 'DEBIT_CARD', amount: 1197.9 }], cashSessionId: session.body.id },
+      true,
+    );
+    expectStatus(cardSale, 201);
+    const liveSession = await api('get', `/cash/sessions/${session.body.id}`);
+    expectStatus(liveSession, 200);
+    expect(liveSession.body.status).toBe('OPEN');
+    expect(liveSession.body.summary.sales.count).toBe(3);
+    expect(liveSession.body.summary.payments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'CASH' }), expect.objectContaining({ key: 'DEBIT_CARD', amount: '1197.90' })]),
+    );
+    expect(liveSession.body.summary.refunds.cash).toBe('1089.00');
+    const expectedCash = liveSession.body.expectedAmount as string;
+    expect(liveSession.body.summary.expectedCash).toBe(expectedCash);
+    const xReport = await api('post', `/cash/sessions/${session.body.id}/x-reports`, { countedAmount: expectedCash }, true);
+    expectStatus(xReport, 201);
+    expect(xReport.body).toMatchObject({ type: 'X', number: 1, differenceAmount: '0.00' });
+    const secondX = await api('post', `/cash/sessions/${session.body.id}/x-reports`, {}, true);
+    expect(secondX.body).toMatchObject({ type: 'X', number: 2, countedAmount: null });
+    expect((await api('get', `/cash/sessions/${session.body.id}`)).body.status).toBe('OPEN'); // el X no cierra
+    const shortCount = (Number(expectedCash) - 100).toFixed(2);
+    const zClose = await api('post', `/cash/sessions/${session.body.id}/close`, { countedAmount: shortCount, notes: 'Faltan $100' }, true);
+    expectStatus(zClose, 200);
+    expect(zClose.body).toMatchObject({ status: 'CLOSED', differenceAmount: '-100.00', closingNotes: 'Faltan $100' });
+    expect(zClose.body.report).toMatchObject({ type: 'Z', number: 1, countedAmount: shortCount });
+    expectStatus(await api('post', `/cash/sessions/${session.body.id}/x-reports`, {}, true), 409);
+    const zPrint = await api('get', `/cash/reports/${zClose.body.report.id}`);
+    expectStatus(zPrint, 200);
+    expect(zPrint.body).toMatchObject({ registerCode: 'CAJA1', type: 'Z' });
+    expect(zPrint.body.summary.sales.count).toBe(3);
+    const cashHistory = await api('get', `/cash/sessions?branchId=${A}`);
+    expectStatus(cashHistory, 200);
+    expect(cashHistory.body.items[0]).toMatchObject({ id: session.body.id, zNumber: 1, salesCount: 3 });
+    const closedDetail = await api('get', `/cash/sessions/${session.body.id}`);
+    expect(closedDetail.body.reports.map((report: { type: string; number: number }) => `${report.type}${report.number}`)).toEqual(['X1', 'X2', 'Z1']);
     const audit = await api('get', '/audit-events');
     expectStatus(audit, 200);
 
@@ -722,6 +762,14 @@ describe('Flujo comercial completo (e2e)', () => {
     token = camilaLogin.body.tokens.accessToken as string;
     expectStatus(await api('get', '/stock-transfers'), 200);
     expectStatus(await api('get', '/employees'), 403);
+    // La cajera ve qué caja está abierta para cobrar, pero no los importes ni la administración de la caja.
+    const cashierRegisters = await api('get', '/cash/registers');
+    expectStatus(cashierRegisters, 200);
+    for (const register of cashierRegisters.body as Array<{ openSession: { expectedAmount: string | null } | null }>) {
+      if (register.openSession) expect(register.openSession.expectedAmount).toBeNull();
+    }
+    expectStatus(await api('get', '/cash/sessions'), 403);
+    expectStatus(await api('post', `/cash/registers/${register.body.id}/sessions`, { currency: 'ARS', openingAmount: '0' }, true), 403);
     token = adminToken;
 
     // Edición: datos personales y roles. Cambiar roles cierra sus sesiones (el refresh deja de servir).

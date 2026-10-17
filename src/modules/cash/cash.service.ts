@@ -17,7 +17,12 @@ import { TenantEntity, TenantStatus } from '../platform/entities/tenant.entity';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
-import { CloseCashSessionDto } from './dto/close-cash-session.dto';
+import { CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
+import { CashSessionQueryDto } from './dto/cash-session-query.dto';
+import { buildCashSummary, centsText, decimalCents } from './cash-report';
+import { CashReportSummary, CashReportType, CashSessionReportEntity } from './entities/cash-session-report.entity';
+import { Paginated, paginated } from '../../common/dto/page-query.dto';
+import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   CashManualMovementDirection,
   CashManualMovementType,
@@ -34,14 +39,42 @@ import { CashRegisterEntity } from './entities/cash-register.entity';
 import { CashSessionEntity, CashSessionStatus } from './entities/cash-session.entity';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
+/** Abrir, registrar movimientos, cierres X y Z e historial: solo titular, administración y encargados. */
+const CASH_MANAGEMENT_ROLES = [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER];
+
+/** Sesión con nombres y caja, para el historial. */
+export interface CashSessionView extends CashSessionEntity {
+  registerCode: string | null;
+  registerName: string | null;
+  openedByName: string | null;
+  closedByName: string | null;
+  zNumber: number | null;
+  salesTotal: string;
+  salesCount: number;
+}
+
+export interface CashReportView extends CashSessionReportEntity {
+  actorName: string | null;
+  registerCode: string | null;
+  registerName: string | null;
+  branchName: string | null;
+  openedAt: Date;
+  openedByName: string | null;
+}
+
+export interface CashSessionDetail extends CashSessionView {
+  /** Resumen en vivo (sesión abierta) o el del cierre Z (sesión cerrada). */
+  summary: CashReportSummary;
+  reports: Array<Pick<CashSessionReportEntity, 'id' | 'type' | 'number' | 'expectedAmount' | 'countedAmount' | 'differenceAmount' | 'createdAt'> & { actorName: string | null }>;
+}
 
 /** Caja con su sesión abierta (si la hay), para que el frontend sepa dónde imputar el efectivo. */
 export type CashRegisterWithSession = CashRegisterEntity & {
   openSession: {
     id: string;
     currency: string;
-    openingAmount: string;
-    expectedAmount: string;
+    openingAmount: string | null;
+    expectedAmount: string | null;
     openedByUserId: string;
     openedAt: Date;
   } | null;
@@ -129,6 +162,7 @@ export class CashService {
     tenantId: string,
     allowedBranchId: string | null,
     requestedBranchId?: string,
+    includeAmounts = true,
   ): Promise<CashRegisterWithSession[]> {
     if (allowedBranchId && requestedBranchId && allowedBranchId !== requestedBranchId) {
       throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
@@ -153,8 +187,9 @@ export class CashService {
           ? {
               id: session.id,
               currency: session.currency,
-              openingAmount: session.openingAmount,
-              expectedAmount: session.expectedAmount,
+              // El cajero solo necesita saber qué caja está abierta para cobrar: no ve importes.
+              openingAmount: includeAmounts ? session.openingAmount : null,
+              expectedAmount: includeAmounts ? session.expectedAmount : null,
               openedByUserId: session.openedByUserId,
               openedAt: session.openedAt,
             }
@@ -189,7 +224,7 @@ export class CashService {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       started = true;
-      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER, TenantRole.CASHIER]);
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, CASH_MANAGEMENT_ROLES);
 
       const register = await queryRunner.manager
         .createQueryBuilder(CashRegisterEntity, 'register')
@@ -317,7 +352,7 @@ export class CashService {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       started = true;
-      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER, TenantRole.CASHIER]);
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, CASH_MANAGEMENT_ROLES);
 
       const session = await this.lockSession(queryRunner.manager, tenantId, sessionId, allowedBranchId);
       if (session.status !== CashSessionStatus.OPEN) {
@@ -419,11 +454,12 @@ export class CashService {
     dto: CloseCashSessionDto,
     allowedBranchId: string | null,
     audit: InventoryAuditContext,
-  ): Promise<CashSessionEntity> {
+  ): Promise<CashSessionEntity & { report: CashSessionReportEntity | null }> {
     const key = normalizeKey(idempotencyKey);
     const countedCents = parseMoney(dto.countedAmount, 'El efectivo contado');
     const countedAmount = formatCents(countedCents);
-    const fingerprint = hashRequest({ operation: 'close', sessionId, countedAmount, actorUserId });
+    const notes = dto.notes?.trim() || null;
+    const fingerprint = hashRequest({ operation: 'close', sessionId, countedAmount, notes, actorUserId });
 
     const queryRunner = this.dataSource.createQueryRunner();
     let started = false;
@@ -431,27 +467,58 @@ export class CashService {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       started = true;
-      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, [TenantRole.OWNER, TenantRole.ADMIN, TenantRole.MANAGER, TenantRole.CASHIER]);
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, CASH_MANAGEMENT_ROLES);
 
       const session = await this.lockSession(queryRunner.manager, tenantId, sessionId, allowedBranchId);
       if (session.status === CashSessionStatus.CLOSED) {
         if (session.closeIdempotencyKey !== key || session.closeRequestFingerprint !== fingerprint) {
           throw new ConflictException('La sesión de caja ya está cerrada.');
         }
+        const priorReport = await queryRunner.manager.findOne(CashSessionReportEntity, { where: { tenantId, cashSessionId: session.id, type: CashReportType.Z } });
         await queryRunner.commitTransaction();
         started = false;
-        return session;
+        return { ...session, report: priorReport };
       }
+
+      // Numeración Z por caja: el bloqueo de la caja evita números repetidos con cierres simultáneos.
+      await queryRunner.manager
+        .createQueryBuilder(CashRegisterEntity, 'register')
+        .setLock('pessimistic_write')
+        .where('register.id = :id AND register.tenantId = :tenantId', { id: session.cashRegisterId, tenantId })
+        .getOne();
+      const closedAt = new Date();
+      const summary = await buildCashSummary(queryRunner.manager, session, closedAt);
 
       const expectedCents = parseMoney(session.expectedAmount, 'El saldo esperado');
       session.status = CashSessionStatus.CLOSED;
       session.countedAmount = countedAmount;
       session.differenceAmount = formatSignedCents(countedCents - expectedCents);
       session.closedByUserId = actorUserId;
-      session.closedAt = new Date();
+      session.closedAt = closedAt;
+      session.closingNotes = notes;
       session.closeIdempotencyKey = key;
       session.closeRequestFingerprint = fingerprint;
       const saved = await queryRunner.manager.save(CashSessionEntity, session);
+      const zNumber = await this.nextReportNumber(queryRunner.manager, tenantId, { cashRegisterId: session.cashRegisterId }, CashReportType.Z);
+      const report = await queryRunner.manager.save(
+        CashSessionReportEntity,
+        queryRunner.manager.create(CashSessionReportEntity, {
+          tenantId,
+          branchId: session.branchId,
+          cashRegisterId: session.cashRegisterId,
+          cashSessionId: session.id,
+          type: CashReportType.Z,
+          number: zNumber,
+          expectedAmount: session.expectedAmount,
+          countedAmount,
+          differenceAmount: session.differenceAmount,
+          summary,
+          notes,
+          idempotencyKey: `z:${key}`,
+          requestFingerprint: fingerprint,
+          actorUserId,
+        }),
+      );
 
       await this.writeAudit(queryRunner.manager, {
         tenantId,
@@ -467,23 +534,25 @@ export class CashService {
           countedAmount,
           differenceAmount: session.differenceAmount,
           currency: session.currency,
+          zNumber,
+          reportId: report.id,
         },
       });
       await queryRunner.commitTransaction();
       started = false;
-      return saved;
+      return { ...saved, report };
     } catch (error) {
       if (started) await queryRunner.rollbackTransaction();
       if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof ForbiddenException || error instanceof NotFoundException) {
         if (error instanceof ConflictException) {
           const prior = await this.sessionRepository.findOne({ where: { tenantId, closeIdempotencyKey: key } });
-          if (prior?.closeRequestFingerprint === fingerprint) return prior;
+          if (prior?.closeRequestFingerprint === fingerprint) return { ...prior, report: await this.zReportOf(tenantId, prior.id) };
         }
         throw error;
       }
       if (isDuplicateEntry(error)) {
         const prior = await this.sessionRepository.findOne({ where: { tenantId, closeIdempotencyKey: key } });
-        if (prior?.closeRequestFingerprint === fingerprint) return prior;
+        if (prior?.closeRequestFingerprint === fingerprint) return { ...prior, report: await this.zReportOf(tenantId, prior.id) };
         throw new ConflictException('Idempotency-Key ya fue utilizado para otro cierre.');
       }
       this.logger.error('No se pudo cerrar la sesión de caja', error);
@@ -491,6 +560,167 @@ export class CashService {
     } finally {
       if (!queryRunner.isReleased) await queryRunner.release();
     }
+  }
+
+  /**
+   * Cierre X: informe parcial con el resumen al momento y, si se cuenta el efectivo, la diferencia.
+   * La caja sigue abierta y se puede seguir cobrando.
+   */
+  async xReport(
+    tenantId: string,
+    actorUserId: string,
+    sessionId: string,
+    idempotencyKey: string,
+    dto: CashXReportDto,
+    allowedBranchId: string | null,
+    audit: InventoryAuditContext,
+  ): Promise<CashSessionReportEntity> {
+    const key = normalizeKey(idempotencyKey);
+    const counted = dto.countedAmount !== undefined && dto.countedAmount !== '' ? formatCents(parseMoney(dto.countedAmount, 'El efectivo contado')) : null;
+    const notes = dto.notes?.trim() || null;
+    const fingerprint = hashRequest({ operation: 'x', sessionId, counted, notes, actorUserId });
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    let started = false;
+    try {
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      started = true;
+      await this.assertActorAccess(queryRunner.manager, tenantId, actorUserId, allowedBranchId, CASH_MANAGEMENT_ROLES);
+      const prior = await queryRunner.manager.findOne(CashSessionReportEntity, { where: { tenantId, idempotencyKey: `x:${key}` } });
+      if (prior) {
+        if (prior.requestFingerprint !== fingerprint || prior.cashSessionId !== sessionId) {
+          throw new ConflictException('Idempotency-Key ya fue utilizado para otro cierre.');
+        }
+        await queryRunner.commitTransaction();
+        started = false;
+        return prior;
+      }
+      // Bloquear la sesión ordena los cierres X y evita que se cierre (Z) mientras tanto.
+      const session = await this.lockSession(queryRunner.manager, tenantId, sessionId, allowedBranchId);
+      if (session.status !== CashSessionStatus.OPEN) {
+        throw new ConflictException('La caja ya está cerrada: el cierre X se hace con la caja abierta.');
+      }
+      const summary = await buildCashSummary(queryRunner.manager, session, new Date());
+      const number = await this.nextReportNumber(queryRunner.manager, tenantId, { cashSessionId: session.id }, CashReportType.X);
+      const difference = counted !== null ? centsText(decimalCents(counted) - decimalCents(session.expectedAmount)) : null;
+      const report = await queryRunner.manager.save(
+        CashSessionReportEntity,
+        queryRunner.manager.create(CashSessionReportEntity, {
+          tenantId,
+          branchId: session.branchId,
+          cashRegisterId: session.cashRegisterId,
+          cashSessionId: session.id,
+          type: CashReportType.X,
+          number,
+          expectedAmount: session.expectedAmount,
+          countedAmount: counted,
+          differenceAmount: difference,
+          summary,
+          notes,
+          idempotencyKey: `x:${key}`,
+          requestFingerprint: fingerprint,
+          actorUserId,
+        }),
+      );
+      await this.writeAudit(queryRunner.manager, {
+        tenantId,
+        actorUserId,
+        audit,
+        eventType: 'CASH_X_REPORT',
+        aggregateType: 'CASH_SESSION',
+        aggregateId: session.id,
+        metadata: { reportId: report.id, number, expectedAmount: session.expectedAmount, countedAmount: counted, differenceAmount: difference },
+      });
+      await queryRunner.commitTransaction();
+      started = false;
+      return report;
+    } catch (error) {
+      if (started) await queryRunner.rollbackTransaction();
+      if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof ForbiddenException || error instanceof NotFoundException) {
+        throw error;
+      }
+      if (isDuplicateEntry(error)) {
+        const prior = await this.dataSource.getRepository(CashSessionReportEntity).findOne({ where: { tenantId, idempotencyKey: `x:${key}` } });
+        if (prior?.requestFingerprint === fingerprint) return prior;
+        throw new ConflictException('Otro cierre X se registró al mismo tiempo. Volvé a intentarlo.');
+      }
+      this.logger.error('No se pudo hacer el cierre X', error);
+      throw new InternalServerErrorException('No se pudo hacer el cierre X.');
+    } finally {
+      if (!queryRunner.isReleased) await queryRunner.release();
+    }
+  }
+
+  /** Historial de cajas (sesiones) con totales, más recientes primero. */
+  async listSessions(tenantId: string, allowedBranchId: string | null, query: CashSessionQueryDto): Promise<Paginated<CashSessionView>> {
+    if (allowedBranchId && query.branchId && allowedBranchId !== query.branchId) {
+      throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
+    }
+    const branchId = allowedBranchId ?? query.branchId;
+    const qb = this.sessionRepository.createQueryBuilder('s').where('s.tenantId = :tenantId', { tenantId });
+    if (branchId) qb.andWhere('s.branchId = :branchId', { branchId });
+    if (query.registerId) qb.andWhere('s.cashRegisterId = :registerId', { registerId: query.registerId });
+    if (query.status) qb.andWhere('s.status = :status', { status: query.status });
+    if (query.from) qb.andWhere('s.openedAt >= :from', { from: `${query.from} 00:00:00` });
+    if (query.to) qb.andWhere('s.openedAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to });
+    const [items, total] = await qb
+      .orderBy('s.openedAt', 'DESC')
+      .addOrderBy('s.id', 'DESC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getManyAndCount();
+    return paginated(await this.sessionViews(tenantId, items), total, query.page, query.limit);
+  }
+
+  /** Detalle de una caja: resumen (en vivo si está abierta; el del cierre Z si está cerrada) y sus cierres X/Z. */
+  async sessionDetail(tenantId: string, sessionId: string, allowedBranchId: string | null): Promise<CashSessionDetail> {
+    const session = await this.findSession(tenantId, sessionId, allowedBranchId);
+    const [view] = await this.sessionViews(tenantId, [session]);
+    const reports = await this.dataSource.getRepository(CashSessionReportEntity).find({
+      where: { tenantId, cashSessionId: session.id },
+      order: { createdAt: 'ASC' },
+    });
+    const zReport = reports.find((report) => report.type === CashReportType.Z);
+    const summary = zReport?.summary ?? (await buildCashSummary(this.dataSource.manager, session, new Date()));
+    const names = await userDisplayNames(this.dataSource.manager, reports.map((report) => report.actorUserId));
+    return {
+      ...view,
+      summary,
+      reports: reports.map((report) => ({
+        id: report.id,
+        type: report.type,
+        number: report.number,
+        expectedAmount: report.expectedAmount,
+        countedAmount: report.countedAmount ?? null,
+        differenceAmount: report.differenceAmount ?? null,
+        createdAt: report.createdAt,
+        actorName: names.get(report.actorUserId) ?? null,
+      })),
+    };
+  }
+
+  /** Un cierre X o Z para imprimir. */
+  async getReport(tenantId: string, reportId: string, allowedBranchId: string | null): Promise<CashReportView> {
+    const report = await this.dataSource.getRepository(CashSessionReportEntity).findOne({
+      where: { tenantId, id: reportId, ...(allowedBranchId ? { branchId: allowedBranchId } : {}) },
+    });
+    if (!report) throw new NotFoundException('Cierre de caja no encontrado.');
+    const [session, register, branch] = await Promise.all([
+      this.sessionRepository.findOne({ where: { tenantId, id: report.cashSessionId } }),
+      this.registerRepository.findOne({ where: { tenantId, id: report.cashRegisterId } }),
+      this.dataSource.getRepository(BranchEntity).findOne({ where: { tenantId, id: report.branchId }, select: { id: true, name: true } }),
+    ]);
+    const names = await userDisplayNames(this.dataSource.manager, [report.actorUserId, session?.openedByUserId]);
+    return {
+      ...report,
+      actorName: names.get(report.actorUserId) ?? null,
+      registerCode: register?.code ?? null,
+      registerName: register?.name ?? null,
+      branchName: branch?.name ?? null,
+      openedAt: session?.openedAt ?? report.createdAt,
+      openedByName: session ? names.get(session.openedByUserId) ?? null : null,
+    };
   }
 
   async findSession(
@@ -607,6 +837,62 @@ export class CashService {
     const session = await builder.getOne();
     if (!session) throw new NotFoundException('Sesión de caja no encontrada.');
     return session;
+  }
+
+  private async nextReportNumber(
+    manager: EntityManager,
+    tenantId: string,
+    scope: { cashSessionId?: string; cashRegisterId?: string },
+    type: CashReportType,
+  ): Promise<number> {
+    const qb = manager
+      .createQueryBuilder(CashSessionReportEntity, 'r')
+      .select('COALESCE(MAX(r.number), 0)', 'last')
+      .where('r.tenantId = :tenantId AND r.type = :type', { tenantId, type });
+    if (scope.cashSessionId) qb.andWhere('r.cashSessionId = :sessionId', { sessionId: scope.cashSessionId });
+    if (scope.cashRegisterId) qb.andWhere('r.cashRegisterId = :registerId', { registerId: scope.cashRegisterId });
+    const row = await qb.getRawOne<{ last: string | number }>();
+    return Number(row?.last ?? 0) + 1;
+  }
+
+  private zReportOf(tenantId: string, sessionId: string): Promise<CashSessionReportEntity | null> {
+    return this.dataSource.getRepository(CashSessionReportEntity).findOne({ where: { tenantId, cashSessionId: sessionId, type: CashReportType.Z } });
+  }
+
+  private async sessionViews(tenantId: string, sessions: CashSessionEntity[]): Promise<CashSessionView[]> {
+    if (sessions.length === 0) return [];
+    const ids = sessions.map((session) => session.id);
+    const [registers, zReports, totals, names] = await Promise.all([
+      this.registerRepository.find({ where: { tenantId, id: In([...new Set(sessions.map((session) => session.cashRegisterId))]) } }),
+      this.dataSource.getRepository(CashSessionReportEntity).find({
+        where: { tenantId, cashSessionId: In(ids), type: CashReportType.Z },
+        select: { id: true, cashSessionId: true, number: true },
+      }),
+      this.dataSource.query(
+        `SELECT cash_session_id AS sessionId, COUNT(*) AS count, COALESCE(SUM(total), 0) AS total
+           FROM sales WHERE tenant_id = ? AND cash_session_id IN (${ids.map(() => '?').join(', ')})
+          GROUP BY cash_session_id`,
+        [tenantId, ...ids],
+      ) as Promise<Array<{ sessionId: string; count: string | number; total: string }>>,
+      userDisplayNames(this.dataSource.manager, sessions.flatMap((session) => [session.openedByUserId, session.closedByUserId])),
+    ]);
+    const registerById = new Map(registers.map((register) => [register.id, register]));
+    const zBySession = new Map(zReports.map((report) => [report.cashSessionId, report.number]));
+    const totalsBySession = new Map(totals.map((row) => [String(row.sessionId), row]));
+    return sessions.map((session) => {
+      const register = registerById.get(session.cashRegisterId);
+      const total = totalsBySession.get(session.id);
+      return {
+        ...session,
+        registerCode: register?.code ?? null,
+        registerName: register?.name ?? null,
+        openedByName: names.get(session.openedByUserId) ?? null,
+        closedByName: session.closedByUserId ? names.get(session.closedByUserId) ?? null : null,
+        zNumber: zBySession.get(session.id) ?? null,
+        salesTotal: centsText(decimalCents(total?.total ?? '0')),
+        salesCount: Number(total?.count ?? 0),
+      };
+    });
   }
 
   private async findOpenByKey(tenantId: string, key: string): Promise<CashSessionEntity | null> {

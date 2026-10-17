@@ -152,6 +152,31 @@ CREATE TABLE `cash_registers` (
   UNIQUE KEY `UQ_cash_register_tenant_id` (`tenant_id`,`id`),
   KEY `IDX_cash_register_tenant_branch_active` (`tenant_id`,`branch_id`,`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `cash_session_reports`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `cash_session_reports` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cash_register_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cash_session_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` enum('X','Z') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `number` int NOT NULL,
+  `expected_amount` decimal(14,2) NOT NULL,
+  `counted_amount` decimal(14,2) DEFAULT NULL,
+  `difference_amount` decimal(14,2) DEFAULT NULL,
+  `summary` json NOT NULL,
+  `notes` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `idempotency_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `request_fingerprint` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_cash_reports_session_type_number` (`tenant_id`,`cash_session_id`,`type`,`number`),
+  UNIQUE KEY `UQ_cash_reports_tenant_key` (`tenant_id`,`idempotency_key`),
+  KEY `IDX_cash_reports_tenant_branch_created` (`tenant_id`,`branch_id`,`created_at`),
+  KEY `IDX_cash_reports_tenant_register_type` (`tenant_id`,`cash_register_id`,`type`,`number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `cash_sessions`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `cash_sessions` (
@@ -174,6 +199,7 @@ CREATE TABLE `cash_sessions` (
   `closed_by_user_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `opened_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `closed_at` timestamp(6) NULL DEFAULT NULL,
+  `closing_notes` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
@@ -697,6 +723,7 @@ CREATE TABLE `sales` (
   `customer_vat_condition` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `vat_exemption_reason` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `vat_exemption_note` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cash_session_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price_list_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price_list_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price_list_percentage` decimal(7,2) DEFAULT NULL,
@@ -712,6 +739,7 @@ CREATE TABLE `sales` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_sales_tenant_idempotency` (`tenant_id`,`idempotency_key`),
   UNIQUE KEY `UQ_sales_tenant_id` (`tenant_id`,`id`),
+  KEY `IDX_sales_tenant_cash_session` (`tenant_id`,`cash_session_id`),
   KEY `IDX_sales_tenant_order` (`tenant_id`,`sales_order_id`),
   KEY `IDX_sales_tenant_seller` (`tenant_id`,`seller_user_id`,`created_at`),
   KEY `IDX_sales_tenant_customer` (`tenant_id`,`customer_person_id`,`created_at`),
@@ -22270,6 +22298,18 @@ WHERE p.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND p.supplier_person
 INSERT INTO `persons` (`id`,`tenant_id`,`first_name`,`last_name`,`national_id`,`document_type`,`vat_condition`,`email`,`phone`,`address`,`city`,`province`,`account_number`,`person_type`,`isActive`,`marketing_consent`,`price_list_id`) VALUES
 ('5d0c6c1e-8a43-4f0e-9b7a-2f61c0a9e301','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Municipalidad de Villa Allende','','30999123453',80,'EXENTO','compras@villaallende.gob.ar','3543 43-9000','Av. Goycoechea 586','Villa Allende','Córdoba',37,'CUSTOMER',1,0,'9a26bc96-9880-4d20-8486-81df16fbc640');
 UPDATE `document_sequences` SET `value` = 37 WHERE `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND `name` = 'PERSON_ACCOUNT';
+
+-- Caja donde se cobró cada venta (para el cierre X/Z): la del cobro en efectivo.
+UPDATE `sales` s
+JOIN (
+  SELECT p.sale_id, MIN(m.cash_session_id) AS cash_session_id
+  FROM `cash_movements` m
+  JOIN `sale_payments` p ON p.id = m.source_id AND m.source_type = 'SALE_PAYMENT'
+  WHERE m.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
+  GROUP BY p.sale_id
+) linked ON linked.sale_id = s.id
+SET s.cash_session_id = linked.cash_session_id
+WHERE s.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND s.cash_session_id IS NULL;
 
 COMMIT;
 

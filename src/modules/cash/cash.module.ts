@@ -3,11 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CashMovementEntity } from './entities/cash-movement.entity';
 import { CashRegisterEntity } from './entities/cash-register.entity';
 import { CashSessionEntity } from './entities/cash-session.entity';
+import { CashSessionReportEntity } from './entities/cash-session-report.entity';
 import { CashController } from './cash.controller';
 import { CashService } from './cash.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CashRegisterEntity, CashSessionEntity, CashMovementEntity])],
+  imports: [TypeOrmModule.forFeature([CashRegisterEntity, CashSessionEntity, CashMovementEntity, CashSessionReportEntity])],
   controllers: [CashController],
   providers: [CashService],
   exports: [TypeOrmModule],

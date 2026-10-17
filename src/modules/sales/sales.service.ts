@@ -156,6 +156,7 @@ export class SalesService {
         customerPersonId: dto.customerPersonId ?? null,
         lines: normalizedLines,
         payments: normalizedPayments,
+        cashSessionId: dto.cashSessionId ?? null,
         vatExemption: dto.vatExemption
           ? { reason: dto.vatExemption.reason, note: dto.vatExemption.note.trim() }
           : null,
@@ -375,6 +376,19 @@ export class SalesService {
         cashSessions.set(cashSession.id, cashSession);
       }
 
+      // Caja de la venta: la del cobro en efectivo o, si se pagó con otro medio, la indicada por el punto de venta.
+      let saleCashSessionId: string | null = cashSessionIds[0] ?? null;
+      if (!saleCashSessionId && dto.cashSessionId) {
+        const register = await queryRunner.manager.findOne(CashSessionEntity, {
+          where: { id: dto.cashSessionId, tenantId, branchId: branch.id, status: CashSessionStatus.OPEN },
+          select: { id: true },
+        });
+        if (!register) {
+          throw new NotFoundException('La caja indicada no está abierta o no corresponde a la sucursal de la venta.');
+        }
+        saleCashSessionId = register.id;
+      }
+
       const saleRepository = queryRunner.manager.getRepository(SaleEntity);
       const sale = await saleRepository.save(saleRepository.create({
         tenantId,
@@ -398,6 +412,7 @@ export class SalesService {
         priceListId: priceList?.id ?? null,
         priceListName: priceList?.name ?? null,
         priceListPercentage: priceList?.percentage ?? null,
+        cashSessionId: saleCashSessionId,
         fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
         requestFingerprint: fingerprint,
