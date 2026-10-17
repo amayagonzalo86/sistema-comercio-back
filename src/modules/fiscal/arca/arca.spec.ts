@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TaxConditionEnum } from '../../../common/enums/afip.enum';
 import { VoucherClass } from '../vat/vat';
+import { ArcaEnvironment } from '../../platform/entities/fiscal-profile.entity';
+import { ArcaTransportError, HttpArcaClient, networkErrorCode, transportMessage } from './arca-client';
 import { isValidSecretReference, resolveSecret, SecretBox } from './secrets';
 import { loginTicketRequest, parseLoginResponse } from './wsaa';
 import {
@@ -136,4 +138,63 @@ describe('ARCA WSAA y secretos', () => {
     expect(isValidSecretReference('file:../x.pem')).toBe(false);
     expect(isValidSecretReference('http://x')).toBe(false);
   });
+});
+
+describe('ARCA errores de conexión', () => {
+  const fetchError = (code: string) => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error(code), { code }) });
+
+  it('identifica el código de red aunque fetch lo envuelva', () => {
+    expect(networkErrorCode(fetchError('ECONNRESET'))).toBe('ECONNRESET');
+    expect(networkErrorCode(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }))).toBe('TIMEOUT');
+    expect(networkErrorCode('x')).toBe('UNKNOWN');
+  });
+
+  it('explica cada motivo con el servidor involucrado', () => {
+    expect(transportMessage('wswhomo.afip.gov.ar', 'ECONNRESET')).toContain('cortó la conexión');
+    expect(transportMessage('wswhomo.afip.gov.ar', 'ENOTFOUND')).toContain('DNS');
+    expect(transportMessage('wswhomo.afip.gov.ar', 'TIMEOUT')).toContain('no respondió a tiempo');
+    expect(transportMessage('wswhomo.afip.gov.ar', 'ERR_SSL_DH_KEY_TOO_SMALL')).toContain('TLS');
+    expect(transportMessage('wswhomo.afip.gov.ar', 'ECONNRESET')).toContain('wswhomo.afip.gov.ar');
+  });
+
+  it('reintenta una vez las consultas pero nunca la solicitud de CAE', async () => {
+    const client = new HttpArcaClient();
+    const original = global.fetch;
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw fetchError('ECONNRESET');
+      return new Response('<FEDummyResult><AppServer>OK</AppServer><DbServer>OK</DbServer><AuthServer>OK</AuthServer></FEDummyResult>', { status: 200 });
+    }) as typeof fetch;
+    try {
+      await expect(client.health(ArcaEnvironment.HOMOLOGATION)).resolves.toEqual({ app: 'OK', db: 'OK', auth: 'OK' });
+      expect(calls).toBe(2);
+      calls = 0;
+      global.fetch = jest.fn(async () => {
+        calls += 1;
+        throw fetchError('ECONNRESET');
+      }) as typeof fetch;
+      await expect(
+        client.requestCae(ArcaEnvironment.HOMOLOGATION, auth, {
+          pointOfSale: 3,
+          voucherType: 6,
+          number: 1,
+          date: '20261016',
+          docType: 99,
+          docNumber: '0',
+          receiverConditionId: 5,
+          total: '121.00',
+          netTaxed: '100.00',
+          notTaxed: '0.00',
+          exempt: '0.00',
+          vat: '21.00',
+          currency: 'PES',
+          vatRates: [{ arcaId: 5, base: '100.00', amount: '21.00' }],
+        }),
+      ).rejects.toBeInstanceOf(ArcaTransportError);
+      expect(calls).toBe(1);
+    } finally {
+      global.fetch = original;
+    }
+  }, 10_000);
 });
