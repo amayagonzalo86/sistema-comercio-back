@@ -21215,6 +21215,18 @@ INSERT INTO `persons` (`id`,`tenant_id`,`first_name`,`last_name`,`national_id`,`
 ('5d0c6c1e-8a43-4f0e-9b7a-2f61c0a9e301','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Municipalidad de Villa Allende','','30999123453',80,'EXENTO','compras@villaallende.gob.ar','3543 43-9000','Av. Goycoechea 586','Villa Allende','Córdoba',37,'CUSTOMER',1,0,'9a26bc96-9880-4d20-8486-81df16fbc640');
 UPDATE `document_sequences` SET `value` = 37 WHERE `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND `name` = 'PERSON_ACCOUNT';
 
+-- Caja donde se cobró cada venta (para el cierre X/Z): la del cobro en efectivo.
+UPDATE `sales` s
+JOIN (
+  SELECT p.sale_id, MIN(m.cash_session_id) AS cash_session_id
+  FROM `cash_movements` m
+  JOIN `sale_payments` p ON p.id = m.source_id AND m.source_type = 'SALE_PAYMENT'
+  WHERE m.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
+  GROUP BY p.sale_id
+) linked ON linked.sale_id = s.id
+SET s.cash_session_id = linked.cash_session_id
+WHERE s.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND s.cash_session_id IS NULL;
+
 COMMIT;
 
 -- Resumen de lo cargado
