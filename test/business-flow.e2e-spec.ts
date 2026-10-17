@@ -906,6 +906,12 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(sellerListPrices, 200);
     expect(sellerListPrices.body[0].lists.length).toBeGreaterThanOrEqual(3);
     expect(JSON.stringify(sellerListPrices.body)).not.toContain('costPrice');
+    // El vendedor ve el stock de todas las sucursales (sin costos).
+    const sellerStock = await api('get', `/products/${productId}/stock`);
+    expectStatus(sellerStock, 200);
+    expect(sellerStock.body.map((row: { branchId: string }) => row.branchId)).toEqual(expect.arrayContaining([A, B]));
+    expect(sellerStock.body.find((row: { branchId: string }) => row.branchId === A)).toMatchObject({ enabled: true });
+    expect(JSON.stringify(sellerStock.body)).not.toContain('cost');
     expectStatus(await api('post', '/products/price-updates', { percentage: 5, reason: 'No autorizado', dryRun: true }), 403);
     const quoteX = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId, quantity: 2 }], notes: 'Cliente vuelve mañana' }, true);
     expectStatus(quoteX, 201);
