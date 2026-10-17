@@ -108,6 +108,19 @@ export interface ProductListPricesView {
   lists: Array<{ priceListId: string; name: string; percentage: string; paymentCondition: PriceListPaymentCondition; price: string; finalPrice: string }>;
 }
 
+/** Stock de un producto en una sucursal (sin costos: lo consulta el vendedor). */
+export interface ProductBranchStockView {
+  branchId: string;
+  branchName: string;
+  /** El producto está cargado en esa sucursal. */
+  enabled: boolean;
+  /** Se vende en esa sucursal. */
+  isActive: boolean;
+  stock: number;
+  minStock: number;
+  belowMinimum: boolean;
+}
+
 export interface BulkPriceRowPreview {
   productId: string;
   sku: string;
@@ -740,6 +753,37 @@ export class CatalogService {
     if (resolveVatRegime(tenant?.defaultVatRegime, branch?.vatRegime) === VatRegime.TIERRA_DEL_FUEGO) return false;
     const condition = profile ? parseTaxCondition(profile.vatConditionCode) : TaxConditionEnum.RESPONSABLE_INSCRIPTO;
     return condition === TaxConditionEnum.RESPONSABLE_INSCRIPTO;
+  }
+
+  /**
+   * Stock del producto en todas las sucursales activas de la empresa. Lo ve también el vendedor: sirve para
+   * ofrecer la mercadería de otro local o pedir una transferencia. No incluye costos.
+   */
+  async branchStock(tenantId: string, productId: string): Promise<ProductBranchStockView[]> {
+    const product = await this.dataSource.getRepository(ProductEntity).findOne({ where: { id: productId, tenantId }, select: { id: true } });
+    if (!product) throw new NotFoundException('Producto no encontrado.');
+    const [branches, rows] = await Promise.all([
+      this.dataSource.getRepository(BranchEntity).find({ where: { tenantId, status: true }, select: { id: true, name: true }, order: { name: 'ASC' } }),
+      this.dataSource.getRepository(ProductBranchEntity).find({
+        where: { tenantId, productId },
+        select: { id: true, branchId: true, stock: true, minStock: true, isActive: true },
+      }),
+    ]);
+    const byBranch = new Map(rows.map((row) => [row.branchId, row]));
+    return branches.map((branch) => {
+      const row = byBranch.get(branch.id);
+      const stock = row ? Number(row.stock) : 0;
+      const minStock = row ? Number(row.minStock) : 0;
+      return {
+        branchId: branch.id,
+        branchName: branch.name,
+        enabled: Boolean(row),
+        isActive: row?.isActive ?? false,
+        stock,
+        minStock,
+        belowMinimum: Boolean(row) && stock <= minStock,
+      };
+    });
   }
 
   /**
