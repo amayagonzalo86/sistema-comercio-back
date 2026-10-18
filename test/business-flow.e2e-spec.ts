@@ -747,6 +747,12 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(zOnly.body.total).toBe(2);
     const zByNumber = await api('get', '/cash/reports?type=Z&number=2');
     expect(zByNumber.body.items).toEqual([expect.objectContaining({ type: 'Z', number: 2, countedAmount: '480.00', registerCode: 'CAJA1' })]);
+    // Filtro por día local (Argentina): hoy incluye todos los cierres de hoy, aunque en UTC ya sea mañana.
+    const todayAr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const todayReports = await api('get', `/cash/reports?from=${todayAr}&to=${todayAr}`);
+    expect(todayReports.body.total).toBe(4);
+    const todaySales = await api('get', `/sales?from=${todayAr}&to=${todayAr}`);
+    expect(todaySales.body.total).toBeGreaterThanOrEqual(3);
     const closedDetail = await api('get', `/cash/sessions/${session.body.id}`);
     expect(closedDetail.body.reports.map((report: { type: string; number: number }) => `${report.type}${report.number}`)).toEqual(['X1', 'X2', 'Z1']);
     const audit = await api('get', '/audit-events');
