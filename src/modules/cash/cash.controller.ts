@@ -140,6 +140,20 @@ export class CashController {
     return this.cashService.xReport(tenantId, actor.id, sessionId, idempotencyKey, dto, requireAssignedBranch(actor), this.auditContext(request));
   }
 
+  /** Productos vendidos y ventas de la caja (detalle). */
+  @Get('sessions/:sessionId/sales')
+  @Roles(...CASH_ADMIN_ROLES)
+  sessionSales(@GetTenantId() tenantId: string, @Req() request: Request, @Param('sessionId', ParseUUIDPipe) sessionId: string) {
+    return this.cashService.sessionSalesDetail(tenantId, sessionId, requireAssignedBranch(request.user as CashActor));
+  }
+
+  /** Detalle de un cierre X o Z: lo cobrado hasta ese cierre. */
+  @Get('reports/:reportId/sales')
+  @Roles(...CASH_ADMIN_ROLES)
+  reportSales(@GetTenantId() tenantId: string, @Req() request: Request, @Param('reportId', ParseUUIDPipe) reportId: string) {
+    return this.cashService.reportSalesDetail(tenantId, reportId, requireAssignedBranch(request.user as CashActor));
+  }
+
   /** Cierre X o Z para imprimir. */
   @Get('reports/:reportId')
   @Roles(...CASH_ADMIN_ROLES)

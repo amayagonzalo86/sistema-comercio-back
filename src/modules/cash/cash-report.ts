@@ -95,3 +95,88 @@ export async function buildCashSummary(manager: EntityManager, session: CashSess
     previousX: Number(xRows[0]?.count ?? 0),
   };
 }
+
+/** Producto vendido en la caja (cantidades netas de lo cobrado). */
+export interface CashDetailProduct {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: string;
+  discount: string;
+  total: string;
+}
+
+/** Venta cobrada en la caja. */
+export interface CashDetailSale {
+  id: string;
+  createdAt: string;
+  voucherClass: string | null;
+  /** Número de factura autorizada ("00003-00001287"), si se emitió. */
+  invoiceNumber: string | null;
+  customerName: string | null;
+  payments: string[];
+  total: string;
+}
+
+export interface CashSessionSalesDetail {
+  until: string;
+  products: CashDetailProduct[];
+  sales: CashDetailSale[];
+  /** true si la caja tuvo más ventas que las listadas. */
+  truncated: boolean;
+}
+
+const MAX_DETAIL_SALES = 1000;
+
+/**
+ * Detalle de lo cobrado en una caja hasta un momento (cierre X: hasta ese X; Z o en vivo: hasta el cierre/ahora):
+ * productos vendidos agrupados y la lista de ventas con comprobante, cliente y medios de pago.
+ */
+export async function buildCashSalesDetail(manager: EntityManager, tenantId: string, sessionId: string, until: Date): Promise<CashSessionSalesDetail> {
+  const params = [tenantId, sessionId, until];
+  const [productRows, saleRows] = await Promise.all([
+    manager.query(
+      `SELECT i.product_id AS productId, MAX(i.sku_snapshot) AS sku, MAX(i.name_snapshot) AS name,
+              COALESCE(SUM(i.quantity), 0) AS quantity, COALESCE(SUM(i.discount_amount), 0) AS discount, COALESCE(SUM(i.total), 0) AS total
+         FROM sale_items i JOIN sales s ON s.id = i.sale_id
+        WHERE s.tenant_id = ? AND s.cash_session_id = ? AND s.created_at <= ?
+        GROUP BY i.product_id
+        ORDER BY total DESC, name ASC`,
+      params,
+    ) as Promise<Row[]>,
+    manager.query(
+      `SELECT s.id, DATE_FORMAT(s.created_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAt, s.voucher_class AS voucherClass, s.total,
+              TRIM(CONCAT_WS(' ', p.first_name, NULLIF(p.last_name, '-'))) AS customerName,
+              (SELECT GROUP_CONCAT(DISTINCT sp.method ORDER BY sp.method SEPARATOR ',') FROM sale_payments sp WHERE sp.sale_id = s.id) AS payments,
+              (SELECT CONCAT(LPAD(f.point_of_sale, 5, '0'), '-', LPAD(f.number, 8, '0')) FROM fiscal_documents f
+                WHERE f.tenant_id = s.tenant_id AND f.source_type = 'SALE' AND f.source_id = s.id AND f.status = 'AUTHORIZED' AND f.number IS NOT NULL
+                ORDER BY f.created_at DESC LIMIT 1) AS invoiceNumber
+         FROM sales s LEFT JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
+        WHERE s.tenant_id = ? AND s.cash_session_id = ? AND s.created_at <= ?
+        ORDER BY s.created_at ASC, s.id ASC
+        LIMIT ${MAX_DETAIL_SALES + 1}`,
+      params,
+    ) as Promise<Row[]>,
+  ]);
+  return {
+    until: until.toISOString(),
+    products: productRows.map((row) => ({
+      productId: String(row.productId),
+      sku: String(row.sku ?? ''),
+      name: String(row.name ?? ''),
+      quantity: Number(row.quantity ?? 0).toFixed(3),
+      discount: centsText(decimalCents(row.discount as string)),
+      total: centsText(decimalCents(row.total as string)),
+    })),
+    sales: saleRows.slice(0, MAX_DETAIL_SALES).map((row) => ({
+      id: String(row.id),
+      createdAt: String(row.createdAt),
+      voucherClass: row.voucherClass ? String(row.voucherClass) : null,
+      invoiceNumber: row.invoiceNumber ? String(row.invoiceNumber) : null,
+      customerName: row.customerName ? String(row.customerName) : null,
+      payments: row.payments ? String(row.payments).split(',') : [],
+      total: centsText(decimalCents(row.total as string)),
+    })),
+    truncated: saleRows.length > MAX_DETAIL_SALES,
+  };
+}
