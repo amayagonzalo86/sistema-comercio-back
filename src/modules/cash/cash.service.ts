@@ -17,7 +17,7 @@ import { TenantEntity, TenantStatus } from '../platform/entities/tenant.entity';
 import { AuditEventEntity } from '../platform/entities/audit-event.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
-import { CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
+import { CashCountDto, CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
 import { CashSessionQueryDto } from './dto/cash-session-query.dto';
 import { buildCashSalesDetail, buildCashSummary, CashSessionSalesDetail, centsText, decimalCents } from './cash-report';
 import { CashReportSummary, CashReportType, CashSessionReportEntity } from './entities/cash-session-report.entity';
@@ -456,8 +456,9 @@ export class CashService {
     audit: InventoryAuditContext,
   ): Promise<CashSessionEntity & { report: CashSessionReportEntity | null }> {
     const key = normalizeKey(idempotencyKey);
-    const countedCents = parseMoney(dto.countedAmount, 'El efectivo contado');
-    const countedAmount = formatCents(countedCents);
+    // Sin efectivo contado: Z sin arqueo (el arqueo se registra después, por ejemplo contando en la oficina).
+    const countedCents = dto.countedAmount !== undefined && dto.countedAmount !== '' ? parseMoney(dto.countedAmount, 'El efectivo contado') : null;
+    const countedAmount = countedCents !== null ? formatCents(countedCents) : null;
     const notes = dto.notes?.trim() || null;
     const fingerprint = hashRequest({ operation: 'close', sessionId, countedAmount, notes, actorUserId });
 
@@ -492,7 +493,7 @@ export class CashService {
       const expectedCents = parseMoney(session.expectedAmount, 'El saldo esperado');
       session.status = CashSessionStatus.CLOSED;
       session.countedAmount = countedAmount;
-      session.differenceAmount = formatSignedCents(countedCents - expectedCents);
+      session.differenceAmount = countedCents !== null ? formatSignedCents(countedCents - expectedCents) : null;
       session.closedByUserId = actorUserId;
       session.closedAt = closedAt;
       session.closingNotes = notes;
@@ -698,6 +699,57 @@ export class CashService {
         actorName: names.get(report.actorUserId) ?? null,
       })),
     };
+  }
+
+  /**
+   * Arqueo posterior: registra el efectivo contado de una caja cerrada con Z sin arqueo (una sola vez).
+   * Actualiza la caja y su Z con el contado y la diferencia.
+   */
+  async registerCount(
+    tenantId: string,
+    actorUserId: string,
+    sessionId: string,
+    idempotencyKey: string,
+    dto: CashCountDto,
+    allowedBranchId: string | null,
+    audit: InventoryAuditContext,
+  ): Promise<CashSessionEntity & { report: CashSessionReportEntity | null }> {
+    normalizeKey(idempotencyKey);
+    const countedCents = parseMoney(dto.countedAmount, 'El efectivo contado');
+    const countedAmount = formatCents(countedCents);
+    const notes = dto.notes?.trim() || null;
+    return this.dataSource.transaction(async (manager) => {
+      await this.assertActorAccess(manager, tenantId, actorUserId, allowedBranchId, CASH_MANAGEMENT_ROLES);
+      const session = await this.lockSession(manager, tenantId, sessionId, allowedBranchId);
+      const report = await manager.findOne(CashSessionReportEntity, { where: { tenantId, cashSessionId: session.id, type: CashReportType.Z } });
+      if (session.status !== CashSessionStatus.CLOSED || !report) {
+        throw new ConflictException('El arqueo posterior se registra sobre una caja ya cerrada con cierre Z.');
+      }
+      if (session.countedAmount !== null && session.countedAmount !== undefined) {
+        // Reintento del mismo arqueo (doble clic, corte de red): devuelve lo ya registrado.
+        if (session.countedAmount === countedAmount) return { ...session, report };
+        throw new ConflictException('Esta caja ya tiene el arqueo registrado.');
+      }
+      const difference = formatSignedCents(countedCents - parseMoney(session.expectedAmount, 'El saldo esperado'));
+      session.countedAmount = countedAmount;
+      session.differenceAmount = difference;
+      const savedSession = await manager.save(CashSessionEntity, session);
+      report.countedAmount = countedAmount;
+      report.differenceAmount = difference;
+      const countNote = `Arqueo posterior${notes ? `: ${notes}` : ''}`;
+      report.notes = [report.notes, countNote].filter(Boolean).join(' · ').slice(0, 500);
+      const savedReport = await manager.save(CashSessionReportEntity, report);
+      await this.writeAudit(manager, {
+        tenantId,
+        actorUserId,
+        audit,
+        eventType: 'CASH_SESSION_COUNTED',
+        aggregateType: 'CASH_SESSION',
+        aggregateId: session.id,
+        metadata: { reportId: report.id, zNumber: report.number, expectedAmount: session.expectedAmount, countedAmount, differenceAmount: difference },
+      });
+      return { ...savedSession, report: savedReport };
+    });
   }
 
   /** Ventas y productos de una caja: en vivo si está abierta, hasta el cierre si está cerrada. */
