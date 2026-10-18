@@ -847,6 +847,7 @@ export class CatalogService {
       percentageBasisPoints: BigInt(Math.round(Number(list.percentage) * 100)),
       paymentCondition: list.paymentCondition,
       isDefault: list.isDefault,
+      isChargeBase: list.isDefault && list.paymentCondition === PriceListPaymentCondition.ANY,
       cashMethods: cashMethodsOf(list.discountMethods),
       overrides: new Map(
         overrides
