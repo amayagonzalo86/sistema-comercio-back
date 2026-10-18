@@ -11,6 +11,8 @@ export interface ResolvedPriceList {
   percentage: string;
   percentageBasisPoints: bigint;
   paymentCondition: PriceListPaymentCondition;
+  /** Es la lista principal de la empresa. */
+  isDefault: boolean;
   /** Porcentaje propio de algunos productos dentro de esta lista. */
   overrides: Map<string, bigint>;
 }
@@ -50,6 +52,7 @@ export async function resolvePriceList(
     percentage: Number(list.percentage).toFixed(2),
     percentageBasisPoints: toBasisPoints(list.percentage),
     paymentCondition: list.paymentCondition,
+    isDefault: list.isDefault,
     overrides: new Map(overrides.map((override) => [override.productId, toBasisPoints(override.appliedPercentage)])),
   };
 }
@@ -77,4 +80,25 @@ export function assertPaymentCondition(list: ResolvedPriceList | null, payments:
 /** Datos de la lista que devuelve la cotización y se guardan en la venta. */
 export function priceListSummary(list: ResolvedPriceList | null) {
   return list ? { id: list.id, name: list.name, percentage: list.percentage, paymentCondition: list.paymentCondition } : null;
+}
+
+/**
+ * Lista de efectivo de la empresa: la primera lista activa "solo efectivo" (ej.: "Ventas en efectivo" −5 %).
+ * Se aplica sola a la parte de la venta que se paga en efectivo. null si la empresa no tiene una.
+ */
+export async function resolveCashPriceList(manager: EntityManager, tenantId: string): Promise<ResolvedPriceList | null> {
+  const list = await manager.getRepository(PriceListEntity).findOne({
+    where: { tenantId, paymentCondition: PriceListPaymentCondition.CASH_ONLY, isActive: true, deletedAt: IsNull() },
+    order: { sortOrder: 'ASC', name: 'ASC' },
+    select: { id: true },
+  });
+  return list ? resolvePriceList(manager, tenantId, list.id) : null;
+}
+
+/**
+ * El descuento de efectivo automático se aplica sobre la lista principal (o sin listas). Con una lista elegida a
+ * propósito (cliente con lista propia, gobierno, mayorista) o con una lista "solo efectivo" no se suma otro descuento.
+ */
+export function cashDiscountApplies(baseList: ResolvedPriceList | null): boolean {
+  return baseList === null || (baseList.isDefault && baseList.paymentCondition === PriceListPaymentCondition.ANY);
 }

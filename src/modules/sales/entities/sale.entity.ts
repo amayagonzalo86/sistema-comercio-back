@@ -100,6 +100,10 @@ export class SaleEntity {
   @Column({ name: 'price_list_name', type: 'varchar', length: 150, nullable: true })
   priceListName?: string | null;
 
+  /** Descuentos (negativo) y recargos (positivo) por medio de pago incluidos en el total: efectivo, planes de tarjeta. */
+  @Column({ name: 'payment_adjustment_total', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  paymentAdjustmentTotal!: string;
+
   @Column({ name: 'price_list_percentage', type: 'decimal', precision: 7, scale: 2, nullable: true })
   priceListPercentage?: string | null;
 
