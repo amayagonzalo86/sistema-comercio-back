@@ -19,7 +19,7 @@ import { InventoryAuditContext } from '../inventory/product/inventory-audit-cont
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
 import { CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
 import { CashSessionQueryDto } from './dto/cash-session-query.dto';
-import { buildCashSummary, centsText, decimalCents } from './cash-report';
+import { buildCashSalesDetail, buildCashSummary, CashSessionSalesDetail, centsText, decimalCents } from './cash-report';
 import { CashReportSummary, CashReportType, CashSessionReportEntity } from './entities/cash-session-report.entity';
 import { Paginated, paginated } from '../../common/dto/page-query.dto';
 import { userDisplayNames } from '../../common/security/platform-operators';
@@ -698,6 +698,22 @@ export class CashService {
         actorName: names.get(report.actorUserId) ?? null,
       })),
     };
+  }
+
+  /** Ventas y productos de una caja: en vivo si está abierta, hasta el cierre si está cerrada. */
+  async sessionSalesDetail(tenantId: string, sessionId: string, allowedBranchId: string | null): Promise<CashSessionSalesDetail> {
+    const session = await this.findSession(tenantId, sessionId, allowedBranchId);
+    return buildCashSalesDetail(this.dataSource.manager, tenantId, session.id, session.closedAt ? new Date(session.closedAt) : new Date());
+  }
+
+  /** Detalle de un cierre: lo cobrado en la caja hasta el momento de ese X o Z. */
+  async reportSalesDetail(tenantId: string, reportId: string, allowedBranchId: string | null): Promise<CashSessionSalesDetail> {
+    const report = await this.dataSource.getRepository(CashSessionReportEntity).findOne({
+      where: { tenantId, id: reportId, ...(allowedBranchId ? { branchId: allowedBranchId } : {}) },
+      select: { id: true, cashSessionId: true, createdAt: true },
+    });
+    if (!report) throw new NotFoundException('Cierre de caja no encontrado.');
+    return buildCashSalesDetail(this.dataSource.manager, tenantId, report.cashSessionId, new Date(report.createdAt));
   }
 
   /** Un cierre X o Z para imprimir. */

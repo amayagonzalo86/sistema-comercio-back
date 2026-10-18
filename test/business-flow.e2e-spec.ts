@@ -709,6 +709,14 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(zClose.body).toMatchObject({ status: 'CLOSED', differenceAmount: '-100.00', closingNotes: 'Faltan $100' });
     expect(zClose.body.report).toMatchObject({ type: 'Z', number: 1, countedAmount: shortCount });
     expectStatus(await api('post', `/cash/sessions/${session.body.id}/x-reports`, {}, true), 409);
+    // Cierre detallado: productos vendidos y ventas (con medio de pago) hasta el cierre.
+    const xDetail = await api('get', `/cash/reports/${xReport.body.id}/sales`);
+    expectStatus(xDetail, 200);
+    expect(xDetail.body.sales.length).toBe(3);
+    expect(xDetail.body.sales.map((sale: { payments: string[] }) => sale.payments.join('+'))).toEqual(expect.arrayContaining(['CASH', 'DEBIT_CARD']));
+    expect(xDetail.body.products[0]).toMatchObject({ productId, quantity: '6.000' });
+    const zDetail = await api('get', `/cash/sessions/${session.body.id}/sales`);
+    expect(zDetail.body.sales.length).toBe(3);
     const zPrint = await api('get', `/cash/reports/${zClose.body.report.id}`);
     expectStatus(zPrint, 200);
     expect(zPrint.body).toMatchObject({ registerCode: 'CAJA1', type: 'Z' });
