@@ -70,11 +70,34 @@ jobs:
                   print('FALLA', i, st[:200], r.stderr.decode()[:300]); raise SystemExit(1)
           print('OK todas')
           PY
+      - name: Protección contra borrado de datos reales
+        run: |
+          M="mysql -h127.0.0.1 -uroot -proot --default-character-set=utf8mb4"
+          $M sistema_comercio -e "UPDATE sales SET idempotency_key = 'real-venta-1' WHERE idempotency_key = (SELECT k FROM (SELECT MIN(idempotency_key) k FROM sales WHERE idempotency_key LIKE 'demo-sale-%') t)"
+          if $M -e "source out/base-completa.sql" > guard1.log 2>&1; then echo "::error::base-completa no se detuvo"; exit 1; fi
+          grep -q "base_con_datos_reales_no_se_borra_nada" guard1.log
+          test "$($M sistema_comercio -N -e "SELECT COUNT(*) FROM sales WHERE idempotency_key = 'real-venta-1'")" = "1"
+          if $M sistema_comercio -e "source database/demo/datos-demo.sql" > guard2.log 2>&1; then echo "::error::datos-demo no se detuvo"; exit 1; fi
+          grep -q "demo_con_datos_reales_no_se_borra_nada" guard2.log
+          test "$($M sistema_comercio -N -e "SELECT COUNT(*) FROM sales WHERE idempotency_key = 'real-venta-1'")" = "1"
+          echo "Protección OK: ninguno de los dos scripts borró la venta real."
+          $M sistema_comercio -e "UPDATE sales SET idempotency_key = 'demo-sale-restaurada' WHERE idempotency_key = 'real-venta-1'"
       - name: Prueba de humo contra la API
         run: |
           node dist/main.js > api2.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health >/dev/null && break; sleep 2; done
           node scripts/ci/smoke-demo.mjs || (tail -60 api2.log; exit 1)
+      - name: Facturas de ejemplo
+        run: |
+          M="mysql -h127.0.0.1 -uroot -proot --default-character-set=utf8mb4"
+          $M -e "source scripts/tmp/facturas-ejemplo.sql"
+          test "$($M sistema_comercio -N -e "SELECT COUNT(*) FROM fiscal_documents WHERE status='AUTHORIZED'")" = "40"
+          test "$($M sistema_comercio -N -e "SELECT COUNT(*) FROM sales WHERE fiscal_status='AUTHORIZED'")" = "40"
+          $M -e "source scripts/tmp/facturas-ejemplo.sql"
+          test "$($M sistema_comercio -N -e "SELECT COUNT(*) FROM fiscal_documents")" = "80"
+          $M sistema_comercio -e "SELECT voucher_class, point_of_sale, COUNT(*), MIN(number), MAX(number) FROM fiscal_documents GROUP BY 1,2"
+          if $M -e "source out/base-completa.sql" > guard3.log 2>&1; then echo "::error::no se detuvo con facturas"; exit 1; fi
+          echo "Facturas de ejemplo OK y protección activa."
       - name: Publicar
         run: |
           cd out && git init -q -b tmp-base-completa-resultado && git config user.name bot && git config user.email bot@users.noreply.github.com && git add -A && git commit -qm sql && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" tmp-base-completa-resultado
