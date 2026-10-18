@@ -25,6 +25,7 @@ import { InventoryAuditContext } from '../inventory/product/inventory-audit-cont
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
 import { CashCountDto, CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
 import { CashSessionQueryDto } from './dto/cash-session-query.dto';
+import { CashReportQueryDto } from './dto/cash-report-query.dto';
 import { actorTenantRoles } from '../../common/security/tenant-roles';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
 import { CreateCashRegisterDto } from './dto/create-cash-register.dto';
@@ -138,6 +139,15 @@ export class CashController {
     }
     const actor = request.user as CashActor;
     return this.cashService.xReport(tenantId, actor.id, sessionId, idempotencyKey, dto, requireAssignedBranch(actor), this.auditContext(request));
+  }
+
+  /** Buscador de cierres X y Z (por número, fecha, tipo y caja). */
+  @Get('reports')
+  @Roles(...CASH_ADMIN_ROLES)
+  listReports(@GetTenantId() tenantId: string, @Req() request: Request, @Query() query: CashReportQueryDto) {
+    const actor = request.user as CashActor;
+    if (query.branchId) requireBranchAccess(actor, query.branchId);
+    return this.cashService.listReports(tenantId, requireAssignedBranch(actor), query);
   }
 
   /** Arqueo posterior de una caja cerrada con Z sin arqueo. */
