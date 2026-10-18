@@ -724,6 +724,21 @@ describe('Flujo comercial completo (e2e)', () => {
     const cashHistory = await api('get', `/cash/sessions?branchId=${A}`);
     expectStatus(cashHistory, 200);
     expect(cashHistory.body.items[0]).toMatchObject({ id: session.body.id, zNumber: 1, salesCount: 3 });
+    expect(zPrint.body.summary.tickets).toMatchObject({ sales: 3 });
+    expectStatus(await api('post', `/cash/sessions/${session.body.id}/count`, { countedAmount: '1.00' }, true), 409); // ya tenía arqueo
+
+    // Z sin arqueo (se emite desde la oficina) y arqueo posterior.
+    const session2 = await api('post', `/cash/registers/${register.body.id}/sessions`, { currency: 'ARS', openingAmount: '500.00' }, true);
+    expectStatus(session2, 201);
+    const blindZ = await api('post', `/cash/sessions/${session2.body.id}/close`, {}, true);
+    expectStatus(blindZ, 200);
+    expect(blindZ.body).toMatchObject({ status: 'CLOSED', countedAmount: null, differenceAmount: null });
+    expect(blindZ.body.report).toMatchObject({ type: 'Z', number: 2, countedAmount: null, differenceAmount: null });
+    const lateCount = await api('post', `/cash/sessions/${session2.body.id}/count`, { countedAmount: '480.00', notes: 'Contado en la oficina' }, true);
+    expectStatus(lateCount, 200);
+    expect(lateCount.body).toMatchObject({ countedAmount: '480.00', differenceAmount: '-20.00' });
+    expect(lateCount.body.report).toMatchObject({ countedAmount: '480.00', differenceAmount: '-20.00' });
+    expectStatus(await api('post', `/cash/sessions/${session2.body.id}/count`, { countedAmount: '500.00' }, true), 409);
     const closedDetail = await api('get', `/cash/sessions/${session.body.id}`);
     expect(closedDetail.body.reports.map((report: { type: string; number: number }) => `${report.type}${report.number}`)).toEqual(['X1', 'X2', 'Z1']);
     const audit = await api('get', '/audit-events');

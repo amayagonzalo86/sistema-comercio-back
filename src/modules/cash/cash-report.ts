@@ -1,6 +1,6 @@
 import { EntityManager } from 'typeorm';
 import { CashMovementDirection, CashMovementType } from './entities/cash-movement.entity';
-import { CashReportBreakdown, CashReportSummary, CashReportType } from './entities/cash-session-report.entity';
+import { CashReportBreakdown, CashReportDocument, CashReportSummary, CashReportType } from './entities/cash-session-report.entity';
 import { CashSessionEntity } from './entities/cash-session.entity';
 
 /** Centavos a partir de un decimal de MySQL ("1234.50", "-3.00" o null). */
@@ -27,7 +27,7 @@ type Row = Record<string, string | number | null>;
  */
 export async function buildCashSummary(manager: EntityManager, session: CashSessionEntity, until: Date): Promise<CashReportSummary> {
   const params = [session.tenantId, session.id];
-  const [salesRows, paymentRows, voucherRows, refundRows, movementRows, xRows] = await Promise.all([
+  const [salesRows, paymentRows, voucherRows, refundRows, movementRows, xRows, documentRows, invoicedRows] = await Promise.all([
     manager.query(
       `SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS total, COALESCE(SUM(discount_total), 0) AS discounts, COALESCE(SUM(tax_total), 0) AS tax
          FROM sales WHERE tenant_id = ? AND cash_session_id = ?`,
@@ -57,6 +57,24 @@ export async function buildCashSummary(manager: EntityManager, session: CashSess
       ...params,
       CashReportType.X,
     ]) as Promise<Row[]>,
+    // Comprobantes autorizados de las ventas y devoluciones de esta caja, por tipo y punto de venta.
+    manager.query(
+      `SELECT f.voucher_type AS voucherType, f.point_of_sale AS pointOfSale, COUNT(*) AS count,
+              MIN(f.number) AS fromNumber, MAX(f.number) AS toNumber, COALESCE(SUM(f.total), 0) AS total
+         FROM fiscal_documents f
+        WHERE f.tenant_id = ? AND f.status = 'AUTHORIZED' AND f.number IS NOT NULL AND (
+              (f.source_type = 'SALE' AND f.source_id IN (SELECT s.id FROM sales s WHERE s.tenant_id = f.tenant_id AND s.cash_session_id = ?))
+           OR (f.source_type = 'SALE_RETURN' AND f.source_id IN (SELECT r.id FROM sale_returns r WHERE r.tenant_id = f.tenant_id AND r.cash_session_id = ?)))
+        GROUP BY f.voucher_type, f.point_of_sale
+        ORDER BY f.voucher_type, f.point_of_sale`,
+      [session.tenantId, session.id, session.id],
+    ) as Promise<Row[]>,
+    manager.query(
+      `SELECT COUNT(DISTINCT f.source_id) AS count FROM fiscal_documents f
+        WHERE f.tenant_id = ? AND f.source_type = 'SALE' AND f.status = 'AUTHORIZED'
+          AND f.source_id IN (SELECT s.id FROM sales s WHERE s.tenant_id = f.tenant_id AND s.cash_session_id = ?)`,
+      params,
+    ) as Promise<Row[]>,
   ]);
 
   const movement = (type: CashMovementType, direction: CashMovementDirection) =>
@@ -93,6 +111,21 @@ export async function buildCashSummary(manager: EntityManager, session: CashSess
     },
     expectedCash: centsText(decimalCents(session.expectedAmount)),
     previousX: Number(xRows[0]?.count ?? 0),
+    tickets: {
+      sales: Number(sales.count ?? 0),
+      invoiced: Number(invoicedRows[0]?.count ?? 0),
+      notInvoiced: Math.max(0, Number(sales.count ?? 0) - Number(invoicedRows[0]?.count ?? 0)),
+    },
+    documents: documentRows.map(
+      (row): CashReportDocument => ({
+        voucherType: Number(row.voucherType),
+        pointOfSale: Number(row.pointOfSale),
+        count: Number(row.count),
+        from: Number(row.fromNumber),
+        to: Number(row.toNumber),
+        total: centsText(decimalCents(row.total as string)),
+      }),
+    ),
   };
 }
 

@@ -23,7 +23,7 @@ import { requireAssignedBranch, requireBranchAccess } from '../../common/securit
 import { UserRoleEnum } from '../roles/entities/role.entity';
 import { InventoryAuditContext } from '../inventory/product/inventory-audit-context';
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
-import { CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
+import { CashCountDto, CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
 import { CashSessionQueryDto } from './dto/cash-session-query.dto';
 import { actorTenantRoles } from '../../common/security/tenant-roles';
 import { CreateCashMovementDto } from './dto/create-cash-movement.dto';
@@ -138,6 +138,24 @@ export class CashController {
     }
     const actor = request.user as CashActor;
     return this.cashService.xReport(tenantId, actor.id, sessionId, idempotencyKey, dto, requireAssignedBranch(actor), this.auditContext(request));
+  }
+
+  /** Arqueo posterior de una caja cerrada con Z sin arqueo. */
+  @Post('sessions/:sessionId/count')
+  @Roles(...CASH_ADMIN_ROLES)
+  @HttpCode(HttpStatus.OK)
+  registerCount(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() dto: CashCountDto,
+  ) {
+    if (!idempotencyKey) {
+      throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
+    }
+    const actor = request.user as CashActor;
+    return this.cashService.registerCount(tenantId, actor.id, sessionId, idempotencyKey, dto, requireAssignedBranch(actor), this.auditContext(request));
   }
 
   /** Productos vendidos y ventas de la caja (detalle). */

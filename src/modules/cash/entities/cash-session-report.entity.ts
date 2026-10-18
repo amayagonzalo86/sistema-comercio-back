@@ -35,6 +35,19 @@ export interface CashReportSummary {
   };
   expectedCash: string;
   previousX: number;
+  /** Tickets: ventas cobradas y cuántas tienen factura autorizada (ausente en cierres anteriores). */
+  tickets?: { sales: number; invoiced: number; notInvoiced: number };
+  /** Comprobantes autorizados por tipo y punto de venta, con el rango de números. */
+  documents?: CashReportDocument[];
+}
+
+export interface CashReportDocument {
+  voucherType: number;
+  pointOfSale: number;
+  count: number;
+  from: number;
+  to: number;
+  total: string;
 }
 
 @Entity('cash_session_reports')
