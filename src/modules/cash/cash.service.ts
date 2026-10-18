@@ -24,6 +24,7 @@ import { buildCashSalesDetail, buildCashSummary, CashSessionSalesDetail, centsTe
 import { CashReportSummary, CashReportType, CashSessionReportEntity } from './entities/cash-session-report.entity';
 import { Paginated, paginated } from '../../common/dto/page-query.dto';
 import { userDisplayNames } from '../../common/security/platform-operators';
+import { localDayRange, tenantTimeZone } from '../../common/time/local-day-range';
 import {
   CashManualMovementDirection,
   CashManualMovementType,
@@ -684,8 +685,9 @@ export class CashService {
     if (branchId) qb.andWhere('s.branchId = :branchId', { branchId });
     if (query.registerId) qb.andWhere('s.cashRegisterId = :registerId', { registerId: query.registerId });
     if (query.status) qb.andWhere('s.status = :status', { status: query.status });
-    if (query.from) qb.andWhere('s.openedAt >= :from', { from: `${query.from} 00:00:00` });
-    if (query.to) qb.andWhere('s.openedAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to });
+    const range = localDayRange(await tenantTimeZone(this.dataSource.manager, tenantId), query.from, query.to);
+    if (range.start) qb.andWhere('s.openedAt >= :from', { from: range.start });
+    if (range.end) qb.andWhere('s.openedAt < :to', { to: range.end });
     const [items, total] = await qb
       .orderBy('s.openedAt', 'DESC')
       .addOrderBy('s.id', 'DESC')
@@ -800,8 +802,9 @@ export class CashService {
     if (query.registerId) qb.andWhere('r.cashRegisterId = :registerId', { registerId: query.registerId });
     if (query.type) qb.andWhere('r.type = :type', { type: query.type });
     if (query.number) qb.andWhere('r.number = :number', { number: query.number });
-    if (query.from) qb.andWhere('r.createdAt >= :from', { from: `${query.from} 00:00:00` });
-    if (query.to) qb.andWhere('r.createdAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to });
+    const range = localDayRange(await tenantTimeZone(this.dataSource.manager, tenantId), query.from, query.to);
+    if (range.start) qb.andWhere('r.createdAt >= :from', { from: range.start });
+    if (range.end) qb.andWhere('r.createdAt < :to', { to: range.end });
     const [reports, total] = await qb
       .orderBy('r.createdAt', 'DESC')
       .addOrderBy('r.id', 'DESC')

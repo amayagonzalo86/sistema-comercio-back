@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { Paginated, paginated } from '../../common/dto/page-query.dto';
+import { localDayRange, tenantTimeZone } from '../../common/time/local-day-range';
 import { SaleQueryDto } from './dto/sale-query.dto';
 import { SaleEntity } from './entities/sale.entity';
 
@@ -19,8 +20,12 @@ export class SalesQueryService {
       .createQueryBuilder('s')
       .where('s.tenantId = :tenantId', { tenantId });
     if (branchId) qb.andWhere('s.branchId = :branchId', { branchId });
-    if (query.from) qb.andWhere('s.createdAt >= :from', { from: `${query.from.slice(0, 10)} 00:00:00` });
-    if (query.to) qb.andWhere('s.createdAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to.slice(0, 10) });
+    if (query.from || query.to) {
+      // Días locales de la empresa (la base guarda en UTC).
+      const range = localDayRange(await tenantTimeZone(this.dataSource.manager, tenantId), query.from, query.to);
+      if (range.start) qb.andWhere('s.createdAt >= :from', { from: range.start });
+      if (range.end) qb.andWhere('s.createdAt < :to', { to: range.end });
+    }
     if (query.customerPersonId) qb.andWhere('s.customerPersonId = :customer', { customer: query.customerPersonId });
     if (query.sellerUserId) qb.andWhere('COALESCE(s.sellerUserId, s.actorUserId) = :seller', { seller: query.sellerUserId });
     if (query.salesOrderId) qb.andWhere('s.salesOrderId = :salesOrderId', { salesOrderId: query.salesOrderId });

@@ -1,4 +1,5 @@
 import { resolveVatRegime, VatRegime } from '../fiscal/vat/vat';
+import { localDayRange, tenantTimeZone } from '../../common/time/local-day-range';
 import {
   BadRequestException,
   ConflictException,
@@ -383,8 +384,11 @@ export class PurchasesService {
     if (branchId) qb.andWhere('r.branchId = :branchId', { branchId });
     if (query.supplierPersonId) qb.andWhere('r.supplierPersonId = :supplierId', { supplierId: query.supplierPersonId });
     if (query.purchaseOrderId) qb.andWhere('r.purchaseOrderId = :orderId', { orderId: query.purchaseOrderId });
-    if (query.from) qb.andWhere('r.createdAt >= :from', { from: new Date(query.from) });
-    if (query.to) qb.andWhere('r.createdAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to.slice(0, 10) });
+    if (query.from || query.to) {
+      const range = localDayRange(await tenantTimeZone(this.dataSource.manager, tenantId), query.from, query.to);
+      if (range.start) qb.andWhere('r.createdAt >= :from', { from: range.start });
+      if (range.end) qb.andWhere('r.createdAt < :to', { to: range.end });
+    }
     const [items, total] = await qb
       .orderBy('r.createdAt', 'DESC')
       .addOrderBy('r.id', 'DESC')
