@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { Brackets, DataSource, EntityManager, In, SelectQueryBuilder } from 'typeorm';
 import { PriceListEntity, PriceListPaymentCondition } from '../../sales/price-list/entities/price-list.entity';
 import { ProductPriceListEntity } from '../../sales/price-list/entities/product-price-list.entity';
-import { applyPriceList, ResolvedPriceList } from '../../sales/price-list/pricing';
+import { applyPriceList, cashMethodsOf, ResolvedPriceList } from '../../sales/price-list/pricing';
 import { deleteProductImage, productImageUrl, saveProductImage } from './product-images';
 import { recordAudit } from '../../../common/audit/audit';
 import { likePattern, Paginated, paginated } from '../../../common/dto/page-query.dto';
@@ -847,6 +847,7 @@ export class CatalogService {
       percentageBasisPoints: BigInt(Math.round(Number(list.percentage) * 100)),
       paymentCondition: list.paymentCondition,
       isDefault: list.isDefault,
+      cashMethods: cashMethodsOf(list.discountMethods),
       overrides: new Map(
         overrides
           .filter((override) => override.priceListId === list.id)

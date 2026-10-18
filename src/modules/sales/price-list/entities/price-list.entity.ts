@@ -17,9 +17,16 @@ import { ProductPriceListEntity } from './product-price-list.entity';
 export enum PriceListPaymentCondition {
   /** Cualquier medio de pago. */
   ANY = 'ANY',
-  /** Solo si todo se cobra en efectivo (por ejemplo, descuento por pago contado). */
+  /**
+   * Pago contado: se aplica sola a la parte pagada en efectivo (y en los medios elegidos en discountMethods,
+   * por ejemplo débito o QR). Nunca con tarjeta de crédito. No puede ser la lista principal.
+   */
   CASH_ONLY = 'CASH_ONLY',
 }
+
+/** Medios que, además del efectivo, pueden recibir el descuento de una lista de pago contado. */
+export const CASH_DISCOUNT_EXTRA_METHODS = ['DEBIT_CARD', 'QR', 'BANK_TRANSFER', 'OTHER'] as const;
+export type CashDiscountExtraMethod = (typeof CASH_DISCOUNT_EXTRA_METHODS)[number];
 
 /**
  * Lista de precios: descuento (porcentaje negativo) o recargo (positivo) sobre el precio de la sucursal.
@@ -52,6 +59,10 @@ export class PriceListEntity {
 
   @Column({ name: 'payment_condition', type: 'enum', enum: PriceListPaymentCondition, default: PriceListPaymentCondition.ANY })
   paymentCondition!: PriceListPaymentCondition;
+
+  /** Pago contado: medios además del efectivo que reciben el descuento ("DEBIT_CARD,QR"). null = solo efectivo. */
+  @Column({ name: 'discount_methods', type: 'varchar', length: 100, nullable: true })
+  discountMethods?: string | null;
 
   /** Lista que se usa cuando la venta no indica otra. */
   @Column({ name: 'is_default', type: 'boolean', default: false })
