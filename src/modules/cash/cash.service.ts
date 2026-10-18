@@ -19,6 +19,7 @@ import { InventoryAuditContext } from '../inventory/product/inventory-audit-cont
 import { CashMovementQueryDto } from './dto/cash-movement-query.dto';
 import { CashCountDto, CashXReportDto, CloseCashSessionDto } from './dto/close-cash-session.dto';
 import { CashSessionQueryDto } from './dto/cash-session-query.dto';
+import { CashReportQueryDto } from './dto/cash-report-query.dto';
 import { buildCashSalesDetail, buildCashSummary, CashSessionSalesDetail, centsText, decimalCents } from './cash-report';
 import { CashReportSummary, CashReportType, CashSessionReportEntity } from './entities/cash-session-report.entity';
 import { Paginated, paginated } from '../../common/dto/page-query.dto';
@@ -60,6 +61,26 @@ export interface CashReportView extends CashSessionReportEntity {
   branchName: string | null;
   openedAt: Date;
   openedByName: string | null;
+}
+
+/** Fila del buscador de cierres (sin el resumen completo). */
+export interface CashReportListItem {
+  id: string;
+  type: CashReportType;
+  number: number;
+  branchId: string;
+  branchName: string | null;
+  cashRegisterId: string;
+  registerCode: string | null;
+  registerName: string | null;
+  cashSessionId: string;
+  createdAt: Date;
+  actorName: string | null;
+  expectedAmount: string;
+  countedAmount: string | null;
+  differenceAmount: string | null;
+  salesTotal: string;
+  salesCount: number;
 }
 
 export interface CashSessionDetail extends CashSessionView {
@@ -766,6 +787,57 @@ export class CashService {
     });
     if (!report) throw new NotFoundException('Cierre de caja no encontrado.');
     return buildCashSalesDetail(this.dataSource.manager, tenantId, report.cashSessionId, new Date(report.createdAt));
+  }
+
+  /** Buscador de cierres X y Z: todos los cierres, más recientes primero, con filtros. */
+  async listReports(tenantId: string, allowedBranchId: string | null, query: CashReportQueryDto): Promise<Paginated<CashReportListItem>> {
+    if (allowedBranchId && query.branchId && allowedBranchId !== query.branchId) {
+      throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
+    }
+    const branchId = allowedBranchId ?? query.branchId;
+    const qb = this.dataSource.getRepository(CashSessionReportEntity).createQueryBuilder('r').where('r.tenantId = :tenantId', { tenantId });
+    if (branchId) qb.andWhere('r.branchId = :branchId', { branchId });
+    if (query.registerId) qb.andWhere('r.cashRegisterId = :registerId', { registerId: query.registerId });
+    if (query.type) qb.andWhere('r.type = :type', { type: query.type });
+    if (query.number) qb.andWhere('r.number = :number', { number: query.number });
+    if (query.from) qb.andWhere('r.createdAt >= :from', { from: `${query.from} 00:00:00` });
+    if (query.to) qb.andWhere('r.createdAt < DATE_ADD(:to, INTERVAL 1 DAY)', { to: query.to });
+    const [reports, total] = await qb
+      .orderBy('r.createdAt', 'DESC')
+      .addOrderBy('r.id', 'DESC')
+      .skip((query.page - 1) * query.limit)
+      .take(query.limit)
+      .getManyAndCount();
+    if (reports.length === 0) return paginated([], total, query.page, query.limit);
+    const [registers, branches, names] = await Promise.all([
+      this.registerRepository.find({ where: { tenantId, id: In([...new Set(reports.map((report) => report.cashRegisterId))]) } }),
+      this.dataSource.getRepository(BranchEntity).find({ where: { tenantId, id: In([...new Set(reports.map((report) => report.branchId))]) }, select: { id: true, name: true } }),
+      userDisplayNames(this.dataSource.manager, reports.map((report) => report.actorUserId)),
+    ]);
+    const registerById = new Map(registers.map((register) => [register.id, register]));
+    const branchById = new Map(branches.map((branch) => [branch.id, branch.name]));
+    const items = reports.map((report) => {
+      const register = registerById.get(report.cashRegisterId);
+      return {
+        id: report.id,
+        type: report.type,
+        number: report.number,
+        branchId: report.branchId,
+        branchName: branchById.get(report.branchId) ?? null,
+        cashRegisterId: report.cashRegisterId,
+        registerCode: register?.code ?? null,
+        registerName: register?.name ?? null,
+        cashSessionId: report.cashSessionId,
+        createdAt: report.createdAt,
+        actorName: names.get(report.actorUserId) ?? null,
+        expectedAmount: report.expectedAmount,
+        countedAmount: report.countedAmount ?? null,
+        differenceAmount: report.differenceAmount ?? null,
+        salesTotal: report.summary?.sales?.total ?? '0.00',
+        salesCount: report.summary?.sales?.count ?? 0,
+      };
+    });
+    return paginated(items, total, query.page, query.limit);
   }
 
   /** Un cierre X o Z para imprimir. */

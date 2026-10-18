@@ -739,6 +739,14 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(lateCount.body).toMatchObject({ countedAmount: '480.00', differenceAmount: '-20.00' });
     expect(lateCount.body.report).toMatchObject({ countedAmount: '480.00', differenceAmount: '-20.00' });
     expectStatus(await api('post', `/cash/sessions/${session2.body.id}/count`, { countedAmount: '500.00' }, true), 409);
+    // Buscador de cierres: todos, por tipo y por número.
+    const allReports = await api('get', `/cash/reports?branchId=${A}`);
+    expectStatus(allReports, 200);
+    expect(allReports.body.items.map((row: { type: string; number: number }) => `${row.type}${row.number}`)).toEqual(['Z2', 'Z1', 'X2', 'X1']);
+    const zOnly = await api('get', '/cash/reports?type=Z');
+    expect(zOnly.body.total).toBe(2);
+    const zByNumber = await api('get', '/cash/reports?type=Z&number=2');
+    expect(zByNumber.body.items).toEqual([expect.objectContaining({ type: 'Z', number: 2, countedAmount: '480.00', registerCode: 'CAJA1' })]);
     const closedDetail = await api('get', `/cash/sessions/${session.body.id}`);
     expect(closedDetail.body.reports.map((report: { type: string; number: number }) => `${report.type}${report.number}`)).toEqual(['X1', 'X2', 'Z1']);
     const audit = await api('get', '/audit-events');
