@@ -387,6 +387,7 @@ CREATE TABLE `price_lists` (
   `description` text COLLATE utf8mb4_unicode_ci,
   `percentage` decimal(7,2) NOT NULL DEFAULT '0.00',
   `payment_condition` enum('ANY','CASH_ONLY') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ANY',
+  `discount_methods` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_default` tinyint NOT NULL DEFAULT '0',
   `is_active` tinyint NOT NULL DEFAULT '1',
   `sort_order` int NOT NULL DEFAULT '0',

@@ -2,6 +2,8 @@ import { PartialType } from '@nestjs/mapped-types';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
+  IsIn,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -16,7 +18,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { PriceListPaymentCondition } from '../entities/price-list.entity';
+import { CASH_DISCOUNT_EXTRA_METHODS, CashDiscountExtraMethod, PriceListPaymentCondition } from '../entities/price-list.entity';
 import { MAX_PRICE_LIST_PERCENTAGE, MIN_PRICE_LIST_PERCENTAGE } from '../pricing';
 
 const trim = ({ value }: { value: unknown }): unknown => (typeof value === 'string' ? value.trim() : value);
@@ -57,6 +59,17 @@ export class CreatePriceListDto {
   @IsOptional()
   @IsEnum(PriceListPaymentCondition, { message: 'Condición de pago inválida (ANY o CASH_ONLY).' })
   readonly paymentCondition?: PriceListPaymentCondition;
+
+  /**
+   * Pago contado: medios que, además del efectivo, reciben el descuento (DEBIT_CARD, QR, BANK_TRANSFER, OTHER).
+   * Vacío = solo efectivo. La tarjeta de crédito nunca recibe el descuento de contado.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(CASH_DISCOUNT_EXTRA_METHODS.length)
+  @ArrayUnique()
+  @IsIn(CASH_DISCOUNT_EXTRA_METHODS, { each: true, message: 'El descuento de contado admite efectivo, débito, QR, transferencia u otro (no crédito).' })
+  readonly discountMethods?: CashDiscountExtraMethod[];
 
   @IsOptional()
   @IsBoolean()

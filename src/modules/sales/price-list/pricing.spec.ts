@@ -9,6 +9,7 @@ const list = (percentage: number, paymentCondition = PriceListPaymentCondition.A
   percentageBasisPoints: BigInt(Math.round(percentage * 100)),
   paymentCondition,
   isDefault: false,
+  cashMethods: ['CASH'],
   overrides: new Map(overrides.map(([productId, value]) => [productId, BigInt(Math.round(value * 100))])),
 });
 

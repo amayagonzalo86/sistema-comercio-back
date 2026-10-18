@@ -1160,6 +1160,27 @@ describe('Flujo comercial completo (e2e)', () => {
       payments: [{ method: 'CASH', amount: 1000, cashSessionId: paySessionId, cardPlanId: tdfToday.body.id }],
     }, true), 400);
 
+    // La lista de pago contado no puede ser la principal.
+    expectStatus(await api('patch', `/price-lists/${cashList.body.id}`, { isDefault: true }), 400);
+    expectStatus(await api('patch', `/price-lists/${cashList.body.id}`, { discountMethods: ['CREDIT_CARD'] }), 400);
+    // La administración habilita el descuento de contado también con QR: QR recibe el −5 %, crédito no.
+    const withQr = await api('patch', `/price-lists/${cashList.body.id}`, { discountMethods: ['QR'] });
+    expectStatus(withQr, 200);
+    expect(withQr.body.discountMethods).toEqual(['QR']);
+    const qrQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId: tileId, quantity: 2 }] });
+    expect(qrQuote.body.cashDiscount.methods).toEqual(['CASH', 'QR']);
+    const qrSale = await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 2 }], cashDiscount: true, cashSessionId: paySessionId,
+      payments: [{ method: 'QR', amount: 1900 }],
+    }, true);
+    expectStatus(qrSale, 201);
+    expect(qrSale.body).toMatchObject({ total: '1900.00', paymentAdjustmentTotal: '-100.00' });
+    expect(qrSale.body.payments[0]).toMatchObject({ method: 'QR', adjustmentAmount: '-100.00' });
+    expectStatus(await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 2 }], cashDiscount: true,
+      payments: [{ method: 'CREDIT_CARD', amount: 1900 }],
+    }, true), 400);
+
     // Baja lógica: deja de ofrecerse.
     expectStatus(await api('delete', `/card-plans/${tdfOtherDay.body.id}`), 200);
     expect(((await api('get', '/card-plans?includeInactive=true')).body as Array<{ id: string }>).map((plan) => plan.id)).not.toContain(tdfOtherDay.body.id);

@@ -381,11 +381,13 @@ export class SalesService {
         throw new BadRequestException('El total de la venta está fuera del rango admitido.');
       }
 
-      // Descuento de efectivo (lista de efectivo sobre la parte pagada en efectivo) y recargos de planes de tarjeta.
-      const cashList =
-        dto.cashDiscount === true && dto.payments.some((payment) => payment.method === 'CASH') && cashDiscountApplies(priceList)
-          ? await resolveCashPriceList(queryRunner.manager, tenantId)
-          : null;
+      // Descuento de contado (lista de efectivo sobre la parte pagada en efectivo o en los medios que configuró la
+      // administración, por ejemplo débito o QR; nunca crédito) y recargos de planes de tarjeta.
+      const contadoList =
+        dto.cashDiscount === true && cashDiscountApplies(priceList) ? await resolveCashPriceList(queryRunner.manager, tenantId) : null;
+      const getsCashDiscount = (payment: CreateSaleDto['payments'][number]) =>
+        Boolean(contadoList && !payment.cardPlanId && contadoList.cashMethods.includes(payment.method));
+      const cashList = dto.payments.some(getsCashDiscount) ? contadoList : null;
       const cashVats = cashList
         ? pricedLines.map((line) => priceLine(line.stock, line.quantityMilli, { ...pricingContext, list: cashList }).vat)
         : null;
@@ -397,7 +399,7 @@ export class SalesService {
           const plan = payment.cardPlanId ? cardPlans.get(payment.cardPlanId) : undefined;
           return {
             amountCents: toMinorUnits(Number(payment.amount)),
-            kind: payment.method === 'CASH' && cashList ? 'CASH_LIST' : plan ? 'PLAN' : 'NONE',
+            kind: cashList && getsCashDiscount(payment) ? 'CASH_LIST' : plan ? 'PLAN' : 'NONE',
             surchargeBasisPoints: plan ? surchargeBasisPoints(plan) : 0n,
           };
         }),

@@ -13,6 +13,8 @@ export interface ResolvedPriceList {
   paymentCondition: PriceListPaymentCondition;
   /** Es la lista principal de la empresa. */
   isDefault: boolean;
+  /** Pago contado: medios de pago que reciben la lista (siempre incluye CASH). */
+  cashMethods: string[];
   /** Porcentaje propio de algunos productos dentro de esta lista. */
   overrides: Map<string, bigint>;
 }
@@ -53,6 +55,7 @@ export async function resolvePriceList(
     percentageBasisPoints: toBasisPoints(list.percentage),
     paymentCondition: list.paymentCondition,
     isDefault: list.isDefault,
+    cashMethods: cashMethodsOf(list.discountMethods),
     overrides: new Map(overrides.map((override) => [override.productId, toBasisPoints(override.appliedPercentage)])),
   };
 }
@@ -70,16 +73,26 @@ export function applyPriceList(baseCents: bigint, list: ResolvedPriceList | null
   return (baseCents * factor + 5_000n) / 10_000n;
 }
 
-/** Una lista "solo efectivo" no se puede usar si algún pago no es en efectivo. */
+/** Una lista de pago contado elegida para toda la venta exige que todos los pagos sean de sus medios (efectivo y los elegidos). */
 export function assertPaymentCondition(list: ResolvedPriceList | null, payments: Array<{ method: string }>): void {
-  if (list?.paymentCondition === PriceListPaymentCondition.CASH_ONLY && payments.some((payment) => payment.method !== 'CASH')) {
+  if (list?.paymentCondition === PriceListPaymentCondition.CASH_ONLY && payments.some((payment) => !list.cashMethods.includes(payment.method))) {
     throw new BadRequestException(`La lista «${list.name}» se aplica solo si se paga todo en efectivo. Cambiá la lista o el medio de pago.`);
   }
 }
 
+/** "DEBIT_CARD,QR" → ["DEBIT_CARD", "QR"]. */
+export function parseMethods(value: string | null | undefined): string[] {
+  return value ? value.split(',').map((item) => item.trim()).filter((item) => item && item !== 'CREDIT_CARD' && item !== 'CASH') : [];
+}
+
+/** Medios que reciben una lista de pago contado: efectivo más los configurados (nunca crédito). */
+export function cashMethodsOf(discountMethods: string | null | undefined): string[] {
+  return ['CASH', ...parseMethods(discountMethods)];
+}
+
 /** Datos de la lista que devuelve la cotización y se guardan en la venta. */
 export function priceListSummary(list: ResolvedPriceList | null) {
-  return list ? { id: list.id, name: list.name, percentage: list.percentage, paymentCondition: list.paymentCondition } : null;
+  return list ? { id: list.id, name: list.name, percentage: list.percentage, paymentCondition: list.paymentCondition, methods: list.cashMethods } : null;
 }
 
 /**

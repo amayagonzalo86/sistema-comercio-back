@@ -7,7 +7,7 @@ import { ProductEntity } from '../../inventory/product/entities/product.entity';
 import { CreatePriceListDto, ProductPriceOverrideDto, UpdatePriceListDto } from './dto/price-list.dto';
 import { PriceListEntity, PriceListPaymentCondition } from './entities/price-list.entity';
 import { ProductPriceListEntity } from './entities/product-price-list.entity';
-import { applyPriceList, resolvePriceList } from './pricing';
+import { applyPriceList, parseMethods, resolvePriceList } from './pricing';
 
 export interface PriceListView {
   id: string;
@@ -15,6 +15,8 @@ export interface PriceListView {
   description: string | null;
   percentage: string;
   paymentCondition: PriceListPaymentCondition;
+  /** Pago contado: medios que reciben el descuento además del efectivo. */
+  discountMethods: string[];
   isDefault: boolean;
   isActive: boolean;
   sortOrder: number;
@@ -68,7 +70,11 @@ export class PriceListService {
       if (dto.productOverrides?.length) await this.assertProducts(manager, tenantId, dto.productOverrides);
       const existing = await manager.count(PriceListEntity, { where: { tenantId } });
       // La primera lista de la empresa es la principal.
-      const isDefault = dto.isDefault === true || existing === 0;
+      const condition = dto.paymentCondition ?? PriceListPaymentCondition.ANY;
+      if (dto.isDefault === true && condition === PriceListPaymentCondition.CASH_ONLY) throw new BadRequestException(CASH_DEFAULT_ERROR);
+      // La primera lista común de la empresa es la principal.
+      const hasDefault = (await manager.count(PriceListEntity, { where: { tenantId, isDefault: true } })) > 0;
+      const isDefault = dto.isDefault === true || (!hasDefault && condition === PriceListPaymentCondition.ANY);
       if (isDefault && dto.isActive === false) throw new BadRequestException('La lista principal tiene que estar activa.');
       if (isDefault) await manager.update(PriceListEntity, { tenantId, isDefault: true }, { isDefault: false });
       const list = await manager.save(
@@ -78,7 +84,8 @@ export class PriceListService {
           name: dto.name,
           description: dto.description || null,
           percentage: dto.percentage.toFixed(2),
-          paymentCondition: dto.paymentCondition ?? PriceListPaymentCondition.ANY,
+          paymentCondition: condition,
+          discountMethods: condition === PriceListPaymentCondition.CASH_ONLY ? serializeMethods(dto.discountMethods) : null,
           isDefault,
           isActive: dto.isActive ?? true,
           sortOrder: dto.sortOrder ?? (existing + 1) * 10,
@@ -109,6 +116,8 @@ export class PriceListService {
         throw new BadRequestException('Para quitarle la marca de principal, elegí otra lista como principal.');
       }
       const willBeDefault = dto.isDefault === true || list.isDefault;
+      const nextCondition = dto.paymentCondition ?? list.paymentCondition;
+      if (willBeDefault && nextCondition === PriceListPaymentCondition.CASH_ONLY) throw new BadRequestException(CASH_DEFAULT_ERROR);
       if (dto.isActive === false && willBeDefault) throw new BadRequestException('La lista principal no se puede desactivar: elegí otra como principal.');
       if (dto.isDefault === true && !list.isDefault) {
         await manager.update(PriceListEntity, { tenantId, isDefault: true }, { isDefault: false });
@@ -122,6 +131,8 @@ export class PriceListService {
         ...(dto.description !== undefined ? { description: dto.description || null } : {}),
         ...(dto.percentage !== undefined ? { percentage: dto.percentage.toFixed(2) } : {}),
         ...(dto.paymentCondition !== undefined ? { paymentCondition: dto.paymentCondition } : {}),
+        ...(dto.discountMethods !== undefined ? { discountMethods: serializeMethods(dto.discountMethods) } : {}),
+        ...(nextCondition !== PriceListPaymentCondition.CASH_ONLY ? { discountMethods: null } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         isDefault: willBeDefault,
@@ -203,6 +214,7 @@ export class PriceListService {
       description: list.description ?? null,
       percentage: Number(list.percentage).toFixed(2),
       paymentCondition: list.paymentCondition,
+      discountMethods: parseMethods(list.discountMethods),
       isDefault: list.isDefault,
       isActive: list.isActive,
       sortOrder: list.sortOrder,
@@ -244,4 +256,11 @@ export class PriceListService {
       overrides.map((item) => manager.create(ProductPriceListEntity, { tenantId, priceListId, productId: item.productId, appliedPercentage: item.appliedPercentage })),
     );
   }
+}
+
+const CASH_DEFAULT_ERROR =
+  'La lista principal tiene que valer para cualquier medio de pago. La de pago contado se aplica sola al cobrar en efectivo.';
+
+function serializeMethods(methods: readonly string[] | null | undefined): string | null {
+  return methods && methods.length > 0 ? [...new Set(methods)].sort().join(',') : null;
 }
