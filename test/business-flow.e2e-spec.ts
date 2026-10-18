@@ -1181,6 +1181,17 @@ describe('Flujo comercial completo (e2e)', () => {
       payments: [{ method: 'CREDIT_CARD', amount: 1900 }],
     }, true), 400);
 
+    // Datos anteriores a la regla: la de pago contado quedó como principal. El cobro parte igual de la lista común
+    // y el descuento de contado sigue apareciendo al pagar en efectivo.
+    await dataSource.query('UPDATE price_lists SET is_default = (id = ?) WHERE tenant_id = (SELECT tenant_id FROM (SELECT tenant_id FROM price_lists WHERE id = ?) t)', [cashList.body.id, cashList.body.id]);
+    const legacyQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId: tileId, quantity: 2 }] });
+    expectStatus(legacyQuote, 200);
+    expect(legacyQuote.body.priceList.paymentCondition).toBe('ANY');
+    expect(legacyQuote.body.cashDiscount).toMatchObject({ name: 'Ventas en efectivo', total: '1900.00' });
+    const legacyExplicit = await api('post', '/sales/quote', { branchId: A, lines: [{ productId: tileId, quantity: 2 }], priceListId: legacyQuote.body.priceList.id });
+    expect(legacyExplicit.body.cashDiscount).toMatchObject({ total: '1900.00' });
+    await dataSource.query('UPDATE price_lists SET is_default = (id = ?) WHERE tenant_id = (SELECT tenant_id FROM (SELECT tenant_id FROM price_lists WHERE id = ?) t)', [legacyQuote.body.priceList.id, cashList.body.id]);
+
     // Baja lógica: deja de ofrecerse.
     expectStatus(await api('delete', `/card-plans/${tdfOtherDay.body.id}`), 200);
     expect(((await api('get', '/card-plans?includeInactive=true')).body as Array<{ id: string }>).map((plan) => plan.id)).not.toContain(tdfOtherDay.body.id);

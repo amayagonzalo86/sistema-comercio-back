@@ -13,6 +13,11 @@ export interface ResolvedPriceList {
   paymentCondition: PriceListPaymentCondition;
   /** Es la lista principal de la empresa. */
   isDefault: boolean;
+  /**
+   * Es la lista de partida del cobro (la principal común; si la principal fuera de pago contado o no hubiera
+   * principal, la primera lista común activa). Sobre ella se aplica el descuento de contado automático.
+   */
+  isChargeBase: boolean;
   /** Pago contado: medios de pago que reciben la lista (siempre incluye CASH). */
   cashMethods: string[];
   /** Porcentaje propio de algunos productos dentro de esta lista. */
@@ -37,9 +42,8 @@ export async function resolvePriceList(
   priceListId: string | null | undefined,
 ): Promise<ResolvedPriceList | null> {
   const repository = manager.getRepository(PriceListEntity);
-  const list = priceListId
-    ? await repository.findOne({ where: { id: priceListId, tenantId, isActive: true, deletedAt: IsNull() } })
-    : await repository.findOne({ where: { tenantId, isDefault: true, isActive: true, deletedAt: IsNull() } });
+  const base = await chargeBaseList(manager, tenantId);
+  const list = priceListId ? await repository.findOne({ where: { id: priceListId, tenantId, isActive: true, deletedAt: IsNull() } }) : base;
   if (priceListId && !list) {
     throw new BadRequestException('La lista de precios no existe o está desactivada.');
   }
@@ -55,6 +59,7 @@ export async function resolvePriceList(
     percentageBasisPoints: toBasisPoints(list.percentage),
     paymentCondition: list.paymentCondition,
     isDefault: list.isDefault,
+    isChargeBase: list.paymentCondition === PriceListPaymentCondition.ANY && list.id === base?.id,
     cashMethods: cashMethodsOf(list.discountMethods),
     overrides: new Map(overrides.map((override) => [override.productId, toBasisPoints(override.appliedPercentage)])),
   };
@@ -113,5 +118,18 @@ export async function resolveCashPriceList(manager: EntityManager, tenantId: str
  * propósito (cliente con lista propia, gobierno, mayorista) o con una lista "solo efectivo" no se suma otro descuento.
  */
 export function cashDiscountApplies(baseList: ResolvedPriceList | null): boolean {
-  return baseList === null || (baseList.isDefault && baseList.paymentCondition === PriceListPaymentCondition.ANY);
+  return baseList === null || baseList.isChargeBase;
+}
+
+/**
+ * Lista de partida del cobro: la principal si es común; si la principal es de pago contado (datos anteriores a la
+ * regla) o no hay principal, la primera lista común activa. null si la empresa no tiene listas comunes.
+ */
+export async function chargeBaseList(manager: EntityManager, tenantId: string): Promise<PriceListEntity | null> {
+  const repository = manager.getRepository(PriceListEntity);
+  const where = { tenantId, paymentCondition: PriceListPaymentCondition.ANY, isActive: true, deletedAt: IsNull() };
+  return (
+    (await repository.findOne({ where: { ...where, isDefault: true } })) ??
+    (await repository.findOne({ where, order: { sortOrder: 'ASC', name: 'ASC' } }))
+  );
 }
