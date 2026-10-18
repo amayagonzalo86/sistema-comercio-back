@@ -8,6 +8,7 @@ const list = (percentage: number, paymentCondition = PriceListPaymentCondition.A
   percentage: percentage.toFixed(2),
   percentageBasisPoints: BigInt(Math.round(percentage * 100)),
   paymentCondition,
+  isDefault: false,
   overrides: new Map(overrides.map(([productId, value]) => [productId, BigInt(Math.round(value * 100))])),
 });
 

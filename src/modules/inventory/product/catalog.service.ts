@@ -846,6 +846,7 @@ export class CatalogService {
       percentage: Number(list.percentage).toFixed(2),
       percentageBasisPoints: BigInt(Math.round(Number(list.percentage) * 100)),
       paymentCondition: list.paymentCondition,
+      isDefault: list.isDefault,
       overrides: new Map(
         overrides
           .filter((override) => override.priceListId === list.id)
