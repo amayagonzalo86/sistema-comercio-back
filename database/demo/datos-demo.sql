@@ -64,6 +64,7 @@ DELETE FROM `inventory_movements` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1
 DELETE FROM `product_price_history` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `product_price_lists` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `price_lists` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `card_plans` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `product_branches` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `products` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `promotions` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
@@ -21226,6 +21227,15 @@ JOIN (
 ) linked ON linked.sale_id = s.id
 SET s.cash_session_id = linked.cash_session_id
 WHERE s.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND s.cash_session_id IS NULL;
+
+-- Tarjetas y cuotas que se ofrecen al cobrar (el plan de 12 cuotas vale solo los jueves).
+INSERT INTO `card_plans` (`id`,`tenant_id`,`name`,`card_brand`,`bank_name`,`payment_method`,`installments`,`surcharge_percentage`,`weekdays`,`is_active`,`sort_order`) VALUES
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e01','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Visa Banco de Tierra del Fuego','VISA','Banco de Tierra del Fuego','CREDIT_CARD',10,0.00,NULL,1,10),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e02','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Visa Banco de Tierra del Fuego','VISA','Banco de Tierra del Fuego','CREDIT_CARD',12,0.00,'4',1,20),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e03','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Visa (cualquier banco)','VISA',NULL,'CREDIT_CARD',3,0.00,NULL,1,30),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e04','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',3,0.00,NULL,1,40),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e05','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Tarjeta TDF','OTHER','Banco de Tierra del Fuego','CREDIT_CARD',1,0.00,NULL,1,50),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e06','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',6,15.00,NULL,1,60);
 
 COMMIT;
 

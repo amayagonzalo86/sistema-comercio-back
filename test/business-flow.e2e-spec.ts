@@ -1060,5 +1060,108 @@ describe('Flujo comercial completo (e2e)', () => {
     const quoteHistory = await api('get', '/sales-quotes?status=ALL');
     expect(quoteHistory.body.total).toBe(3); // convertido, vencido y descartado: ninguno se borró
     token = adminToken;
+
+    // ── Cobro: descuento de efectivo automático y planes de tarjeta ──
+    const weekdayAr = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+      new Intl.DateTimeFormat('en-US', { timeZone: 'America/Argentina/Buenos_Aires', weekday: 'short' }).format(new Date()),
+    );
+    const otherDay = (weekdayAr + 1) % 7;
+    const tdfToday = await api('post', '/card-plans', {
+      name: 'Visa Banco de Tierra del Fuego', cardBrand: 'VISA', bankName: 'Banco de Tierra del Fuego',
+      paymentMethod: 'CREDIT_CARD', installments: 12, surchargePercentage: 0, weekdays: [weekdayAr],
+    });
+    expectStatus(tdfToday, 201);
+    expect(tdfToday.body).toMatchObject({ label: 'Visa Banco de Tierra del Fuego · 12 cuotas sin interés', availableToday: true, weekdays: [weekdayAr] });
+    const tdfOtherDay = await api('post', '/card-plans', { name: 'Visa TDF otro día', cardBrand: 'VISA', installments: 18, surchargePercentage: 0, weekdays: [otherDay] });
+    expect(tdfOtherDay.body.availableToday).toBe(false);
+    const master6 = await api('post', '/card-plans', { name: 'Mastercard', cardBrand: 'MASTERCARD', installments: 6, surchargePercentage: 15 });
+    expectStatus(master6, 201);
+    expectStatus(await api('post', '/card-plans', { name: 'Inválido', installments: 0, surchargePercentage: 0 }), 400);
+    const availablePlans = (await api('get', '/card-plans/available')).body as Array<{ id: string }>;
+    expect(availablePlans.map((plan) => plan.id)).toEqual(expect.arrayContaining([tdfToday.body.id, master6.body.id]));
+    expect(availablePlans.map((plan) => plan.id)).not.toContain(tdfOtherDay.body.id);
+    // El vendedor ve los planes vigentes pero no los administra.
+    token = veraToken;
+    expectStatus(await api('get', '/card-plans/available'), 200);
+    expectStatus(await api('post', '/card-plans', { name: 'No autorizado', installments: 3, surchargePercentage: 0 }), 403);
+    token = adminToken;
+
+    const tile = await api('post', '/products', {
+      sku: 'CER-001', name: 'Cerámica 30x30', category: 'Revestimientos', taxRate: 21, priceIncludesVat: true,
+      branchSettings: [{ branchId: A, costPrice: 500, profitMargin: 100, sellingPrice: 1000, stock: 50, minStock: 1 }],
+    });
+    expectStatus(tile, 201);
+    const tileId = tile.body.id as string;
+    const payRegister = await api('post', '/cash/registers', { branchId: A, code: 'CAJA-TARJ', name: 'Caja tarjetas' });
+    expectStatus(payRegister, 201);
+    const paySession = await api('post', `/cash/registers/${payRegister.body.id}/sessions`, { currency: 'ARS', openingAmount: '100.00' }, true);
+    expectStatus(paySession, 201);
+    const paySessionId = paySession.body.id as string;
+
+    // La cotización informa cuánto sale todo en efectivo (lista «Ventas en efectivo» −5 %).
+    const tileQuote = await api('post', '/sales/quote', { branchId: A, lines: [{ productId: tileId, quantity: 2 }] });
+    expectStatus(tileQuote, 200);
+    expect(tileQuote.body.total).toBe('2000.00');
+    expect(tileQuote.body.cashDiscount).toMatchObject({ name: 'Ventas en efectivo', percentage: '-5.00', total: '1900.00' });
+    // Con una lista elegida a propósito (gobierno) no se suma el descuento de efectivo.
+    const govTile = await api('post', '/sales/quote', { branchId: A, lines: [{ productId: tileId, quantity: 1 }], priceListId: govList.body.id });
+    expect(govTile.body.cashDiscount).toBeNull();
+
+    // Todo en efectivo: se cobra $1900.
+    const allCash = await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 2 }], cashDiscount: true,
+      payments: [{ method: 'CASH', amount: 1900, cashSessionId: paySessionId }],
+    }, true);
+    expectStatus(allCash, 201);
+    expect(allCash.body).toMatchObject({ total: '1900.00', paymentAdjustmentTotal: '-100.00' });
+    expect(allCash.body.payments[0]).toMatchObject({ amount: '1900.00', adjustmentAmount: '-100.00', adjustmentLabel: 'Ventas en efectivo (−5 %)' });
+    expect(allCash.body.items[0]).toMatchObject({ total: '1900.00', paymentAdjustment: '-100.00', unitPrice: '1000.00' });
+    // Con descuento de efectivo, cobrar el precio de lista no cuadra: se rechaza.
+    expectStatus(await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 2 }], cashDiscount: true,
+      payments: [{ method: 'CASH', amount: 2000, cashSessionId: paySessionId }],
+    }, true), 400);
+
+    // Mitad en efectivo (cubre $1000 de lista → $950) y mitad con Visa TDF 12 cuotas sin interés ($1000).
+    const mixed = await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 2 }], cashDiscount: true, cashSessionId: paySessionId,
+      payments: [
+        { method: 'CASH', amount: 950, cashSessionId: paySessionId },
+        { method: 'CREDIT_CARD', amount: 1000, cardPlanId: tdfToday.body.id },
+      ],
+    }, true);
+    expectStatus(mixed, 201);
+    expect(mixed.body).toMatchObject({ total: '1950.00', paymentAdjustmentTotal: '-50.00' });
+    const mixedCard = (mixed.body.payments as Array<Record<string, unknown>>).find((payment) => payment.method === 'CREDIT_CARD');
+    expect(mixedCard).toMatchObject({ cardPlanId: tdfToday.body.id, installments: 12, adjustmentAmount: '0.00', adjustmentLabel: 'Visa Banco de Tierra del Fuego · 12 cuotas sin interés' });
+
+    // Mastercard 6 cuotas con 15 % de recargo: $1000 → $1150 (IVA recalculado sobre el total; venta con IVA).
+    const surcharged = await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 1 }], cashSessionId: paySessionId, vatRegime: 'GENERAL', voucherClass: 'B',
+      payments: [{ method: 'CREDIT_CARD', amount: 1150, cardPlanId: master6.body.id }],
+    }, true);
+    expectStatus(surcharged, 201);
+    expect(surcharged.body).toMatchObject({ total: '1150.00', paymentAdjustmentTotal: '150.00', taxTotal: '199.59' });
+    expect(surcharged.body.items[0]).toMatchObject({ total: '1150.00', netAmount: '950.41', taxAmount: '199.59', paymentAdjustment: '150.00' });
+
+    // Reglas: plan de otro día, plan con medio equivocado, plan en efectivo.
+    const wrongDay = await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 1 }],
+      payments: [{ method: 'CREDIT_CARD', amount: 1000, cardPlanId: tdfOtherDay.body.id }],
+    }, true);
+    expectStatus(wrongDay, 400);
+    expect(wrongDay.body.message).toContain('no está vigente hoy');
+    expectStatus(await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 1 }],
+      payments: [{ method: 'DEBIT_CARD', amount: 1000, cardPlanId: tdfToday.body.id }],
+    }, true), 400);
+    expectStatus(await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 1 }],
+      payments: [{ method: 'CASH', amount: 1000, cashSessionId: paySessionId, cardPlanId: tdfToday.body.id }],
+    }, true), 400);
+
+    // Baja lógica: deja de ofrecerse.
+    expectStatus(await api('delete', `/card-plans/${tdfOtherDay.body.id}`), 200);
+    expect(((await api('get', '/card-plans?includeInactive=true')).body as Array<{ id: string }>).map((plan) => plan.id)).not.toContain(tdfOtherDay.body.id);
   });
 });

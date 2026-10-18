@@ -12,6 +12,7 @@ import { BranchesModule } from './modules/branches/branches.module';
 import { ProductModule } from './modules/inventory/product/product.module';
 import { ProductPriceListModule } from './modules/sales/price-list/product-price-list.module';
 import { SalesModule } from './modules/sales/sales.module';
+import { CardPlansModule } from './modules/sales/card-plans/card-plans.module';
 import { UserModule } from './modules/users/user.module';
 import { PersonsModule } from './modules/persons/persons.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -79,6 +80,7 @@ import { FiscalModule } from './modules/fiscal/fiscal.module';
     BranchesModule,
     ProductPriceListModule,
     SalesModule,
+    CardPlansModule,
     PersonsModule,
     RolesModule,
     PlatformModule,

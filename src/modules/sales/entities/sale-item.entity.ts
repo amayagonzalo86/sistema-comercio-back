@@ -68,6 +68,10 @@ export class SaleItemEntity {
   @Column({ name: 'discount_amount', type: 'decimal', precision: 14, scale: 2, default: 0 })
   discountAmount!: string;
 
+  /** Descuento (negativo) o recargo (positivo) por medio de pago incluido en el total de la línea. */
+  @Column({ name: 'payment_adjustment', type: 'decimal', precision: 14, scale: 2, default: 0 })
+  paymentAdjustment!: string;
+
   @Column({ name: 'promotion_id', type: 'varchar', length: 36, nullable: true })
   promotionId?: string | null;
 

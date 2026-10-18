@@ -109,6 +109,28 @@ CREATE TABLE `branches` (
   KEY `IDX_branches_tenant_status` (`tenant_id`,`status`),
   CONSTRAINT `FK_fda619979f40a6a44fc9baf02c3` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `card_plans`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `card_plans` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `card_brand` enum('VISA','MASTERCARD','AMEX','CABAL','NARANJA','MAESTRO','OTHER') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'OTHER',
+  `bank_name` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `payment_method` enum('CREDIT_CARD','DEBIT_CARD') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CREDIT_CARD',
+  `installments` smallint unsigned NOT NULL DEFAULT '1',
+  `surcharge_percentage` decimal(7,2) NOT NULL DEFAULT '0.00',
+  `weekdays` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `valid_from` date DEFAULT NULL,
+  `valid_to` date DEFAULT NULL,
+  `is_active` tinyint NOT NULL DEFAULT '1',
+  `sort_order` int NOT NULL DEFAULT '0',
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `deleted_at` datetime(6) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `IDX_card_plans_tenant_active` (`tenant_id`,`is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `cash_movements`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `cash_movements` (
@@ -628,6 +650,7 @@ CREATE TABLE `sale_items` (
   `total` decimal(14,2) NOT NULL,
   `unit_cost` decimal(12,2) NOT NULL DEFAULT '0.00',
   `discount_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `payment_adjustment` decimal(14,2) NOT NULL DEFAULT '0.00',
   `promotion_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `promotion_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -643,6 +666,10 @@ CREATE TABLE `sale_payments` (
   `amount` decimal(14,2) NOT NULL,
   `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
   `external_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `card_plan_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `installments` smallint unsigned DEFAULT NULL,
+  `adjustment_label` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `adjustment_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
   `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   KEY `IDX_sale_payments_tenant_sale` (`tenant_id`,`sale_id`)
@@ -726,6 +753,7 @@ CREATE TABLE `sales` (
   `cash_session_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price_list_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price_list_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `payment_adjustment_total` decimal(14,2) NOT NULL DEFAULT '0.00',
   `price_list_percentage` decimal(7,2) DEFAULT NULL,
   `vat_regime` enum('GENERAL','TIERRA_DEL_FUEGO') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'GENERAL',
   `total` decimal(14,2) NOT NULL,
@@ -1148,6 +1176,7 @@ DELETE FROM `inventory_movements` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1
 DELETE FROM `product_price_history` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `product_price_lists` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `price_lists` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `card_plans` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `product_branches` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `products` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `promotions` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
@@ -22310,6 +22339,15 @@ JOIN (
 ) linked ON linked.sale_id = s.id
 SET s.cash_session_id = linked.cash_session_id
 WHERE s.tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f' AND s.cash_session_id IS NULL;
+
+-- Tarjetas y cuotas que se ofrecen al cobrar (el plan de 12 cuotas vale solo los jueves).
+INSERT INTO `card_plans` (`id`,`tenant_id`,`name`,`card_brand`,`bank_name`,`payment_method`,`installments`,`surcharge_percentage`,`weekdays`,`is_active`,`sort_order`) VALUES
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e01','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Visa Banco de Tierra del Fuego','VISA','Banco de Tierra del Fuego','CREDIT_CARD',10,0.00,NULL,1,10),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e02','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Visa Banco de Tierra del Fuego','VISA','Banco de Tierra del Fuego','CREDIT_CARD',12,0.00,'4',1,20),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e03','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Visa (cualquier banco)','VISA',NULL,'CREDIT_CARD',3,0.00,NULL,1,30),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e04','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',3,0.00,NULL,1,40),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e05','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Tarjeta TDF','OTHER','Banco de Tierra del Fuego','CREDIT_CARD',1,0.00,NULL,1,50),
+('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e06','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',6,15.00,NULL,1,60);
 
 COMMIT;
 

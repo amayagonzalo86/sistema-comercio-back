@@ -1,5 +1,8 @@
 import { loadPrintCustomer } from '../fiscal/printable';
-import { applyPriceList, assertPaymentCondition, priceListSummary, resolvePriceList } from './price-list/pricing';
+import { applyPriceList, assertPaymentCondition, cashDiscountApplies, priceListSummary, resolveCashPriceList, resolvePriceList, ResolvedPriceList } from './price-list/pricing';
+import { cardPlanLabel, resolveCardPlanForSale, surchargeBasisPoints } from './card-plans/card-plan-rules';
+import { CardPlanEntity } from './card-plans/entities/card-plan.entity';
+import { AdjustablePayment, distributeLineTotals, settlePayments, vatForTotal } from './payment-adjustments';
 import { userDisplayNames } from '../../common/security/platform-operators';
 import {
   BadRequestException,
@@ -51,7 +54,7 @@ import {
   voucherMismatchMessage,
 } from '../fiscal/vat/vat';
 import { loadActivePromotions } from '../marketing/promotion-loader';
-import { AppliedPromotion, bestPromotion } from '../marketing/domain/promotions';
+import { AppliedPromotion, bestPromotion, PromotionRule } from '../marketing/domain/promotions';
 import { localToday, localWeekday } from '../reports/domain/period';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
@@ -84,6 +87,11 @@ export interface SaleQuote {
   vatRegime: VatRegime;
   /** Lista de precios aplicada (null si la empresa no tiene listas). */
   priceList: ReturnType<typeof priceListSummary>;
+  /**
+   * Lista de efectivo que se aplica sola a la parte pagada en efectivo (null si no corresponde: sin lista de
+   * efectivo, o con una lista elegida a propósito). total = total de la venta si se pagara todo en efectivo.
+   */
+  cashDiscount: (NonNullable<ReturnType<typeof priceListSummary>> & { total: string }) | null;
   /** Si se pidió un comprobante que no corresponde, el motivo (para mostrarlo antes de cobrar). */
   requestedVoucherError: string | null;
   vatChargeMode: string;
@@ -108,7 +116,63 @@ type PricedLine = {
   vatTreatment: VatTreatment;
   vat: VatLineResult;
   promotion: AppliedPromotion | null;
+  /** Descuento o recargo por medio de pago incluido en vat.totalCents. */
+  paymentAdjustmentCents: bigint;
 };
+
+interface LinePricingContext {
+  list: ResolvedPriceList | null;
+  promotions: PromotionRule[];
+  weekday: number;
+  branchId: string;
+  policy: VatPolicy;
+  exemption: { reason: VatExemptionReason } | null;
+}
+
+/** Precio de una línea con una lista: precio de la sucursal → lista → mejor promoción vigente → IVA. */
+function priceLine(stock: ProductBranchEntity, quantityMilli: bigint, context: LinePricingContext) {
+  const baseUnitCents = toMinorUnits(Number(stock.sellingPrice));
+  const unitPriceCents = applyPriceList(baseUnitCents, context.list, stock.productId);
+  const vatTreatment = stock.product.vatTreatment ?? VatTreatment.TAXED;
+  const promotion = bestPromotion(
+    context.promotions,
+    {
+      productId: stock.productId,
+      category: stock.product.category ?? null,
+      brand: stock.product.brand ?? null,
+      branchId: context.branchId,
+      quantityMilli,
+      unitPriceCents,
+    },
+    context.weekday,
+  );
+  let vat: VatLineResult;
+  try {
+    vat = computeVatLine({
+      discountCents: promotion?.discountCents ?? 0n,
+      unitPriceCents,
+      quantityMilli,
+      treatment: vatTreatment,
+      rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
+      priceIncludesVat: Boolean(stock.product.priceIncludesVat),
+      chargeMode: context.policy.chargeMode,
+      exemptPriceIsFinal: context.exemption?.reason === VatExemptionReason.TIERRA_DEL_FUEGO,
+    });
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new BadRequestException(`El producto ${stock.product.sku} tiene una configuración de IVA inválida: ${error.message}`);
+    }
+    throw error;
+  }
+  return { baseUnitCents, unitPriceCents, vatTreatment, promotion, vat };
+}
+
+/** "Ventas en efectivo (−5 %)". */
+function priceListLabel(list: ResolvedPriceList): string {
+  const value = Number(list.percentage);
+  const text = Math.abs(value).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  return `${list.name} (${value < 0 ? '−' : '+'}${text} %)`.slice(0, 150);
+}
 
 @Injectable()
 export class SalesService {
@@ -144,11 +208,13 @@ export class SalesService {
         method: payment.method,
         amount: Number(payment.amount).toFixed(2),
         ...(payment.cashSessionId ? { cashSessionId: payment.cashSessionId } : {}),
+        ...(payment.cardPlanId ? { cardPlanId: payment.cardPlanId } : {}),
       }))
       .sort((a, b) =>
         a.method.localeCompare(b.method) ||
         a.amount.localeCompare(b.amount) ||
-        (a.cashSessionId ?? '').localeCompare(b.cashSessionId ?? ''),
+        (a.cashSessionId ?? '').localeCompare(b.cashSessionId ?? '') ||
+        (a.cardPlanId ?? '').localeCompare(b.cardPlanId ?? ''),
       );
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({
@@ -164,6 +230,7 @@ export class SalesService {
         voucherClass: dto.voucherClass ?? null,
         vatRegime: dto.vatRegime ?? null,
         priceListId: dto.priceListId ?? null,
+        ...(dto.cashDiscount ? { cashDiscount: true } : {}),
       }))
       .digest('hex');
 
@@ -180,6 +247,9 @@ export class SalesService {
     }
     if (dto.payments.some((payment) => payment.method !== 'CASH' && payment.cashSessionId)) {
       throw new BadRequestException('cashSessionId solo corresponde a pagos en efectivo.');
+    }
+    if (dto.payments.some((payment) => payment.cardPlanId && payment.method !== 'CREDIT_CARD' && payment.method !== 'DEBIT_CARD')) {
+      throw new BadRequestException('El plan de tarjeta solo corresponde a pagos con tarjeta de crédito o débito.');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -247,6 +317,15 @@ export class SalesService {
       const promotions = await loadActivePromotions(queryRunner.manager, tenantId, localToday(timeZone));
       const weekday = localWeekday(timeZone);
 
+      // Planes de tarjeta del cobro: vigentes hoy y del mismo medio de pago (crédito/débito).
+      const cardPlans = new Map<string, CardPlanEntity>();
+      for (const payment of dto.payments) {
+        if (payment.cardPlanId && !cardPlans.has(payment.cardPlanId)) {
+          cardPlans.set(payment.cardPlanId, await resolveCardPlanForSale(queryRunner.manager, tenantId, payment.cardPlanId, payment.method, timeZone));
+        }
+      }
+      const pricingContext: LinePricingContext = { list: priceList, promotions, weekday, branchId: branch.id, policy, exemption };
+
       const pricedLines: PricedLine[] = [];
       for (const line of normalizedLines) {
         const stock = await queryRunner.manager
@@ -264,41 +343,7 @@ export class SalesService {
         }
 
         const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
-        const baseUnitCents = toMinorUnits(Number(stock.sellingPrice));
-        const unitPriceCents = applyPriceList(baseUnitCents, priceList, line.productId);
-        const vatTreatment = stock.product.vatTreatment ?? VatTreatment.TAXED;
-        const promotion = bestPromotion(
-          promotions,
-          {
-            productId: line.productId,
-            category: stock.product.category ?? null,
-            brand: stock.product.brand ?? null,
-            branchId: branch.id,
-            quantityMilli,
-            unitPriceCents,
-          },
-          weekday,
-        );
-        let vat: VatLineResult;
-        try {
-          vat = computeVatLine({
-            discountCents: promotion?.discountCents ?? 0n,
-            unitPriceCents,
-            quantityMilli,
-            treatment: vatTreatment,
-            rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
-            priceIncludesVat: Boolean(stock.product.priceIncludesVat),
-            chargeMode: policy.chargeMode,
-            exemptPriceIsFinal: exemption?.reason === VatExemptionReason.TIERRA_DEL_FUEGO,
-          });
-        } catch (error) {
-          if (error instanceof RangeError) {
-            throw new BadRequestException(
-              `El producto ${stock.product.sku} tiene una configuración de IVA inválida: ${error.message}`,
-            );
-          }
-          throw error;
-        }
+        const { baseUnitCents, unitPriceCents, vatTreatment, promotion, vat } = priceLine(stock, quantityMilli, pricingContext);
         if (vat.totalCents > MAX_MONEY_CENTS) {
           throw new BadRequestException('El importe de una línea excede el máximo admitido.');
         }
@@ -311,6 +356,7 @@ export class SalesService {
           vatTreatment,
           vat,
           promotion,
+          paymentAdjustmentCents: 0n,
         });
       }
 
@@ -330,19 +376,55 @@ export class SalesService {
         throw new ConflictException(`El pedido N° ${salesOrder.number} ya fue cobrado.`);
       }
 
+      const baseTotalCents = summarizeVat(pricedLines.map((line) => line.vat)).totalCents;
+      if (baseTotalCents <= 0n || baseTotalCents > MAX_MONEY_CENTS) {
+        throw new BadRequestException('El total de la venta está fuera del rango admitido.');
+      }
+
+      // Descuento de efectivo (lista de efectivo sobre la parte pagada en efectivo) y recargos de planes de tarjeta.
+      const cashList =
+        dto.cashDiscount === true && dto.payments.some((payment) => payment.method === 'CASH') && cashDiscountApplies(priceList)
+          ? await resolveCashPriceList(queryRunner.manager, tenantId)
+          : null;
+      const cashVats = cashList
+        ? pricedLines.map((line) => priceLine(line.stock, line.quantityMilli, { ...pricingContext, list: cashList }).vat)
+        : null;
+      const cashTotalCents = cashVats ? summarizeVat(cashVats).totalCents : null;
+      const settlement = settlePayments(
+        baseTotalCents,
+        cashTotalCents,
+        dto.payments.map((payment): AdjustablePayment => {
+          const plan = payment.cardPlanId ? cardPlans.get(payment.cardPlanId) : undefined;
+          return {
+            amountCents: toMinorUnits(Number(payment.amount)),
+            kind: payment.method === 'CASH' && cashList ? 'CASH_LIST' : plan ? 'PLAN' : 'NONE',
+            surchargeBasisPoints: plan ? surchargeBasisPoints(plan) : 0n,
+          };
+        }),
+      );
+      if (settlement.adjusted) {
+        const targets = distributeLineTotals(
+          pricedLines.map((line, index) => ({ baseTotalCents: line.vat.totalCents, cashTotalCents: cashVats?.[index].totalCents ?? line.vat.totalCents })),
+          baseTotalCents,
+          cashTotalCents,
+          settlement.payments,
+          settlement.totalCents,
+        );
+        pricedLines.forEach((line, index) => {
+          line.paymentAdjustmentCents = targets[index] - line.vat.totalCents;
+          line.vat = vatForTotal(line.vat, cashVats?.[index] ?? line.vat, targets[index]);
+        });
+      }
+
       const vatSummary = summarizeVat(pricedLines.map((line) => line.vat));
       const taxTotalCents = vatSummary.vatCents;
       const subtotalCents = vatSummary.netCents + vatSummary.exemptCents + vatSummary.notTaxedCents;
       const totalCents = vatSummary.totalCents;
+      if (totalCents !== settlement.totalCents) {
+        throw new InternalServerErrorException('No se pudo repartir el ajuste por medio de pago en las líneas de la venta.');
+      }
       if (totalCents <= 0n || totalCents > MAX_MONEY_CENTS) {
         throw new BadRequestException('El total de la venta está fuera del rango admitido.');
-      }
-      const paymentCents = dto.payments.reduce(
-        (sum, payment) => sum + toMinorUnits(Number(payment.amount)),
-        0n,
-      );
-      if (paymentCents !== totalCents) {
-        throw new BadRequestException('La suma de los medios de pago debe coincidir con el total de la venta.');
       }
 
       for (const line of pricedLines) {
@@ -412,6 +494,7 @@ export class SalesService {
         priceListId: priceList?.id ?? null,
         priceListName: priceList?.name ?? null,
         priceListPercentage: priceList?.percentage ?? null,
+        paymentAdjustmentTotal: formatCents(settlement.adjustmentTotalCents),
         cashSessionId: saleCashSessionId,
         fiscalStatus: SaleFiscalStatus.NOT_ISSUED,
         idempotencyKey: key,
@@ -423,7 +506,7 @@ export class SalesService {
       }));
 
       const itemRepository = queryRunner.manager.getRepository(SaleItemEntity);
-      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, baseUnitCents, vatTreatment, vat, promotion }) =>
+      const items = pricedLines.map(({ line, stock, quantityMilli, unitPriceCents, baseUnitCents, vatTreatment, vat, promotion, paymentAdjustmentCents }) =>
         itemRepository.create({
           tenantId,
           saleId: sale.id,
@@ -448,21 +531,29 @@ export class SalesService {
           discountAmount: formatCents(promotion?.discountCents ?? 0n),
           promotionId: promotion?.promotionId ?? null,
           promotionName: promotion?.name.slice(0, 120) ?? null,
+          paymentAdjustment: formatCents(paymentAdjustmentCents),
         }),
       );
       await itemRepository.save(items);
 
       const paymentRepository = queryRunner.manager.getRepository(SalePaymentEntity);
-      const payments = dto.payments.map((payment) =>
-        paymentRepository.create({
+      const payments = dto.payments.map((payment, index) => {
+        const amountCents = toMinorUnits(Number(payment.amount));
+        const plan = payment.cardPlanId ? cardPlans.get(payment.cardPlanId) : undefined;
+        const settled = settlement.payments[index];
+        return paymentRepository.create({
           tenantId,
           saleId: sale.id,
           method: payment.method,
-          amount: formatCents(toMinorUnits(Number(payment.amount))),
+          amount: formatCents(amountCents),
           currency: tenant.currencyCode,
           externalReference: null,
-        }),
-      );
+          cardPlanId: plan?.id ?? null,
+          installments: plan?.installments ?? null,
+          adjustmentLabel: plan ? cardPlanLabel(plan) : settled.kind === 'CASH_LIST' && cashList ? priceListLabel(cashList) : null,
+          adjustmentAmount: formatCents(settled.kind === 'NONE' ? 0n : amountCents - settlement.coveredCents[index]),
+        });
+      });
       const savedPayments = await paymentRepository.save(payments);
       const cashMovementRepository = queryRunner.manager.getRepository(CashMovementEntity);
       for (let index = 0; index < dto.payments.length; index += 1) {
@@ -593,6 +684,9 @@ export class SalesService {
           vatExemptionNote: sale.vatExemptionNote ?? null,
           vatRegime: sale.vatRegime,
           priceList: sale.priceListName ? { id: sale.priceListId, name: sale.priceListName, percentage: sale.priceListPercentage } : null,
+          paymentAdjustmentTotal: sale.paymentAdjustmentTotal,
+          cashPriceList: cashList ? { id: cashList.id, name: cashList.name, percentage: cashList.percentage } : null,
+          cardPlans: payments.filter((payment) => payment.cardPlanId).map((payment) => ({ cardPlanId: payment.cardPlanId, label: payment.adjustmentLabel, amount: payment.amount })),
           salesOrderId: sale.salesOrderId ?? null,
           sellerUserId: sale.sellerUserId ?? null,
         },
@@ -686,44 +780,14 @@ export class SalesService {
     });
     const byProduct = new Map(stocks.map((stock) => [stock.productId, stock]));
 
+    const pricingContext: LinePricingContext = { list: priceList, promotions, weekday, branchId: branch.id, policy, exemption };
     const lines = dto.lines.map((line) => {
       const stock = byProduct.get(line.productId);
       if (!stock?.product?.status) {
         throw new NotFoundException(`El producto ${line.productId} no está activo en esta sucursal.`);
       }
       const quantityMilli = BigInt(Math.round(Number(line.quantity) * 1000));
-      const baseUnitCents = toMinorUnits(Number(stock.sellingPrice));
-      const unitPriceCents = applyPriceList(baseUnitCents, priceList, line.productId);
-      const promotion = bestPromotion(
-        promotions,
-        {
-          productId: line.productId,
-          category: stock.product.category ?? null,
-          brand: stock.product.brand ?? null,
-          branchId: branch.id,
-          quantityMilli,
-          unitPriceCents,
-        },
-        weekday,
-      );
-      let vat: VatLineResult;
-      try {
-        vat = computeVatLine({
-          discountCents: promotion?.discountCents ?? 0n,
-          unitPriceCents,
-          quantityMilli,
-          treatment: stock.product.vatTreatment ?? VatTreatment.TAXED,
-          rateBasisPoints: percentToBasisPoints(Number(stock.product.taxRate)),
-          priceIncludesVat: Boolean(stock.product.priceIncludesVat),
-          chargeMode: policy.chargeMode,
-          exemptPriceIsFinal: exemption?.reason === VatExemptionReason.TIERRA_DEL_FUEGO,
-        });
-      } catch (error) {
-        if (error instanceof RangeError) {
-          throw new BadRequestException(`El producto ${stock.product.sku} tiene una configuración de IVA inválida: ${error.message}`);
-        }
-        throw error;
-      }
+      const { baseUnitCents, unitPriceCents, promotion, vat } = priceLine(stock, quantityMilli, pricingContext);
       const availableMilli = BigInt(Math.round(Number(stock.stock) * 1000));
       return {
         productId: line.productId,
@@ -746,6 +810,22 @@ export class SalesService {
       };
     });
 
+    // Total si se pagara todo en efectivo con la lista de efectivo (el cobro la aplica a la parte en efectivo).
+    const cashList = cashDiscountApplies(priceList) ? await resolveCashPriceList(manager, tenantId) : null;
+    const cashDiscount = cashList
+      ? {
+          ...(priceListSummary(cashList) as NonNullable<ReturnType<typeof priceListSummary>>),
+          total: formatCents(
+            summarizeVat(
+              dto.lines.map((line) => {
+                const stock = byProduct.get(line.productId) as ProductBranchEntity;
+                return priceLine(stock, BigInt(Math.round(Number(line.quantity) * 1000)), { ...pricingContext, list: cashList }).vat;
+              }),
+            ).totalCents,
+          ),
+        }
+      : null;
+
     const summary = summarizeVat(lines.map((line) => line.vat));
     const discountCents = lines.reduce((sum, line) => sum + line.discountCents, 0n);
     const draft = {
@@ -762,6 +842,7 @@ export class SalesService {
       allowedVoucherClasses: allowedVoucherClasses(issuerCondition),
       vatRegime,
       priceList: priceListSummary(priceList),
+      cashDiscount,
       requestedVoucherError:
         dto.voucherClass && dto.voucherClass !== policy.voucherClass
           ? voucherMismatchMessage(dto.voucherClass, policy.voucherClass, issuerCondition)

@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -53,6 +54,11 @@ export class CreateSalePaymentDto {
   @IsOptional()
   @IsUUID('4')
   cashSessionId?: string;
+
+  /** Plan de tarjeta (crédito o débito): define cuotas y recargo de esta parte del cobro. */
+  @IsOptional()
+  @IsUUID('4')
+  cardPlanId?: string;
 }
 
 export class CreateSaleDto {
@@ -112,6 +118,14 @@ export class CreateSaleDto {
   @IsOptional()
   @IsUUID('4')
   cashSessionId?: string;
+
+  /**
+   * Aplica la lista de efectivo (ej.: −5 %) a la parte pagada en efectivo, aunque el resto se pague con otro medio.
+   * Solo sobre la lista principal; con una lista elegida (cliente, gobierno) no se suma.
+   */
+  @IsOptional()
+  @IsBoolean()
+  cashDiscount?: boolean;
 }
 
 /** POST /sales/quote — calcula la venta (promociones, IVA y total) sin registrarla. */
