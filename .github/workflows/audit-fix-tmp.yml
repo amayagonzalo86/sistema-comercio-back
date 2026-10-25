@@ -15,9 +15,14 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm audit fix --omit=dev --ignore-scripts || true
-          npm audit --omit=dev --audit-level=high || true
+          LATEST=$(npm view multer version)
+          echo "multer latest: $LATEST"
+          npm pkg set "overrides.multer=$LATEST"
+          npm install --ignore-scripts
+          npm audit --omit=dev --json > audit.json || true
+          node -e "const a=require('./audit.json');console.log(JSON.stringify(Object.fromEntries(Object.entries(a.vulnerabilities||{}).map(([k,v])=>[k,v.severity+' '+v.range]))))" | tee audit-summary.txt
           git diff --stat
       - name: Publicar
         run: |
-          mkdir out && cp package.json package-lock.json out/
+          mkdir out && cp package.json package-lock.json audit-summary.txt out/
           cd out && git init -q -b tmp-audit-resultado && git config user.name bot && git config user.email bot@users.noreply.github.com && git add -A && git commit -qm deps && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" tmp-audit-resultado
