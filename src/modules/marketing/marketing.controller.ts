@@ -17,6 +17,7 @@ import {
 } from './dto/promotion.dto';
 import { PromotionEntity } from './entities/promotion.entity';
 import { MarketingService } from './marketing.service';
+import { RequiresModule, TenantModule } from '../../common/modules/tenant-modules';
 
 const MANAGE = [UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER];
 
@@ -25,6 +26,7 @@ function branchScope(request: Request): string | null {
 }
 
 /** Promociones automáticas y análisis de clientes. */
+@RequiresModule(TenantModule.MARKETING)
 @Controller('marketing')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
 export class MarketingController {

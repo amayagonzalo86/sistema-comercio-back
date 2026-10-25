@@ -6,6 +6,8 @@ import { UserEntity } from '../../modules/users/entities/user.entity';
 import { PersonEntity, PersonType } from '../../modules/persons/entities/person.entity';
 import { RoleEntity, UserRoleEnum } from '../../modules/roles/entities/role.entity';
 import { TenantEntity, TenantStatus } from '../../modules/platform/entities/tenant.entity';
+import { TenantModuleEntity } from '../../modules/platform/entities/tenant-module.entity';
+import { ALL_TENANT_MODULES } from '../../common/modules/tenant-modules';
 import {
   MembershipStatus,
   TenantMembershipEntity,
@@ -81,6 +83,11 @@ export class AdminSeederService {
             legalName: 'Operación de plataforma',
             status: TenantStatus.ACTIVE,
           }),
+        );
+        // La empresa de la plataforma tiene todos los módulos (para probar y dar soporte).
+        await manager.save(
+          TenantModuleEntity,
+          ALL_TENANT_MODULES.map((module) => manager.create(TenantModuleEntity, { tenantId: tenant!.id, module, enabled: true })),
         );
       }
 

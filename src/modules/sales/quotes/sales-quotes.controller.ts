@@ -28,6 +28,7 @@ import { UserRoleEnum } from '../../roles/entities/role.entity';
 import { SalesOrderView } from '../orders/sales-orders.service';
 import { CreateSalesQuoteDto, SalesQuoteQueryDto } from './dto/sales-quote.dto';
 import { QuoteActor, SalesQuoteDetailView, SalesQuotesService, SalesQuoteView } from './sales-quotes.service';
+import { RequiresModule, TenantModule } from '../../../common/modules/tenant-modules';
 
 type RequestActor = { id: string; branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
 const OPERATORS = [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER] as const;
@@ -74,6 +75,7 @@ export class SalesQuotesController {
   }
 
   /** Pasa el presupuesto a pedido de venta (solo quien lo emitió, dentro de las 24 h). */
+  @RequiresModule(TenantModule.PRESALE)
   @Post(':id/convert')
   @HttpCode(HttpStatus.CREATED)
   convert(@GetTenantId() tenantId: string, @Req() request: Request, @Param('id', ParseUUIDPipe) id: string): Promise<SalesOrderView> {

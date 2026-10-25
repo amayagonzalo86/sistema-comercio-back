@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BASE_BRANCH_LIMIT, hasTenantModule, TenantModule } from '../../common/modules/tenant-modules';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateBranchDto } from './dto/create-branch.dto';
@@ -20,6 +21,7 @@ export class BranchesService {
     const existingBranch = await this.branchRepository.findOne({ where: { code: cleanCode, tenantId } });
 
     if (existingBranch) { throw new ConflictException( `Ya existe una sucursal con el código '${cleanCode}'` ) }
+    await this.assertBranchSlot(tenantId);
 
     try {
       const branch = this.branchRepository.create({
@@ -93,6 +95,8 @@ export class BranchesService {
         }
       }
   
+      // Reactivar una sucursal ocupa un lugar del plan.
+      if (restUpdateData.status === true && !branch.status) await this.assertBranchSlot(tenantId);
       const { allowedIpRanges, ...otherUpdates } = restUpdateData;
       Object.assign(branch, otherUpdates);
       if (allowedIpRanges !== undefined) {
@@ -100,7 +104,7 @@ export class BranchesService {
       }
       return await this.branchRepository.save(branch);
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof ConflictException) {
+      if (error instanceof NotFoundException || error instanceof ConflictException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error(`Error al actualizar la sucursal ID '${id}'`, error);
@@ -124,6 +128,21 @@ export class BranchesService {
       throw new InternalServerErrorException('Error interno al deshabilitar la sucursal');
     }
   };
+
+  /**
+   * Plan base: una sucursal activa (incluye depósitos). Con «Multisucursal y depósitos» no hay límite.
+   */
+  private async assertBranchSlot(tenantId: string): Promise<void> {
+    const manager = this.branchRepository.manager;
+    if (await hasTenantModule(manager, tenantId, TenantModule.MULTI_BRANCH)) return;
+    const active = await this.branchRepository.count({ where: { tenantId, status: true } });
+    if (active >= BASE_BRANCH_LIMIT) {
+      throw new ForbiddenException(
+        `El plan base incluye ${BASE_BRANCH_LIMIT} sucursal. Para sumar sucursales o depósitos pedí el módulo «Multisucursal y depósitos».`,
+        { description: `MODULE_NOT_ENABLED:${TenantModule.MULTI_BRANCH}` },
+      );
+    }
+  }
 }
 
 function normalizeRanges(ranges: string[] | null | undefined): string[] | null {
@@ -131,4 +150,5 @@ function normalizeRanges(ranges: string[] | null | undefined): string[] | null {
     return null;
   }
   return [...new Set(ranges.map((range) => range.trim()))];
+
 }

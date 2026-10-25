@@ -56,6 +56,7 @@ import {
 import { loadActivePromotions } from '../marketing/promotion-loader';
 import { AppliedPromotion, bestPromotion, PromotionRule } from '../marketing/domain/promotions';
 import { localToday, localWeekday } from '../reports/domain/period';
+import { assertTenantModule, hasTenantModule, TenantModule } from '../../common/modules/tenant-modules';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 
@@ -273,6 +274,7 @@ export class SalesService {
       // Preventa: el pedido se bloquea primero (antes que el stock) para que dos cajas no lo cobren a la vez.
       let salesOrder: SalesOrderEntity | null = null;
       if (dto.salesOrderId) {
+        await assertTenantModule(queryRunner.manager, tenantId, TenantModule.PRESALE, tenant.timeZone);
         salesOrder = await lockSalesOrder(queryRunner.manager, tenantId, dto.salesOrderId);
         if (salesOrder.status === SalesOrderStatus.PENDING) {
           if (salesOrder.branchId !== branch.id) {
@@ -314,7 +316,10 @@ export class SalesService {
 
       // Promociones vigentes hoy (fecha y día de la semana en la zona horaria de la empresa).
       const timeZone = tenant.timeZone || 'America/Argentina/Buenos_Aires';
-      const promotions = await loadActivePromotions(queryRunner.manager, tenantId, localToday(timeZone));
+      // Promociones: solo con el módulo «Marketing y fidelización» (sin él no se aplican, aunque estén cargadas).
+      const promotions = (await hasTenantModule(queryRunner.manager, tenantId, TenantModule.MARKETING, timeZone))
+        ? await loadActivePromotions(queryRunner.manager, tenantId, localToday(timeZone))
+        : [];
       const weekday = localWeekday(timeZone);
 
       // Planes de tarjeta del cobro: vigentes hoy y del mismo medio de pago (crédito/débito).
@@ -772,7 +777,9 @@ export class SalesService {
     const policy = this.resolvePolicy(issuerCondition, customerCondition, exemption?.reason ?? null);
 
     const timeZone = tenant.timeZone || 'America/Argentina/Buenos_Aires';
-    const promotions = await loadActivePromotions(manager, tenantId, localToday(timeZone));
+    const promotions = (await hasTenantModule(manager, tenantId, TenantModule.MARKETING, timeZone))
+      ? await loadActivePromotions(manager, tenantId, localToday(timeZone))
+      : [];
     const weekday = localWeekday(timeZone);
     const priceList = await resolvePriceList(manager, tenantId, dto.priceListId ?? null);
 

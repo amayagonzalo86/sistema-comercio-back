@@ -25,9 +25,11 @@ import { UserRoleEnum } from '../roles/entities/role.entity';
 import { CreateSupplierPaymentDto } from './dto/create-supplier-payment.dto';
 import { SupplierPayableQueryDto } from './dto/supplier-payable-query.dto';
 import { SupplierAccountsService } from './supplier-accounts.service';
+import { RequiresModule, TenantModule } from '../../common/modules/tenant-modules';
 
 const FINANCE_ROLES = [UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER];
 
+@RequiresModule(TenantModule.PURCHASES)
 @Controller()
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
 export class SupplierAccountsController {

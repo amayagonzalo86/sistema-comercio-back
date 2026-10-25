@@ -27,7 +27,9 @@ import { PurchasesService } from './purchases.service';
 import { PurchaseReceiptQueryDto } from './dto/purchase-order.dto';
 import { Paginated } from '../../common/dto/page-query.dto';
 import { PurchaseReceiptEntity } from './entities/purchase-receipt.entity';
+import { RequiresModule, TenantModule } from '../../common/modules/tenant-modules';
 
+@RequiresModule(TenantModule.PURCHASES)
 @Controller('purchases/receipts')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
 export class PurchasesController {

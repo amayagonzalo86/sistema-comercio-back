@@ -21,6 +21,7 @@ import { UserEntity } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { SessionEntity } from './entities/session.entity';
 import { UserRoleEnum } from '../roles/entities/role.entity';
+import { enabledTenantModules, TenantModule } from '../../common/modules/tenant-modules';
 
 
 export interface JwtPayload {
@@ -252,21 +253,24 @@ export class AuthService {
     }
   }
 
-  async listUserTenants(userId: string): Promise<Array<{ id: string; slug: string; legalName: string; tradeName: string | null; role: TenantRole }>> {
+  /** Empresas del usuario con los módulos contratados de cada una (el plan base no figura: siempre está). */
+  async listUserTenants(userId: string): Promise<Array<{ id: string; slug: string; legalName: string; tradeName: string | null; role: TenantRole; modules: TenantModule[] }>> {
     const memberships = await this.membershipRepository.find({
       where: { userId, status: MembershipStatus.ACTIVE },
       relations: { tenant: true },
       order: { createdAt: 'ASC' },
     });
-    return memberships
-      .filter((membership) => membership.tenant && [TenantStatus.ACTIVE, TenantStatus.TRIAL].includes(membership.tenant.status))
-      .map(({ tenant, role }) => ({
+    const active = memberships.filter((membership) => membership.tenant && [TenantStatus.ACTIVE, TenantStatus.TRIAL].includes(membership.tenant.status));
+    return Promise.all(
+      active.map(async ({ tenant, role }) => ({
         id: tenant.id,
         slug: tenant.slug,
         legalName: tenant.legalName,
         tradeName: tenant.tradeName ?? null,
         role,
-      }));
+        modules: await enabledTenantModules(this.membershipRepository.manager, tenant.id, tenant.timeZone),
+      })),
+    );
   }
 
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {

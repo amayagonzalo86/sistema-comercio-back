@@ -14,6 +14,7 @@ import {
 } from './entities/tenant-membership.entity';
 import { TenantEntity, TenantStatus } from './entities/tenant.entity';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { TenantModuleEntity } from './entities/tenant-module.entity';
 
 @Injectable()
 export class TenantProvisioningService {
@@ -65,13 +66,22 @@ export class TenantProvisioningService {
         }),
       );
 
+      // Plan base siempre; los módulos pedidos al crearla quedan activos (el resto se activa desde la plataforma).
+      const modules = [...new Set(dto.modules ?? [])];
+      if (modules.length > 0) {
+        await queryRunner.manager.save(
+          TenantModuleEntity,
+          modules.map((module) => queryRunner.manager.create(TenantModuleEntity, { tenantId: savedTenant.id, module, enabled: true, updatedByUserId: actorUserId })),
+        );
+      }
+
       const auditEvent = queryRunner.manager.create(AuditEventEntity, {
         tenantId: savedTenant.id,
         actorUserId,
         eventType: 'TENANT_CREATED',
         aggregateType: 'TENANT',
         aggregateId: savedTenant.id,
-        metadata: { slug: savedTenant.slug },
+        metadata: { slug: savedTenant.slug, modules },
       });
       await queryRunner.manager.save(AuditEventEntity, auditEvent);
 

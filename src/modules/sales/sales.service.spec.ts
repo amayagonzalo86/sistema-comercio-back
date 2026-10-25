@@ -91,6 +91,8 @@ function setup() {
     createQueryBuilder: jest.fn((entity: Function) =>
       entity === ProductBranchEntity ? stockBuilder : entity === CashSessionEntity ? cashBuilder : queryBuilder(null)),
     getRepository: jest.fn((entity: Function) => repositories.get(entity)),
+    // Módulos contratados: ninguno (plan base).
+    find: jest.fn(async () => []),
     create: jest.fn((_entity: Function, value: Record<string, unknown>) => value),
     save: jest.fn(async (_entity: Function, value: Record<string, unknown>) => value),
   };

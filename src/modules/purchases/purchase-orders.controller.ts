@@ -18,6 +18,7 @@ import {
 } from './dto/purchase-order.dto';
 import { PurchaseOrderEntity } from './entities/purchase-order.entity';
 import { PurchaseOrdersService } from './purchase-orders.service';
+import { RequiresModule, TenantModule } from '../../common/modules/tenant-modules';
 
 type ActorRequest = Request & { user: { id: string; branchId?: string | null; tenantRole?: string } };
 
@@ -31,6 +32,7 @@ function actorOf(request: ActorRequest) {
  * Pedidos de compra a proveedores.
  * Flujo: crear (borrador) → editar → enviar → recibir con POST /purchases/receipts indicando purchaseOrderId.
  */
+@RequiresModule(TenantModule.PURCHASES)
 @Controller('purchase-orders')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
 export class PurchaseOrdersController {
