@@ -11,6 +11,8 @@ import { AuditEventEntity } from './entities/audit-event.entity';
 import { FiscalProfileEntity } from './entities/fiscal-profile.entity';
 import { TenantMembershipEntity } from './entities/tenant-membership.entity';
 import { TenantEntity } from './entities/tenant.entity';
+import { TenantModuleEntity } from './entities/tenant-module.entity';
+import { PlatformModulesService } from './platform-modules.service';
 
 @Global()
 @Module({
@@ -20,10 +22,11 @@ import { TenantEntity } from './entities/tenant.entity';
       TenantMembershipEntity,
       AuditEventEntity,
       FiscalProfileEntity,
+      TenantModuleEntity,
     ]),
   ],
   controllers: [TenantsController, AuditEventsController],
-  providers: [TenantContextGuard, PlatformSuperAdminGuard, TenantProvisioningService, AuditEventsService, PlatformVatService],
+  providers: [TenantContextGuard, PlatformSuperAdminGuard, TenantProvisioningService, AuditEventsService, PlatformVatService, PlatformModulesService],
   exports: [TypeOrmModule, TenantContextGuard, PlatformSuperAdminGuard],
 })
 export class PlatformModule {}

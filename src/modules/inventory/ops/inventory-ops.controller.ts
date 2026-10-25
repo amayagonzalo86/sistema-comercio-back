@@ -33,6 +33,7 @@ import {
 import { StockTransferEntity } from './entities/stock-transfer.entity';
 import { LowStockRow, ReplenishmentView, StockInsightsService, StockMatrixRow } from './stock-insights.service';
 import { StockTransfersService, TransferActor } from './stock-transfers.service';
+import { RequiresModule, TenantModule } from '../../../common/modules/tenant-modules';
 
 type ActorRequest = Request & { user: { id: string; branchId?: string | null; tenantRole?: string } };
 
@@ -45,6 +46,7 @@ function actorOf(request: ActorRequest): TransferActor {
 }
 
 /** Transferencias de mercadería entre sucursales. */
+@RequiresModule(TenantModule.MULTI_BRANCH)
 @Controller('stock-transfers')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
 export class StockTransfersController {
@@ -125,6 +127,7 @@ export class InventoryInsightsController {
   }
 
   /** Productos por debajo del mínimo (de su sucursal o de todas). */
+  @RequiresModule(TenantModule.INVENTORY_CONTROL)
   @Get('low-stock')
   @Roles(...READ, UserRoleEnum.CASHIER, UserRoleEnum.SELLER)
   lowStock(
@@ -136,6 +139,7 @@ export class InventoryInsightsController {
   }
 
   /** Plan sugerido de reposición: transferencias entre sucursales y compras necesarias. */
+  @RequiresModule(TenantModule.INVENTORY_CONTROL)
   @Get('replenishment')
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.USER)
   replenishment(@GetTenantId() tenantId: string, @Query() query: ReplenishmentQueryDto): Promise<ReplenishmentView> {

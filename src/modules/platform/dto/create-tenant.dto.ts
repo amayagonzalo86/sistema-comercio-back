@@ -1,4 +1,5 @@
-import { IsOptional, IsString, IsUUID, Length, Matches } from 'class-validator';
+import { ArrayUnique, IsArray, IsEnum, IsOptional, IsString, IsUUID, Length, Matches } from 'class-validator';
+import { TenantModule } from '../../../common/modules/tenant-modules';
 import { IsCuit } from '../../../common/validators/decorators';
 
 export class CreateTenantDto {
@@ -24,4 +25,11 @@ export class CreateTenantDto {
 
   @IsUUID('4')
   ownerUserId!: string;
+
+  /** Módulos contratados además del plan base (se pueden cambiar después desde la plataforma). */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsEnum(TenantModule, { each: true, message: 'Módulo desconocido.' })
+  modules?: TenantModule[];
 }

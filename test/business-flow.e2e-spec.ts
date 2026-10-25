@@ -976,6 +976,53 @@ describe('Flujo comercial completo (e2e)', () => {
     const regimeAudit = await api('get', '/audit-events?eventType=VAT_REGIME_CHANGED');
     expect(regimeAudit.body.items.length).toBeGreaterThanOrEqual(3);
 
+    // ── Módulos por empresa: solo la plataforma los activa; sin el módulo, la API lo rechaza ──
+    const modulesView = await api('get', `/platform/tenants/${tenantId}/modules`);
+    expectStatus(modulesView, 200);
+    expect(modulesView.body.modules).toHaveLength(6);
+    expect(modulesView.body.modules.every((item: { active: boolean }) => item.active)).toBe(true);
+    expect(modulesView.body.branchLimit).toBeNull();
+    token = adrianLogin.body.tokens.accessToken as string; // administración de la empresa: no puede activarse módulos
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/MARKETING`, { enabled: true }), 403);
+    expectStatus(await api('get', `/platform/tenants/${tenantId}/modules`), 403);
+    token = adminToken;
+    const withPromo = await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }] });
+    expect(Number(withPromo.body.discountTotal)).toBeGreaterThan(0);
+    const noMarketing = await api('put', `/platform/tenants/${tenantId}/modules/MARKETING`, { enabled: false, notes: 'Baja del módulo' });
+    expectStatus(noMarketing, 200);
+    expect(noMarketing.body.modules.find((item: { module: string }) => item.module === 'MARKETING')).toMatchObject({ enabled: false, active: false });
+    const blocked = await api('get', '/marketing/promotions');
+    expectStatus(blocked, 403);
+    expect(blocked.body.details).toBe('MODULE_NOT_ENABLED:MARKETING');
+    expect(blocked.body.message).toContain('Marketing y fidelización');
+    // Sin el módulo, las promociones cargadas no se aplican al vender.
+    expect((await api('post', '/sales/quote', { branchId: A, lines: [{ productId, quantity: 1 }] })).body.discountTotal).toBe('0.00');
+    const sessionTenants = await api('get', '/auth/tenants');
+    expect(sessionTenants.body.find((item: { id: string }) => item.id === tenantId).modules).not.toContain('MARKETING');
+    // Vencido ayer: sigue bloqueado; sin vencimiento: vuelve.
+    const yesterday = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/MARKETING`, { enabled: true, validUntil: yesterday }), 200);
+    expectStatus(await api('get', '/marketing/promotions'), 403);
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/MARKETING`, { enabled: true, validUntil: null }), 200);
+    expectStatus(await api('get', '/marketing/promotions'), 200);
+    // Plan base: una sucursal. Sin Multisucursal no se crea otra ni se ven las transferencias.
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/MULTI_BRANCH`, { enabled: false }), 200);
+    const extraBranch = await api('post', '/branches', { code: 'SUR', name: 'Sucursal Sur' });
+    expectStatus(extraBranch, 403);
+    expect(extraBranch.body.details).toBe('MODULE_NOT_ENABLED:MULTI_BRANCH');
+    expectStatus(await api('get', '/stock-transfers'), 403);
+    expect((await api('get', `/platform/tenants/${tenantId}/modules`)).body.branchLimit).toBe(1);
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/MULTI_BRANCH`, { enabled: true }), 200);
+    expectStatus(await api('get', '/stock-transfers'), 200);
+    // Sin Tablero y reportes: el tablero se bloquea, pero la valorización (Control de mercadería) sigue.
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/REPORTS`, { enabled: false }), 200);
+    expectStatus(await api('get', '/reports/dashboard'), 403);
+    expectStatus(await api('get', '/reports/stock-valuation'), 200);
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/REPORTS`, { enabled: true }), 200);
+    expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/NO_EXISTE`, { enabled: true }), 400);
+    const moduleAudit = await api('get', '/audit-events?eventType=TENANT_MODULE_DISABLED');
+    expect(moduleAudit.body.items.length).toBeGreaterThanOrEqual(3);
+
     // ── Presupuestos X: 24 h, solo quien lo emitió lo pasa a pedido; nunca se borran (quedan en el historial) ──
     const veraToken = sellerLogin.body.tokens.accessToken as string;
     token = veraToken;

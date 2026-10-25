@@ -6,6 +6,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -15,6 +16,7 @@ import {
 import { TenantStatus } from '../../modules/platform/entities/tenant.entity';
 import { isIpAllowed } from '../security/ip-allowlist';
 import { membershipRoles } from '../security/tenant-roles';
+import { hasTenantModule, moduleNotEnabled, TENANT_MODULE_METADATA, TenantModule } from '../modules/tenant-modules';
 
 type TenantRequest = {
   ip?: string;
@@ -35,6 +37,7 @@ export class TenantContextGuard implements CanActivate {
   constructor(
     @InjectRepository(TenantMembershipEntity)
     private readonly membershipRepository: Repository<TenantMembershipEntity>,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -78,6 +81,15 @@ export class TenantContextGuard implements CanActivate {
     user.tenantRole = membership.role;
     user.tenantRoles = membershipRoles(membership);
     user.branchId = membership.branchId ?? null;
+
+    // Módulos contratados: el endpoint (o su controlador) puede exigir uno que no es del plan base.
+    const requiredModule = this.reflector.getAllAndOverride<TenantModule | undefined>(TENANT_MODULE_METADATA, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (requiredModule && !(await hasTenantModule(this.membershipRepository.manager, user.tenantId, requiredModule, membership.tenant.timeZone))) {
+      throw moduleNotEnabled(requiredModule);
+    }
     return true;
   }
 }
