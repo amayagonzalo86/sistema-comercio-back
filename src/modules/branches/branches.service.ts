@@ -128,13 +128,6 @@ export class BranchesService {
       throw new InternalServerErrorException('Error interno al deshabilitar la sucursal');
     }
   };
-}
-
-function normalizeRanges(ranges: string[] | null | undefined): string[] | null {
-  if (!ranges || ranges.length === 0) {
-    return null;
-  }
-  return [...new Set(ranges.map((range) => range.trim()))];
 
   /**
    * Plan base: una sucursal activa (incluye depósitos). Con «Multisucursal y depósitos» no hay límite.
@@ -150,4 +143,12 @@ function normalizeRanges(ranges: string[] | null | undefined): string[] | null {
       );
     }
   }
+}
+
+function normalizeRanges(ranges: string[] | null | undefined): string[] | null {
+  if (!ranges || ranges.length === 0) {
+    return null;
+  }
+  return [...new Set(ranges.map((range) => range.trim()))];
+
 }
