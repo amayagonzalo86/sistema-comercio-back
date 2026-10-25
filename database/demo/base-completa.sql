@@ -992,6 +992,21 @@ CREATE TABLE `tenant_memberships` (
   CONSTRAINT `FK_d22937ebccd641b5090849e51f7` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `FK_df584414136bcd73cb0a013e7f8` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `tenant_modules`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tenant_modules` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `module` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `enabled` tinyint NOT NULL DEFAULT '1',
+  `valid_until` date DEFAULT NULL,
+  `notes` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by_user_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_tenant_modules_tenant_module` (`tenant_id`,`module`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `tenants`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `tenants` (
@@ -1178,6 +1193,7 @@ DELETE FROM `product_price_history` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0
 DELETE FROM `product_price_lists` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `price_lists` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `card_plans` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `tenant_modules` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `product_branches` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `products` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `promotions` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
@@ -1203,6 +1219,14 @@ INSERT INTO `branches` (`id`,`tenant_id`,`code`,`name`,`address`,`city`,`provinc
 ('03bf9e4a-b07e-4af4-8984-e23c7add2199','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','VILLA-A','Villa Allende','Av. Goycoechea 820','Villa Allende','Córdoba','3543 43-3000',1),
 ('abd9a46e-c302-40aa-9d89-e68cb494d8fb','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','RIO-IV','Río Cuarto','Constitución 640','Río Cuarto','Córdoba','358 462-4000',1),
 ('a8a6d912-f2e3-4948-b798-a1885864967e','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','DEPOSITO','Depósito central','Ruta 9 km 695','Córdoba','Córdoba','351 422-5000',1);
+-- Módulos contratados: la demo los tiene todos (se cambian desde Plataforma → Módulos).
+INSERT INTO `tenant_modules` (`id`,`tenant_id`,`module`,`enabled`,`notes`) VALUES
+(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','MULTI_BRANCH',1,'Demo: todos los módulos'),
+(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','PURCHASES',1,'Demo: todos los módulos'),
+(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','INVENTORY_CONTROL',1,'Demo: todos los módulos'),
+(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','REPORTS',1,'Demo: todos los módulos'),
+(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','MARKETING',1,'Demo: todos los módulos'),
+(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','PRESALE',1,'Demo: todos los módulos');
 INSERT INTO `price_lists` (`id`,`tenant_id`,`name`,`description`,`percentage`,`payment_condition`,`is_default`,`is_active`,`sort_order`) VALUES
 ('b57d5fa4-88fd-4d87-99e5-b7ded9b3e4ff','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Precio de lista','Precio de la sucursal, sin descuentos ni recargos.',0.00,'ANY',1,1,10),
 ('d9ae1492-65c2-4b96-a8ac-566afdb140ee','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Ventas en efectivo','Descuento por pago en efectivo.',-5.00,'CASH_ONLY',0,1,20),
