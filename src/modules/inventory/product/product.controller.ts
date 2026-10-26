@@ -31,7 +31,6 @@ import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
 import { InventoryAuditContext } from './inventory-audit-context';
 import { requireAssignedBranch, requireBranchAccess } from '../../../common/security/tenant-branch-access';
 import { canSeeProductCosts } from '../../../common/security/tenant-roles';
-import { RequiresModule, TenantModule } from '../../../common/modules/tenant-modules';
 
 @Controller('products')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -143,7 +142,6 @@ export class ProductsController {
   }
 
   /** Historial de cambios de costo y precio de un producto. */
-  @RequiresModule(TenantModule.INVENTORY_CONTROL)
   @Get(':id/price-history')
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.USER)
   priceHistory(

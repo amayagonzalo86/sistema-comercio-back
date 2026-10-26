@@ -26,7 +26,6 @@ import { requireAssignedBranch, requireBranchAccess } from '../../../common/secu
 import { UserRoleEnum } from '../../roles/entities/role.entity';
 import { CancelSalesOrderDto, CreateSalesOrderDto, SalesOrderQueryDto } from './dto/sales-order.dto';
 import { SalesOrderActor, SalesOrdersService, SalesOrderView } from './sales-orders.service';
-import { RequiresModule, TenantModule } from '../../../common/modules/tenant-modules';
 
 type RequestActor = { id: string; branchId?: string | null; tenantRole?: string; tenantRoles?: string[] };
 
@@ -34,7 +33,6 @@ type RequestActor = { id: string; branchId?: string | null; tenantRole?: string;
  * Pedidos de venta (preventa). El vendedor los arma; el cajero los cobra con POST /sales enviando salesOrderId.
  * Todas las rutas quedan limitadas a la sucursal asignada del usuario cuando la tiene.
  */
-@RequiresModule(TenantModule.PRESALE)
 @Controller('sales-orders')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
 export class SalesOrdersController {
