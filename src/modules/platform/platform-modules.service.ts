@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { DataSource } from 'typeorm';
 import { recordAudit } from '../../common/audit/audit';
 import { RequestAuditContext } from '../../common/http/request-context';
-import { ALL_TENANT_MODULES, BASE_BRANCH_LIMIT, TENANT_MODULE_INFO, TenantModule } from '../../common/modules/tenant-modules';
+import { ALL_TENANT_MODULES, TENANT_MODULE_INFO, TenantModule } from '../../common/modules/tenant-modules';
 import { DEFAULT_TIME_ZONE } from '../../common/time/local-day-range';
 import { BranchEntity } from '../branches/entities/branch.entity';
 import { localToday } from '../reports/domain/period';
@@ -26,9 +26,8 @@ export interface TenantModulesView {
   tenantId: string;
   legalName: string;
   tradeName: string | null;
-  /** Sucursales activas y límite del plan (null = sin límite, tiene Multisucursal). */
+  /** Sucursales activas (el plan base no tiene límite). */
   activeBranches: number;
-  branchLimit: number | null;
   modules: TenantModuleView[];
 }
 
@@ -59,13 +58,11 @@ export class PlatformModulesService {
         updatedAt: row?.updatedAt ?? null,
       };
     });
-    const multiBranch = modules.find((item) => item.module === TenantModule.MULTI_BRANCH)?.active ?? false;
     return {
       tenantId: tenant.id,
       legalName: tenant.legalName,
       tradeName: tenant.tradeName ?? null,
       activeBranches,
-      branchLimit: multiBranch ? null : BASE_BRANCH_LIMIT,
       modules,
     };
   }

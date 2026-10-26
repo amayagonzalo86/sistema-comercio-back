@@ -56,7 +56,7 @@ import {
 import { loadActivePromotions } from '../marketing/promotion-loader';
 import { AppliedPromotion, bestPromotion, PromotionRule } from '../marketing/domain/promotions';
 import { localToday, localWeekday } from '../reports/domain/period';
-import { assertTenantModule, hasTenantModule, TenantModule } from '../../common/modules/tenant-modules';
+import { hasTenantModule, TenantModule } from '../../common/modules/tenant-modules';
 
 const MAX_MONEY_CENTS = 99_999_999_999_999n;
 
@@ -274,7 +274,6 @@ export class SalesService {
       // Preventa: el pedido se bloquea primero (antes que el stock) para que dos cajas no lo cobren a la vez.
       let salesOrder: SalesOrderEntity | null = null;
       if (dto.salesOrderId) {
-        await assertTenantModule(queryRunner.manager, tenantId, TenantModule.PRESALE, tenant.timeZone);
         salesOrder = await lockSalesOrder(queryRunner.manager, tenantId, dto.salesOrderId);
         if (salesOrder.status === SalesOrderStatus.PENDING) {
           if (salesOrder.branchId !== branch.id) {

@@ -91,14 +91,9 @@ INSERT INTO `branches` (`id`,`tenant_id`,`code`,`name`,`address`,`city`,`provinc
 ('03bf9e4a-b07e-4af4-8984-e23c7add2199','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','VILLA-A','Villa Allende','Av. Goycoechea 820','Villa Allende','Córdoba','3543 43-3000',1),
 ('abd9a46e-c302-40aa-9d89-e68cb494d8fb','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','RIO-IV','Río Cuarto','Constitución 640','Río Cuarto','Córdoba','358 462-4000',1),
 ('a8a6d912-f2e3-4948-b798-a1885864967e','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','DEPOSITO','Depósito central','Ruta 9 km 695','Córdoba','Córdoba','351 422-5000',1);
--- Módulos contratados: la demo los tiene todos (se cambian desde Plataforma → Módulos).
+-- Módulo pago: la demo tiene Marketing y fidelización (se cambia desde Plataforma → Módulos por empresa).
 INSERT INTO `tenant_modules` (`id`,`tenant_id`,`module`,`enabled`,`notes`) VALUES
-(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','MULTI_BRANCH',1,'Demo: todos los módulos'),
-(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','PURCHASES',1,'Demo: todos los módulos'),
-(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','INVENTORY_CONTROL',1,'Demo: todos los módulos'),
-(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','REPORTS',1,'Demo: todos los módulos'),
-(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','MARKETING',1,'Demo: todos los módulos'),
-(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','PRESALE',1,'Demo: todos los módulos');
+(UUID(),'9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','MARKETING',1,'Demo');
 INSERT INTO `price_lists` (`id`,`tenant_id`,`name`,`description`,`percentage`,`payment_condition`,`is_default`,`is_active`,`sort_order`) VALUES
 ('b57d5fa4-88fd-4d87-99e5-b7ded9b3e4ff','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Precio de lista','Precio de la sucursal, sin descuentos ni recargos.',0.00,'ANY',1,1,10),
 ('d9ae1492-65c2-4b96-a8ac-566afdb140ee','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Ventas en efectivo','Descuento por pago en efectivo.',-5.00,'CASH_ONLY',0,1,20),
