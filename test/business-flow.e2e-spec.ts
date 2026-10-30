@@ -1284,7 +1284,7 @@ describe('Flujo comercial completo (e2e)', () => {
     const accountList = await api('post', '/price-lists', { name: 'Cuenta corriente', percentage: 10, paymentCondition: 'ACCOUNT_ONLY' });
     expectStatus(accountList, 201);
     const debtor = await api('post', '/persons', {
-      personType: 'CUSTOMER', firstName: 'Corralón', lastName: 'Norte', documentType: 96, nationalId: '30111222', vatCondition: 'CONSUMIDOR_FINAL',
+      personType: 'CUSTOMER', firstName: 'Corralón', lastName: 'Norte', documentType: 96, nationalId: '41555666', vatCondition: 'CONSUMIDOR_FINAL',
     });
     expectStatus(debtor, 201);
     const debtorId = debtor.body.id as string;
