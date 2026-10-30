@@ -35,7 +35,7 @@ export class CustomerAccounts1791000000037 implements MigrationInterface {
         \`tenant_id\` varchar(36) NOT NULL,
         \`branch_id\` varchar(36) NOT NULL,
         \`customer_person_id\` varchar(36) NOT NULL,
-        \`kind\` enum ('SALE', 'DEBIT_NOTE', 'CREDIT_NOTE', 'RETURN', 'RECEIPT') NOT NULL,
+        \`kind\` enum ('SALE', 'DEBIT_NOTE', 'CREDIT_NOTE', 'RETURN', 'RECEIPT', 'REJECTED_CHECK') NOT NULL,
         \`direction\` enum ('DEBIT', 'CREDIT') NOT NULL,
         \`source_type\` varchar(30) NOT NULL,
         \`source_id\` varchar(36) NOT NULL,

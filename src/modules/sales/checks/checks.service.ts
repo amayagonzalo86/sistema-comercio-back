@@ -5,6 +5,11 @@ import { likePattern, Paginated, paginated } from '../../../common/dto/page-quer
 import { RequestAuditContext } from '../../../common/http/request-context';
 import { CheckQueryDto, UpdateCheckStatusDto } from './dto/check.dto';
 import { CheckStatus, ReceivedCheckEntity } from './entities/received-check.entity';
+import { cents } from '../../../common/utils/money';
+import { tenantTimeZone } from '../../../common/time/local-day-range';
+import { localToday } from '../../reports/domain/period';
+import { autoApply, lockCustomer, postEntry } from '../accounts/account-ledger';
+import { AccountEntryDirection, AccountEntryKind } from '../accounts/entities/customer-account-entry.entity';
 
 export interface ReceivedCheckView extends ReceivedCheckEntity {
   customerName: string | null;
@@ -111,6 +116,25 @@ export class ChecksService {
       check.statusChangedAt = new Date();
       check.statusChangedByUserId = actorUserId;
       const saved = await manager.save(ReceivedCheckEntity, check);
+      // Cheque de un recibo de cuenta corriente rechazado: la deuda vuelve a la cuenta del cliente (vence hoy).
+      if (dto.status === CheckStatus.REJECTED && check.receiptId && check.customerPersonId) {
+        await lockCustomer(manager, tenantId, check.customerPersonId);
+        await postEntry(manager, {
+          tenantId,
+          branchId: check.branchId,
+          customerPersonId: check.customerPersonId,
+          kind: AccountEntryKind.REJECTED_CHECK,
+          direction: AccountEntryDirection.DEBIT,
+          sourceType: 'RECEIVED_CHECK',
+          sourceId: check.id,
+          description: `Cheque rechazado N.º ${check.number} (${check.bank}): ${dto.note ?? ''}`.trim(),
+          amountCents: cents(check.amount),
+          currency: check.currency,
+          dueDate: localToday(await tenantTimeZone(manager, tenantId)),
+          actorUserId,
+        });
+        await autoApply(manager, tenantId, check.customerPersonId);
+      }
       await recordAudit(manager, {
         tenantId,
         actorUserId,

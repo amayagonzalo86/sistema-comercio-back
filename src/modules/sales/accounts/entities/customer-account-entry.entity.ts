@@ -12,6 +12,8 @@ export enum AccountEntryKind {
   RETURN = 'RETURN',
   /** Recibo de cobranza. */
   RECEIPT = 'RECEIPT',
+  /** Cheque de un recibo rechazado por el banco: la deuda vuelve a la cuenta. */
+  REJECTED_CHECK = 'REJECTED_CHECK',
 }
 
 /** DEBIT = el cliente debe (aumenta el saldo); CREDIT = paga o se le acredita (lo reduce). */

@@ -1403,6 +1403,12 @@ describe('Flujo comercial completo (e2e)', () => {
       ['SALE', 'SALE', 'RECEIPT', 'RECEIPT', 'SALE', 'SALE', 'DEBIT_NOTE', 'CREDIT_NOTE'],
     );
     expect(finalAccount.body.statement.closingBalance).toBe('1800.00');
+    // Cheque del recibo rechazado: la deuda vuelve a la cuenta del cliente.
+    const receiptCheck = (await api('get', '/checks?search=55660011')).body.items[0];
+    expectStatus(await api('patch', `/checks/${receiptCheck.id}/status`, { status: 'REJECTED', note: 'Sin fondos' }), 200);
+    const afterRejected = await api('get', `/customer-accounts/${debtorId}`);
+    expect(afterRejected.body.balance).toBe('2800.00');
+    expect(afterRejected.body.openDebits.some((item: { kind: string; pending: string }) => item.kind === 'REJECTED_CHECK' && item.pending === '1000.00')).toBe(true);
 
     // Baja lógica: deja de ofrecerse.
     expectStatus(await api('delete', `/card-plans/${tdfOtherDay.body.id}`), 200);
