@@ -57,7 +57,7 @@ export class CreatePriceListDto {
   readonly percentage!: number;
 
   @IsOptional()
-  @IsEnum(PriceListPaymentCondition, { message: 'Condición de pago inválida (ANY o CASH_ONLY).' })
+  @IsEnum(PriceListPaymentCondition, { message: 'Condición de pago inválida (ANY, CASH_ONLY o ACCOUNT_ONLY).' })
   readonly paymentCondition?: PriceListPaymentCondition;
 
   /**

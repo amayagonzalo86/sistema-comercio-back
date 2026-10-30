@@ -5,10 +5,17 @@ import { likePattern, Paginated, paginated } from '../../../common/dto/page-quer
 import { RequestAuditContext } from '../../../common/http/request-context';
 import { CheckQueryDto, UpdateCheckStatusDto } from './dto/check.dto';
 import { CheckStatus, ReceivedCheckEntity } from './entities/received-check.entity';
+import { cents } from '../../../common/utils/money';
+import { tenantTimeZone } from '../../../common/time/local-day-range';
+import { localToday } from '../../reports/domain/period';
+import { autoApply, lockCustomer, postEntry } from '../accounts/account-ledger';
+import { AccountEntryDirection, AccountEntryKind } from '../accounts/entities/customer-account-entry.entity';
 
 export interface ReceivedCheckView extends ReceivedCheckEntity {
   customerName: string | null;
   branchName: string | null;
+  /** N.º de recibo si el cheque llegó en una cobranza de cuenta corriente. */
+  receiptNumber: number | null;
 }
 
 /** Cambios de estado permitidos: en cartera → depositado → acreditado; rechazado desde cartera o depositado. */
@@ -60,18 +67,23 @@ export class ChecksService {
 
     const names = rows.length
       ? ((await this.dataSource.query(
-          `SELECT c.id, TRIM(CONCAT_WS(' ', NULLIF(p.last_name, '-'), p.first_name)) AS customerName, b.name AS branchName
+          `SELECT c.id, TRIM(CONCAT_WS(' ', NULLIF(p.last_name, '-'), p.first_name)) AS customerName, b.name AS branchName, r.number AS receiptNumber
              FROM received_checks c
-             JOIN sales s ON s.id = c.sale_id AND s.tenant_id = c.tenant_id
-             LEFT JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
+             LEFT JOIN sales s ON s.id = c.sale_id AND s.tenant_id = c.tenant_id
+             LEFT JOIN customer_receipts r ON r.id = c.receipt_id AND r.tenant_id = c.tenant_id
+             LEFT JOIN persons p ON p.id = COALESCE(c.customer_person_id, s.customer_person_id) AND p.tenant_id = c.tenant_id
              LEFT JOIN branches b ON b.id = c.branch_id AND b.tenant_id = c.tenant_id
             WHERE c.tenant_id = ? AND c.id IN (${rows.map(() => '?').join(', ')})`,
           [tenantId, ...rows.map((row) => row.id)],
-        )) as Array<{ id: string; customerName: string | null; branchName: string | null }>)
+        )) as Array<{ id: string; customerName: string | null; branchName: string | null; receiptNumber: number | null }>)
       : [];
     const byId = new Map(names.map((row) => [String(row.id), row]));
     const items = rows.map((row) =>
-      Object.assign(row, { customerName: byId.get(row.id)?.customerName || null, branchName: byId.get(row.id)?.branchName ?? null }),
+      Object.assign(row, {
+        customerName: byId.get(row.id)?.customerName || null,
+        branchName: byId.get(row.id)?.branchName ?? null,
+        receiptNumber: byId.get(row.id)?.receiptNumber != null ? Number(byId.get(row.id)?.receiptNumber) : null,
+      }),
     );
     return { ...paginated(items, total, query.page, query.limit), totals };
   }
@@ -104,13 +116,32 @@ export class ChecksService {
       check.statusChangedAt = new Date();
       check.statusChangedByUserId = actorUserId;
       const saved = await manager.save(ReceivedCheckEntity, check);
+      // Cheque de un recibo de cuenta corriente rechazado: la deuda vuelve a la cuenta del cliente (vence hoy).
+      if (dto.status === CheckStatus.REJECTED && check.receiptId && check.customerPersonId) {
+        await lockCustomer(manager, tenantId, check.customerPersonId);
+        await postEntry(manager, {
+          tenantId,
+          branchId: check.branchId,
+          customerPersonId: check.customerPersonId,
+          kind: AccountEntryKind.REJECTED_CHECK,
+          direction: AccountEntryDirection.DEBIT,
+          sourceType: 'RECEIVED_CHECK',
+          sourceId: check.id,
+          description: `Cheque rechazado N.º ${check.number} (${check.bank}): ${dto.note ?? ''}`.trim(),
+          amountCents: cents(check.amount),
+          currency: check.currency,
+          dueDate: localToday(await tenantTimeZone(manager, tenantId)),
+          actorUserId,
+        });
+        await autoApply(manager, tenantId, check.customerPersonId);
+      }
       await recordAudit(manager, {
         tenantId,
         actorUserId,
         eventType: 'CHECK_STATUS_CHANGED',
         aggregateType: 'RECEIVED_CHECK',
         aggregateId: check.id,
-        metadata: { saleId: check.saleId, bank: check.bank, number: check.number, amount: check.amount, before, after: dto.status, note: dto.note ?? null },
+        metadata: { saleId: check.saleId ?? null, receiptId: check.receiptId ?? null, bank: check.bank, number: check.number, amount: check.amount, before, after: dto.status, note: dto.note ?? null },
         context,
       });
       return saved;

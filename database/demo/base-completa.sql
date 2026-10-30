@@ -138,7 +138,7 @@ CREATE TABLE `cash_movements` (
   `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `cash_session_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `type` enum('OPENING','SALE','REFUND','INCOME','EXPENSE','ADJUSTMENT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` enum('OPENING','SALE','REFUND','INCOME','EXPENSE','ADJUSTMENT','COLLECTION') COLLATE utf8mb4_unicode_ci NOT NULL,
   `direction` enum('IN','OUT') COLLATE utf8mb4_unicode_ci NOT NULL,
   `amount` decimal(14,2) NOT NULL,
   `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -232,6 +232,94 @@ CREATE TABLE `cash_sessions` (
   UNIQUE KEY `UQ_cash_sessions_tenant_close_key` (`tenant_id`,`close_idempotency_key`),
   KEY `IDX_cash_sessions_tenant_register_opened` (`tenant_id`,`cash_register_id`,`opened_at`),
   KEY `IDX_cash_sessions_tenant_branch_status` (`tenant_id`,`branch_id`,`status`,`opened_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `customer_account_allocations`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_account_allocations` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `credit_entry_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `debit_entry_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` decimal(14,2) NOT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `IDX_account_allocations_credit` (`tenant_id`,`credit_entry_id`),
+  KEY `IDX_account_allocations_debit` (`tenant_id`,`debit_entry_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `customer_account_entries`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_account_entries` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_person_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` enum('SALE','DEBIT_NOTE','CREDIT_NOTE','RETURN','RECEIPT','REJECTED_CHECK') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `direction` enum('DEBIT','CREDIT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source_type` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sale_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` decimal(14,2) NOT NULL,
+  `amount_applied` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `due_date` date DEFAULT NULL,
+  `interest_through` date DEFAULT NULL,
+  `actor_user_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_account_entries_source` (`tenant_id`,`source_type`,`source_id`),
+  KEY `IDX_account_entries_customer_due` (`tenant_id`,`customer_person_id`,`direction`,`due_date`),
+  KEY `IDX_account_entries_customer` (`tenant_id`,`customer_person_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `customer_credit_authorizations`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_credit_authorizations` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_person_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `max_amount` decimal(14,2) NOT NULL,
+  `reason` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `expires_at` timestamp(6) NOT NULL,
+  `authorized_by_user_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `used_sale_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `IDX_credit_authorizations_customer` (`tenant_id`,`customer_person_id`,`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `customer_receipt_payments`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_receipt_payments` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `receipt_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `position` smallint unsigned NOT NULL DEFAULT '0',
+  `method` enum('CASH','DEBIT_CARD','CREDIT_CARD','BANK_TRANSFER','QR','CHECK','OTHER') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` decimal(14,2) NOT NULL,
+  `external_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `IDX_customer_receipt_payments_receipt` (`tenant_id`,`receipt_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `customer_receipts`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_receipts` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `number` int unsigned NOT NULL,
+  `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_person_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `total` decimal(14,2) NOT NULL,
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cash_session_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `idempotency_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `request_fingerprint` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_customer_receipts_tenant_idempotency` (`tenant_id`,`idempotency_key`),
+  UNIQUE KEY `UQ_customer_receipts_tenant_number` (`tenant_id`,`number`),
+  KEY `IDX_customer_receipts_session` (`tenant_id`,`cash_session_id`),
+  KEY `IDX_customer_receipts_customer` (`tenant_id`,`customer_person_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `document_sequences`;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -366,6 +454,9 @@ CREATE TABLE `persons` (
   `city` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `province` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price_list_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `credit_enabled` tinyint NOT NULL DEFAULT '0',
+  `credit_limit` decimal(14,2) DEFAULT NULL,
+  `credit_term_days` smallint unsigned NOT NULL DEFAULT '30',
   `account_number` int unsigned DEFAULT NULL,
   `person_type` enum('CUSTOMER','SUPPLIER','BOTH') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'BOTH',
   `isActive` tinyint NOT NULL DEFAULT '1',
@@ -386,7 +477,7 @@ CREATE TABLE `price_lists` (
   `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text COLLATE utf8mb4_unicode_ci,
   `percentage` decimal(7,2) NOT NULL DEFAULT '0.00',
-  `payment_condition` enum('ANY','CASH_ONLY') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ANY',
+  `payment_condition` enum('ANY','CASH_ONLY','ACCOUNT_ONLY') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ANY',
   `discount_methods` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_default` tinyint NOT NULL DEFAULT '0',
   `is_active` tinyint NOT NULL DEFAULT '1',
@@ -621,8 +712,11 @@ CREATE TABLE `received_checks` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `sale_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `sale_payment_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sale_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sale_payment_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `receipt_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `receipt_payment_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `customer_person_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `bank` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
   `number` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `pay_date` date NOT NULL,
@@ -638,6 +732,7 @@ CREATE TABLE `received_checks` (
   `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   UNIQUE KEY `UQ_received_checks_payment` (`tenant_id`,`sale_payment_id`),
+  KEY `IDX_received_checks_receipt` (`tenant_id`,`receipt_id`),
   KEY `IDX_received_checks_sale` (`tenant_id`,`sale_id`),
   KEY `IDX_received_checks_tenant_status_date` (`tenant_id`,`status`,`pay_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -720,7 +815,7 @@ CREATE TABLE `sale_payments` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `sale_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `method` enum('CASH','DEBIT_CARD','CREDIT_CARD','BANK_TRANSFER','QR','CHECK','OTHER') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `method` enum('CASH','DEBIT_CARD','CREDIT_CARD','BANK_TRANSFER','QR','CHECK','ACCOUNT','OTHER') COLLATE utf8mb4_unicode_ci NOT NULL,
   `amount` decimal(14,2) NOT NULL,
   `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
   `external_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -1075,6 +1170,7 @@ CREATE TABLE `tenants` (
   `status` enum('TRIAL','ACTIVE','SUSPENDED','CLOSED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'TRIAL',
   `time_zone` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'America/Argentina/Buenos_Aires',
   `currency_code` char(3) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ARS',
+  `late_interest_monthly` decimal(5,2) NOT NULL DEFAULT '0.00',
   `default_vat_regime` enum('GENERAL','TIERRA_DEL_FUEGO') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'GENERAL',
   `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -1238,6 +1334,11 @@ DELETE FROM `stock_transfer_items` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a
 DELETE FROM `stock_transfers` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_return_items` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_returns` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_account_allocations` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_account_entries` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_receipt_payments` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_receipts` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_credit_authorizations` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `received_checks` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_adjustments` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `fiscal_documents` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
@@ -22427,6 +22528,15 @@ INSERT INTO `card_plans` (`id`,`tenant_id`,`name`,`card_brand`,`bank_name`,`paym
 ('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e04','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',3,0.00,NULL,1,40),
 ('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e05','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Tarjeta TDF','OTHER','Banco de Tierra del Fuego','CREDIT_CARD',1,0.00,NULL,1,50),
 ('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e06','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',6,15.00,NULL,1,60);
+
+-- Cuenta corriente: lista +10 % para lo que se fía, clientes habilitados e interés por mora del 5 % mensual.
+INSERT INTO `price_lists` (`id`,`tenant_id`,`name`,`description`,`percentage`,`payment_condition`,`is_default`,`is_active`,`sort_order`) VALUES
+('6a3e2f10-7c4b-4d9e-8f1a-2b3c4d5e6f70','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Cuenta corriente','Recargo por venta a cuenta corriente (pago a 30 días).',10.00,'ACCOUNT_ONLY',0,1,40);
+UPDATE `persons` SET `credit_enabled` = 1, `credit_limit` = 2000000.00, `credit_term_days` = 30
+ WHERE `id` = '5d0c6c1e-8a43-4f0e-9b7a-2f61c0a9e301' AND `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+UPDATE `persons` SET `credit_enabled` = 1, `credit_limit` = 500000.00, `credit_term_days` = 15
+ WHERE `id` IN ('4cc7cf11-7148-4bb9-b1bf-0f3fbe101a98', '4f81024a-35d5-4bde-b0aa-d3b0ba6d9bf6') AND `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+UPDATE `tenants` SET `late_interest_monthly` = 5.00 WHERE `id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 
 COMMIT;
 

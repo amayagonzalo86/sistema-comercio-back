@@ -39,6 +39,7 @@ import { CreateSaleAdjustmentDto } from './adjustments/dto/sale-adjustment.dto';
 import { SaleAdjustmentEntity } from './adjustments/entities/sale-adjustment.entity';
 
 const VAT_EXEMPTION_ROLES = new Set(['OWNER', 'ADMIN']);
+const CREDIT_OVERRIDE_ROLES = new Set(['OWNER', 'ADMIN', 'MANAGER']);
 
 @Controller('sales')
 @UseGuards(AuthGuard('jwt'), TenantContextGuard, RolesGuard)
@@ -174,6 +175,8 @@ export class SalesController {
       dto,
       auditContext,
       actor.branchId ?? null,
+      // Vender a cuenta por encima del límite o con deuda vencida: decisión de titular, administración o encargado.
+      { canOverrideCredit: hasAnyTenantRole(actor, CREDIT_OVERRIDE_ROLES) },
     );
   }
 

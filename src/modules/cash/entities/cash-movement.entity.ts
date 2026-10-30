@@ -13,6 +13,8 @@ export enum CashMovementType {
   INCOME = 'INCOME',
   EXPENSE = 'EXPENSE',
   ADJUSTMENT = 'ADJUSTMENT',
+  /** Cobranza de cuenta corriente en efectivo (recibo). */
+  COLLECTION = 'COLLECTION',
 }
 
 export enum CashMovementDirection {

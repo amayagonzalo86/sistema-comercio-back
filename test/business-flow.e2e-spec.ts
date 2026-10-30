@@ -1277,6 +1277,139 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await api('patch', `/checks/${checkId}/status`, { status: 'CASHED' }), 400); // un rechazado no se acredita
     expect((await api('get', '/checks?search=Ferreter')).body.items[0].customerName).toBeNull();
 
+    // ── Cuenta corriente de clientes ──
+    token = adminToken;
+    const arDay = (offset = 0) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + offset * 86_400_000));
+    expectStatus(await api('post', '/price-lists', { name: 'Imposible principal', percentage: 10, paymentCondition: 'ACCOUNT_ONLY', isDefault: true }), 400);
+    const accountList = await api('post', '/price-lists', { name: 'Cuenta corriente', percentage: 10, paymentCondition: 'ACCOUNT_ONLY' });
+    expectStatus(accountList, 201);
+    const debtor = await api('post', '/persons', {
+      personType: 'CUSTOMER', firstName: 'Corralón', lastName: 'Norte', documentType: 96, nationalId: '41555666', vatCondition: 'CONSUMIDOR_FINAL',
+    });
+    expectStatus(debtor, 201);
+    const debtorId = debtor.body.id as string;
+    const onAccount = (amount: number, extra: object = {}) =>
+      api('post', '/sales', { branchId: A, customerPersonId: debtorId, lines: [{ productId: tileId, quantity: 1 }], payments: [{ method: 'ACCOUNT', amount }], ...extra }, true);
+    const notEnabled = await onAccount(1100);
+    expectStatus(notEnabled, 400);
+    expect(notEnabled.body.message).toContain('cuenta corriente habilitada');
+    expectStatus(await api('post', '/sales', { branchId: A, lines: [{ productId: tileId, quantity: 1 }], payments: [{ method: 'ACCOUNT', amount: 1000 }] }, true), 400); // sin cliente
+    const enabled = await api('patch', `/customer-accounts/${debtorId}/credit`, { creditEnabled: true, creditLimit: 2000, creditTermDays: 30 });
+    expectStatus(enabled, 200);
+    expect(enabled.body.credit).toMatchObject({ creditEnabled: true, creditLimit: '2000.00', creditTermDays: 30, available: '2000.00' });
+    // La cotización informa el precio a cuenta corriente (lista +10 %) y el crédito disponible.
+    const accountQuote = await api('post', '/sales/quote', { branchId: A, customerPersonId: debtorId, lines: [{ productId: tileId, quantity: 1 }] });
+    expect(accountQuote.body.accountList).toMatchObject({ name: 'Cuenta corriente', total: '1100.00' });
+    expect(accountQuote.body.customerAccount).toMatchObject({ creditEnabled: true, available: '2000.00', overdue: '0.00', termDays: 30 });
+    expectStatus(await onAccount(1000), 400); // a cuenta se cobra con la lista de cuenta corriente
+    const firstCredit = await onAccount(1100);
+    expectStatus(firstCredit, 201);
+    expect(firstCredit.body).toMatchObject({ total: '1100.00', paymentAdjustmentTotal: '100.00' });
+    expect(firstCredit.body.payments[0]).toMatchObject({ method: 'ACCOUNT', amount: '1100.00' });
+    // Mixta: la parte a cuenta lleva la lista, la de débito no. Supera el límite ($ 1100 + $ 1100 > $ 2000).
+    const accountMixed = { branchId: A, customerPersonId: debtorId, lines: [{ productId: tileId, quantity: 2 }], payments: [{ method: 'ACCOUNT', amount: 1100 }, { method: 'DEBIT_CARD', amount: 1000 }] };
+    const ownerOver = await api('post', '/sales', accountMixed, true);
+    expectStatus(ownerOver, 400);
+    expect(ownerOver.body.message).toContain('límite de crédito');
+    expectStatus(await api('post', '/employees', { firstName: 'Caja', lastName: 'Cuentas', username: 'caja.cuentas', password: 'Caja-Cuentas-2026', roles: ['CASHIER'], branchId: A }), 201);
+    const cashierAccount = await loginAs('caja.cuentas', 'Caja-Cuentas-2026');
+    expectStatus(cashierAccount, 200);
+    const accountsAdmin = token;
+    token = cashierAccount.body.tokens.accessToken as string;
+    const cashierOver = await api('post', '/sales', { ...accountMixed, creditOverride: true }, true);
+    expectStatus(cashierOver, 400); // la cajera no puede autoexceptuarse
+    expect(cashierOver.body.message).toContain('encargado');
+    expectStatus(await api('post', `/customer-accounts/${debtorId}/authorizations`, { maxAmount: 1100, reason: 'Cliente histórico' }), 403);
+    token = accountsAdmin;
+    const authorization = await api('post', `/customer-accounts/${debtorId}/authorizations`, { maxAmount: 1100, reason: 'Cliente histórico' });
+    expectStatus(authorization, 201);
+    token = cashierAccount.body.tokens.accessToken as string;
+    const authorizedSale = await api('post', '/sales', accountMixed, true);
+    expectStatus(authorizedSale, 201);
+    expect(authorizedSale.body.total).toBe('2100.00');
+    expectStatus(await api('post', '/sales', accountMixed, true), 400); // la autorización era para una sola venta
+    token = accountsAdmin;
+    const afterSales = await api('get', `/customer-accounts/${debtorId}`);
+    expectStatus(afterSales, 200);
+    expect(afterSales.body).toMatchObject({ balance: '2200.00', aging: { current: '2200.00', overdue: '0.00' } });
+    expect(afterSales.body.openDebits).toHaveLength(2);
+    expect(afterSales.body.openDebits[0]).toMatchObject({ kind: 'SALE', pending: '1100.00', dueDate: arDay(30), daysLate: 0 });
+    expect(afterSales.body.authorizations).toHaveLength(0);
+
+    // Recibo: efectivo + cheque, imputado solo de la factura más vieja a la más nueva.
+    token = cashierAccount.body.tokens.accessToken as string;
+    expectStatus(await api('post', `/customer-accounts/${debtorId}/receipts`, { branchId: A, payments: [{ method: 'CASH', amount: 500 }] }, true), 400); // falta la caja
+    const accountReceipt = await api('post', `/customer-accounts/${debtorId}/receipts`, {
+      branchId: A, cashSessionId: paySessionId,
+      payments: [{ method: 'CASH', amount: 500 }, { method: 'CHECK', amount: 1000, check: { bank: 'Banco Nación', number: '55660011', payDate: arDay(15) } }],
+    }, true);
+    expectStatus(accountReceipt, 201);
+    expect(accountReceipt.body).toMatchObject({ number: 1, total: '1500.00', unapplied: '0.00' });
+    expect(accountReceipt.body.allocations.map((item: { amount: string }) => item.amount)).toEqual(['1100.00', '400.00']);
+    token = accountsAdmin;
+    expect((await api('get', `/checks?search=55660011`)).body.items[0]).toMatchObject({ customerName: 'Norte Corralón', receiptNumber: 1, saleId: null });
+    const printableReceipt = await api('get', `/customer-receipts/${accountReceipt.body.id}`);
+    expectStatus(printableReceipt, 200);
+    expect(printableReceipt.body).toMatchObject({ balance: '700.00', customer: { name: 'Norte Corralón' } });
+    expect(printableReceipt.body.payments[1].check).toMatchObject({ bank: 'Banco Nación', number: '55660011' });
+    // Imputación elegida que supera el saldo pendiente.
+    const pendingId = (await api('get', `/customer-accounts/${debtorId}`)).body.openDebits[0].id as string;
+    expectStatus(await api('post', `/customer-accounts/${debtorId}/receipts`, { branchId: A, payments: [{ method: 'BANK_TRANSFER', amount: 1000 }], allocations: [{ entryId: pendingId, amount: 800 }] }, true), 400);
+    // Sobrante a favor: después se imputa solo a la próxima venta a cuenta.
+    const overpaid = await api('post', `/customer-accounts/${debtorId}/receipts`, {
+      branchId: A, payments: [{ method: 'BANK_TRANSFER', amount: 1000, externalReference: 'Transf. 4471' }], allocations: [{ entryId: pendingId, amount: 700 }],
+    }, true);
+    expect(overpaid.body).toMatchObject({ number: 2, unapplied: '300.00' });
+    expect((await api('get', `/customer-accounts/${debtorId}`)).body).toMatchObject({ balance: '-300.00', unappliedCredit: '300.00' });
+    const thirdCredit = await onAccount(1100);
+    expectStatus(thirdCredit, 201);
+    const afterThird = await api('get', `/customer-accounts/${debtorId}`);
+    expect(afterThird.body).toMatchObject({ balance: '800.00', unappliedCredit: '0.00' });
+    expect(afterThird.body.openDebits).toHaveLength(1);
+    expect(afterThird.body.openDebits[0].pending).toBe('800.00');
+
+    // Deuda vencida: bloquea la venta salvo excepción; intereses por mora con nota de débito.
+    await app.get(DataSource).query('UPDATE customer_account_entries SET due_date = ? WHERE id = ?', [arDay(-45), afterThird.body.openDebits[0].id]);
+    const overdueSale = await onAccount(1100);
+    expectStatus(overdueSale, 400);
+    expect(overdueSale.body.message).toContain('deuda vencida');
+    const excepted = await onAccount(1100, { creditOverride: true });
+    expectStatus(excepted, 201);
+    expectStatus(await api('put', '/customer-accounts/settings', { lateInterestMonthly: 5 }), 200);
+    const overdue = await api('get', `/customer-accounts/${debtorId}`);
+    const lateDebit = overdue.body.openDebits.find((item: { daysLate: number }) => item.daysLate === 45);
+    expect(lateDebit).toMatchObject({ pending: '800.00', suggestedInterest: '60.00', invoiced: false });
+    expect(overdue.body.aging).toMatchObject({ days31to60: '800.00', overdue: '800.00' });
+    const debtors = await api('get', '/customer-accounts?status=OVERDUE');
+    expect(debtors.body.items.map((row: { personId: string }) => row.personId)).toContain(debtorId);
+    expect(debtors.body.items.find((row: { personId: string }) => row.personId === debtorId)).toMatchObject({ balance: '1900.00', overdue: '800.00', available: '100.00' });
+    const notInvoicedInterest = await api('post', `/customer-accounts/${debtorId}/interest`, {}, true);
+    expect(notInvoicedInterest.body.created).toHaveLength(0);
+    expect(notInvoicedInterest.body.skipped).toHaveLength(1);
+    expectStatus(await api('post', `/fiscal/sales/${thirdCredit.body.id}/invoice`), 200);
+    const interest = await api('post', `/customer-accounts/${debtorId}/interest`, { entryIds: [lateDebit.id] }, true);
+    expectStatus(interest, 201);
+    expect(interest.body.created).toHaveLength(1);
+    expect(interest.body.created[0]).toMatchObject({ kind: 'DEBIT', total: '60.00', settlement: 'NONE' });
+    expect((await api('post', `/fiscal/adjustments/${interest.body.created[0].id}/note`)).body).toMatchObject({ status: 'AUTHORIZED', voucherType: 7 });
+    expect((await api('post', `/customer-accounts/${debtorId}/interest`, { entryIds: [lateDebit.id] }, true)).body.created).toHaveLength(0); // ya cobrado hoy
+    // Bonificación a cuenta (nota de crédito sin reintegro): baja el saldo.
+    const accountCredit = await api('post', `/sales/${thirdCredit.body.id}/adjustments`, { kind: 'CREDIT', concept: 'Bonificación', reason: 'Pronto pago', amount: 160, settlement: 'NONE' }, true);
+    expectStatus(accountCredit, 201);
+    const finalAccount = await api('get', `/customer-accounts/${debtorId}`);
+    expect(finalAccount.body.balance).toBe('1800.00'); // 1900 + 60 de intereses − 160
+    expect(finalAccount.body.statement.lines.map((line: { kind: string }) => line.kind)).toEqual(
+      ['SALE', 'SALE', 'RECEIPT', 'RECEIPT', 'SALE', 'SALE', 'DEBIT_NOTE', 'CREDIT_NOTE'],
+    );
+    expect(finalAccount.body.statement.closingBalance).toBe('1800.00');
+    // Cheque del recibo rechazado: la deuda vuelve a la cuenta del cliente.
+    const receiptCheck = (await api('get', '/checks?search=55660011')).body.items[0];
+    expectStatus(await api('patch', `/checks/${receiptCheck.id}/status`, { status: 'REJECTED', note: 'Sin fondos' }), 200);
+    const afterRejected = await api('get', `/customer-accounts/${debtorId}`);
+    expect(afterRejected.body.balance).toBe('2800.00');
+    expect(afterRejected.body.openDebits.some((item: { kind: string; pending: string }) => item.kind === 'REJECTED_CHECK' && item.pending === '1000.00')).toBe(true);
+
     // Baja lógica: deja de ofrecerse.
     expectStatus(await api('delete', `/card-plans/${tdfOtherDay.body.id}`), 200);
     expect(((await api('get', '/card-plans?includeInactive=true')).body as Array<{ id: string }>).map((plan) => plan.id)).not.toContain(tdfOtherDay.body.id);

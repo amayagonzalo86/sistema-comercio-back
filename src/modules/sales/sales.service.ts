@@ -1,5 +1,8 @@
 import { loadPrintCustomer } from '../fiscal/printable';
-import { applyPriceList, assertPaymentCondition, cashDiscountApplies, priceListSummary, resolveCashPriceList, resolvePriceList, ResolvedPriceList } from './price-list/pricing';
+import { applyPriceList, assertPaymentCondition, cashDiscountApplies, priceListSummary, resolveAccountPriceList, resolveCashPriceList, resolvePriceList, ResolvedPriceList } from './price-list/pricing';
+import { accountPosition, autoApply, decimalToCents, lockCustomer, postEntry } from './accounts/account-ledger';
+import { addDays, creditProblem } from './accounts/domain/account-math';
+import { AccountEntryDirection, AccountEntryKind, CustomerCreditAuthorizationEntity } from './accounts/entities/customer-account-entry.entity';
 import { cardPlanLabel, resolveCardPlanForSale, surchargeBasisPoints } from './card-plans/card-plan-rules';
 import { CardPlanEntity } from './card-plans/entities/card-plan.entity';
 import { AdjustablePayment, distributeLineTotals, settlePayments, vatForTotal } from './payment-adjustments';
@@ -94,6 +97,17 @@ export interface SaleQuote {
    * efectivo, o con una lista elegida a propósito). total = total de la venta si se pagara todo en efectivo.
    */
   cashDiscount: (NonNullable<ReturnType<typeof priceListSummary>> & { total: string }) | null;
+  /** Lista de cuenta corriente que se aplica sola a la parte vendida a cuenta (total = todo a cuenta). */
+  accountList: (NonNullable<ReturnType<typeof priceListSummary>> & { total: string }) | null;
+  /** Cuenta corriente del cliente elegido (null sin cliente). */
+  customerAccount: {
+    creditEnabled: boolean;
+    creditLimit: string | null;
+    balance: string;
+    available: string | null;
+    overdue: string;
+    termDays: number;
+  } | null;
   /** Si se pidió un comprobante que no corresponde, el motivo (para mostrarlo antes de cobrar). */
   requestedVoucherError: string | null;
   vatChargeMode: string;
@@ -193,6 +207,7 @@ export class SalesService {
     dto: CreateSaleDto,
     auditContext: InventoryAuditContext = {},
     allowedBranchId: string | null = null,
+    options: { canOverrideCredit?: boolean } = {},
   ): Promise<Record<string, unknown>> {
     const key = idempotencyKey.trim();
     if (!key || key.length > 100) {
@@ -236,6 +251,7 @@ export class SalesService {
         vatRegime: dto.vatRegime ?? null,
         priceListId: dto.priceListId ?? null,
         ...(dto.cashDiscount ? { cashDiscount: true } : {}),
+        ...(dto.creditOverride ? { creditOverride: true } : {}),
       }))
       .digest('hex');
 
@@ -261,6 +277,13 @@ export class SalesService {
     }
     if (dto.payments.some((payment) => payment.cardPlanId && payment.method !== 'CREDIT_CARD' && payment.method !== 'DEBIT_CARD')) {
       throw new BadRequestException('El plan de tarjeta solo corresponde a pagos con tarjeta de crédito o débito.');
+    }
+    const accountPayments = dto.payments.filter((payment) => payment.method === 'ACCOUNT');
+    if (accountPayments.length > 1) {
+      throw new BadRequestException('La venta admite un solo pago a cuenta corriente.');
+    }
+    if (accountPayments.length > 0 && !dto.customerPersonId) {
+      throw new BadRequestException('Para vender a cuenta corriente elegí el cliente.');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -297,6 +320,7 @@ export class SalesService {
 
       let customerCondition = TaxConditionEnum.CONSUMIDOR_FINAL;
       let customerTaxId: string | null = null;
+      let accountCustomer: PersonEntity | null = null;
       if (dto.customerPersonId) {
         const customer = await queryRunner.manager.findOne(PersonEntity, {
           where: { id: dto.customerPersonId, tenantId, isActive: true },
@@ -307,6 +331,13 @@ export class SalesService {
         }
         customerCondition = parseTaxCondition(customer.vatCondition) ?? TaxConditionEnum.CONSUMIDOR_FINAL;
         customerTaxId = customer.nationalId ?? null;
+        if (accountPayments.length > 0) {
+          // Bloquea la cuenta del cliente: dos cajas no pueden venderle a la vez por encima del límite.
+          accountCustomer = await lockCustomer(queryRunner.manager, tenantId, customer.id);
+          if (!accountCustomer.creditEnabled) {
+            throw new BadRequestException('El cliente no tiene cuenta corriente habilitada. Habilitala desde Clientes → Cuenta corriente.');
+          }
+        }
       }
 
       const issuerCondition = await this.resolveIssuerCondition(queryRunner.manager, tenantId);
@@ -406,6 +437,13 @@ export class SalesService {
         ? pricedLines.map((line) => priceLine(line.stock, line.quantityMilli, { ...pricingContext, list: cashList }).vat)
         : null;
       const cashTotalCents = cashVats ? summarizeVat(cashVats).totalCents : null;
+      // Lista de cuenta corriente (ej.: +10 %) sobre la parte vendida a cuenta, con la lista principal como base.
+      const accountList =
+        accountPayments.length > 0 && cashDiscountApplies(priceList) ? await resolveAccountPriceList(queryRunner.manager, tenantId) : null;
+      const accountVats = accountList
+        ? pricedLines.map((line) => priceLine(line.stock, line.quantityMilli, { ...pricingContext, list: accountList }).vat)
+        : null;
+      const accountTotalCents = accountVats ? summarizeVat(accountVats).totalCents : null;
       const settlement = settlePayments(
         baseTotalCents,
         cashTotalCents,
@@ -413,22 +451,28 @@ export class SalesService {
           const plan = payment.cardPlanId ? cardPlans.get(payment.cardPlanId) : undefined;
           return {
             amountCents: toMinorUnits(Number(payment.amount)),
-            kind: cashList && getsCashDiscount(payment) ? 'CASH_LIST' : plan ? 'PLAN' : 'NONE',
+            kind: cashList && getsCashDiscount(payment) ? 'CASH_LIST' : accountList && payment.method === 'ACCOUNT' ? 'ACCOUNT_LIST' : plan ? 'PLAN' : 'NONE',
             surchargeBasisPoints: plan ? surchargeBasisPoints(plan) : 0n,
           };
         }),
+        accountTotalCents,
       );
       if (settlement.adjusted) {
         const targets = distributeLineTotals(
-          pricedLines.map((line, index) => ({ baseTotalCents: line.vat.totalCents, cashTotalCents: cashVats?.[index].totalCents ?? line.vat.totalCents })),
+          pricedLines.map((line, index) => ({
+            baseTotalCents: line.vat.totalCents,
+            cashTotalCents: cashVats?.[index].totalCents ?? line.vat.totalCents,
+            accountTotalCents: accountVats?.[index].totalCents ?? line.vat.totalCents,
+          })),
           baseTotalCents,
           cashTotalCents,
           settlement.payments,
           settlement.totalCents,
+          accountTotalCents,
         );
         pricedLines.forEach((line, index) => {
           line.paymentAdjustmentCents = targets[index] - line.vat.totalCents;
-          line.vat = vatForTotal(line.vat, cashVats?.[index] ?? line.vat, targets[index]);
+          line.vat = vatForTotal(line.vat, cashVats?.[index] ?? accountVats?.[index] ?? line.vat, targets[index]);
         });
       }
 
@@ -447,6 +491,43 @@ export class SalesService {
         const availableMilli = BigInt(Math.round(Number(line.stock.stock) * 1000));
         if (line.quantityMilli > availableMilli) {
           throw new BadRequestException(`Stock insuficiente para el producto ${line.line.productId}.`);
+        }
+      }
+
+      // Cuenta corriente: límite de crédito y deuda vencida. Si no cumple, solo con autorización del encargado.
+      const accountIndex = dto.payments.findIndex((payment) => payment.method === 'ACCOUNT');
+      const accountAmountCents = accountIndex >= 0 ? toMinorUnits(Number(dto.payments[accountIndex].amount)) : 0n;
+      let creditAuthorization: CustomerCreditAuthorizationEntity | null = null;
+      let creditOverrideReason: string | null = null;
+      const accountToday = localToday(timeZone);
+      if (accountCustomer && accountAmountCents > 0n) {
+        const position = await accountPosition(queryRunner.manager, tenantId, accountCustomer.id, accountToday);
+        const problem = creditProblem({
+          balanceCents: position.balanceCents,
+          amountCents: accountAmountCents,
+          limitCents: accountCustomer.creditLimit != null ? decimalToCents(accountCustomer.creditLimit) : null,
+          overdueCents: position.aging.overdueCents,
+          format: (value) => `$ ${formatCents(value)}`,
+        });
+        if (problem) {
+          if (dto.creditOverride && options.canOverrideCredit) {
+            creditOverrideReason = problem;
+          } else {
+            creditAuthorization = await queryRunner.manager
+              .createQueryBuilder(CustomerCreditAuthorizationEntity, 'auth')
+              .setLock('pessimistic_write')
+              .where('auth.tenantId = :tenantId AND auth.customerPersonId = :customerId', { tenantId, customerId: accountCustomer.id })
+              .andWhere('auth.usedSaleId IS NULL AND auth.expiresAt > :now', { now: new Date() })
+              .andWhere('auth.maxAmount >= :amount', { amount: formatCents(accountAmountCents) })
+              .orderBy('auth.createdAt', 'ASC')
+              .getOne();
+            if (!creditAuthorization) {
+              throw new BadRequestException(
+                `${problem} ${options.canOverrideCredit ? 'Confirmá la venta como excepción autorizada.' : 'Pedile al encargado que la autorice desde la cuenta corriente del cliente.'}`,
+              );
+            }
+            creditOverrideReason = problem;
+          }
         }
       }
 
@@ -566,7 +647,15 @@ export class SalesService {
           externalReference: null,
           cardPlanId: plan?.id ?? null,
           installments: plan?.installments ?? null,
-          adjustmentLabel: plan ? cardPlanLabel(plan) : settled.kind === 'CASH_LIST' && cashList ? priceListLabel(cashList) : null,
+          adjustmentLabel: plan
+            ? cardPlanLabel(plan)
+            : settled.kind === 'CASH_LIST' && cashList
+              ? priceListLabel(cashList)
+              : settled.kind === 'ACCOUNT_LIST' && accountList
+                ? priceListLabel(accountList)
+                : payment.method === 'ACCOUNT' && accountCustomer
+                  ? `A ${accountCustomer.creditTermDays} días`
+                  : null,
           adjustmentAmount: formatCents(settled.kind === 'NONE' ? 0n : amountCents - settlement.coveredCents[index]),
         });
       });
@@ -584,6 +673,7 @@ export class SalesService {
               branchId: branch.id,
               saleId: sale.id,
               salePaymentId: saved.id,
+              customerPersonId: dto.customerPersonId ?? null,
               bank: payment.check!.bank,
               number: payment.check!.number,
               payDate: payment.check!.payDate,
@@ -596,6 +686,51 @@ export class SalesService {
           ),
         );
       }
+      // Venta a cuenta corriente: deuda con vencimiento (fecha local + plazo del cliente).
+      if (accountCustomer && accountIndex >= 0) {
+        const accountPayment = savedPayments[accountIndex];
+        await postEntry(queryRunner.manager, {
+          tenantId,
+          branchId: branch.id,
+          customerPersonId: accountCustomer.id,
+          kind: AccountEntryKind.SALE,
+          direction: AccountEntryDirection.DEBIT,
+          sourceType: 'SALE_PAYMENT',
+          sourceId: accountPayment.id,
+          saleId: sale.id,
+          description: 'Venta a cuenta corriente',
+          amountCents: toMinorUnits(Number(accountPayment.amount)),
+          currency: tenant.currencyCode,
+          dueDate: addDays(accountToday, accountCustomer.creditTermDays),
+          actorUserId,
+        });
+        // Si el cliente tenía saldo a favor, se imputa a esta venta.
+        await autoApply(queryRunner.manager, tenantId, accountCustomer.id);
+        if (creditAuthorization) {
+          creditAuthorization.usedSaleId = sale.id;
+          await queryRunner.manager.save(CustomerCreditAuthorizationEntity, creditAuthorization);
+        }
+        if (creditOverrideReason) {
+          await queryRunner.manager.save(AuditEventEntity, queryRunner.manager.create(AuditEventEntity, {
+            tenantId,
+            actorUserId,
+            requestId: auditContext.requestId,
+            ipAddress: auditContext.ipAddress,
+            userAgent: auditContext.userAgent,
+            eventType: 'SALE_CREDIT_EXCEPTION',
+            aggregateType: 'SALE',
+            aggregateId: sale.id,
+            metadata: {
+              customerPersonId: accountCustomer.id,
+              amount: accountPayment.amount,
+              reason: creditOverrideReason,
+              authorizationId: creditAuthorization?.id ?? null,
+              authorizedByUserId: creditAuthorization?.authorizedByUserId ?? actorUserId,
+            },
+          }));
+        }
+      }
+
       const cashMovementRepository = queryRunner.manager.getRepository(CashMovementEntity);
       for (let index = 0; index < dto.payments.length; index += 1) {
         const requestPayment = dto.payments[index];
@@ -727,6 +862,7 @@ export class SalesService {
           priceList: sale.priceListName ? { id: sale.priceListId, name: sale.priceListName, percentage: sale.priceListPercentage } : null,
           paymentAdjustmentTotal: sale.paymentAdjustmentTotal,
           cashPriceList: cashList ? { id: cashList.id, name: cashList.name, percentage: cashList.percentage } : null,
+          accountPriceList: accountList ? { id: accountList.id, name: accountList.name, percentage: accountList.percentage } : null,
           cardPlans: payments.filter((payment) => payment.cardPlanId).map((payment) => ({ cardPlanId: payment.cardPlanId, label: payment.adjustmentLabel, amount: payment.amount })),
           salesOrderId: sale.salesOrderId ?? null,
           sellerUserId: sale.sellerUserId ?? null,
@@ -794,16 +930,27 @@ export class SalesService {
 
     let customerCondition = TaxConditionEnum.CONSUMIDOR_FINAL;
     let customerTaxId: string | null = null;
+    let customerAccount: SaleQuote['customerAccount'] = null;
     if (dto.customerPersonId) {
       const customer = await manager.findOne(PersonEntity, {
         where: { id: dto.customerPersonId, tenantId, isActive: true },
-        select: { id: true, personType: true, vatCondition: true, nationalId: true },
+        select: { id: true, personType: true, vatCondition: true, nationalId: true, creditEnabled: true, creditLimit: true, creditTermDays: true },
       });
       if (!customer || customer.personType === PersonType.SUPPLIER) {
         throw new NotFoundException('El cliente no existe, no está activo o no está habilitado para ventas.');
       }
       customerCondition = parseTaxCondition(customer.vatCondition) ?? TaxConditionEnum.CONSUMIDOR_FINAL;
       customerTaxId = customer.nationalId ?? null;
+      const position = await accountPosition(manager, tenantId, customer.id, localToday(tenant.timeZone || 'America/Argentina/Buenos_Aires'));
+      const limitCents = customer.creditLimit != null ? decimalToCents(customer.creditLimit) : null;
+      customerAccount = {
+        creditEnabled: Boolean(customer.creditEnabled),
+        creditLimit: limitCents !== null ? formatCents(limitCents) : null,
+        balance: formatCents(position.balanceCents),
+        available: limitCents !== null ? formatCents(limitCents - position.balanceCents > 0n ? limitCents - position.balanceCents : 0n) : null,
+        overdue: formatCents(position.aging.overdueCents),
+        termDays: customer.creditTermDays,
+      };
     }
     const issuerCondition = await this.resolveIssuerCondition(manager, tenantId);
     const vatRegime = dto.vatRegime ?? resolveVatRegime(tenant.defaultVatRegime, branch.vatRegime);
@@ -869,6 +1016,22 @@ export class SalesService {
         }
       : null;
 
+    // Total si se vendiera todo a cuenta corriente (la lista de cuenta corriente se aplica a la parte a cuenta).
+    const accountPriceList = customerAccount?.creditEnabled && cashDiscountApplies(priceList) ? await resolveAccountPriceList(manager, tenantId) : null;
+    const accountList = accountPriceList
+      ? {
+          ...(priceListSummary(accountPriceList) as NonNullable<ReturnType<typeof priceListSummary>>),
+          total: formatCents(
+            summarizeVat(
+              dto.lines.map((line) => {
+                const stock = byProduct.get(line.productId) as ProductBranchEntity;
+                return priceLine(stock, BigInt(Math.round(Number(line.quantity) * 1000)), { ...pricingContext, list: accountPriceList }).vat;
+              }),
+            ).totalCents,
+          ),
+        }
+      : null;
+
     const summary = summarizeVat(lines.map((line) => line.vat));
     const discountCents = lines.reduce((sum, line) => sum + line.discountCents, 0n);
     const draft = {
@@ -886,6 +1049,8 @@ export class SalesService {
       vatRegime,
       priceList: priceListSummary(priceList),
       cashDiscount,
+      accountList,
+      customerAccount,
       requestedVoucherError:
         dto.voucherClass && dto.voucherClass !== policy.voucherClass
           ? voucherMismatchMessage(dto.voucherClass, policy.voucherClass, issuerCondition)

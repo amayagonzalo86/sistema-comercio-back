@@ -33,6 +33,32 @@ describe('payment adjustments', () => {
     expect(lines).toEqual([58_500n, 39_000n]);
   });
 
+  it('charges the account list surcharge only on the part sold on account', () => {
+    // $1000 de lista: $400 en efectivo (−5 % → $380) y $600 a cuenta corriente (+10 % → $660).
+    const payments = [
+      { amountCents: 38_000n, kind: 'CASH_LIST' as const, surchargeBasisPoints: 0n },
+      { amountCents: 66_000n, kind: 'ACCOUNT_LIST' as const, surchargeBasisPoints: 0n },
+    ];
+    const result = settlePayments(100_000n, 95_000n, payments, 110_000n);
+    expect(result).toMatchObject({ adjusted: true, totalCents: 104_000n, adjustmentTotalCents: 4_000n });
+    expect(result.coveredCents).toEqual([40_000n, 60_000n]);
+    const lines = distributeLineTotals(
+      [
+        { baseTotalCents: 50_000n, cashTotalCents: 47_500n, accountTotalCents: 55_000n },
+        { baseTotalCents: 50_000n, cashTotalCents: 47_500n, accountTotalCents: 55_000n },
+      ],
+      100_000n,
+      95_000n,
+      result.payments,
+      result.totalCents,
+      110_000n,
+    );
+    expect(lines).toEqual([52_000n, 52_000n]);
+    expect(() => settlePayments(100_000n, null, [{ amountCents: 100_000n, kind: 'ACCOUNT_LIST', surchargeBasisPoints: 0n }], 110_000n)).toThrow(BadRequestException);
+    // Sin lista de cuenta corriente, se fía al precio de lista.
+    expect(settlePayments(100_000n, null, [{ amountCents: 100_000n, kind: 'ACCOUNT_LIST', surchargeBasisPoints: 0n }], null).adjusted).toBe(false);
+  });
+
   it('rejects a cash amount that ignores the discount', () => {
     expect(() => settlePayments(100_000n, 95_000n, [{ amountCents: 100_000n, kind: 'CASH_LIST', surchargeBasisPoints: 0n }])).toThrow(BadRequestException);
   });

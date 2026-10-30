@@ -16,6 +16,8 @@ import { CashSessionEntity, CashSessionStatus } from '../../cash/entities/cash-s
 import { InventoryMovementType } from '../../inventory/product/entities/inventory-movement.entity';
 import { applyStockMovement, lockStockRows } from '../../inventory/stock-ledger';
 import { SaleItemEntity } from '../entities/sale-item.entity';
+import { autoApply, lockCustomer, postEntry } from '../accounts/account-ledger';
+import { AccountEntryDirection, AccountEntryKind } from '../accounts/entities/customer-account-entry.entity';
 import { SaleEntity, SaleReturnStatus } from '../entities/sale.entity';
 import { LineAmounts, refundForLine, totalOf } from './domain/refund';
 import { CreateSaleReturnDto } from './dto/sale-return.dto';
@@ -146,6 +148,9 @@ export class SaleReturnsService {
     if (dto.refundMethod === RefundMethod.STORE_CREDIT && !sale.customerPersonId) {
       throw new BadRequestException('El saldo a favor requiere que la venta tenga un cliente identificado.');
     }
+    // Saldo a favor: va a la cuenta corriente del cliente. Se bloquea antes que el stock (mismo orden que la venta).
+    const creditCustomer =
+      dto.refundMethod === RefundMethod.STORE_CREDIT && sale.customerPersonId ? await lockCustomer(manager, tenantId, sale.customerPersonId) : null;
 
     const items = await manager.find(SaleItemEntity, { where: { tenantId, saleId } });
     const previous = items.length
@@ -268,6 +273,24 @@ export class SaleReturnsService {
 
     if (dto.refundMethod === RefundMethod.CASH) {
       await this.refundCash(manager, tenantId, actor.id, sale, saleReturn, totalCents);
+    }
+    if (creditCustomer && totalCents > 0n) {
+      await postEntry(manager, {
+        tenantId,
+        branchId: sale.branchId,
+        customerPersonId: creditCustomer.id,
+        kind: AccountEntryKind.RETURN,
+        direction: AccountEntryDirection.CREDIT,
+        sourceType: 'SALE_RETURN',
+        sourceId: saleReturn.id,
+        saleId: sale.id,
+        description: `Devolución N.º ${number}: ${dto.reason.trim()}`,
+        amountCents: totalCents,
+        currency: sale.currency,
+        actorUserId: actor.id,
+      });
+      // Si la venta era a cuenta, la devolución cancela primero esa deuda (o la más vieja).
+      await autoApply(manager, tenantId, creditCustomer.id);
     }
 
     const soldByItem = new Map(items.map((item) => [item.id, milli(item.quantity)]));

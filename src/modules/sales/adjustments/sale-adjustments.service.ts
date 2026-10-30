@@ -10,6 +10,11 @@ import { CashSessionEntity, CashSessionStatus } from '../../cash/entities/cash-s
 import { FiscalDocumentEntity, FiscalDocumentStatus, FiscalSourceType } from '../../fiscal/entities/fiscal-document.entity';
 import { DEFAULT_VAT_PERCENT } from '../../fiscal/vat/vat';
 import { SaleEntity } from '../entities/sale.entity';
+import { tenantTimeZone } from '../../../common/time/local-day-range';
+import { localToday } from '../../reports/domain/period';
+import { autoApply, lockCustomer, postEntry } from '../accounts/account-ledger';
+import { addDays } from '../accounts/domain/account-math';
+import { AccountEntryDirection, AccountEntryKind } from '../accounts/entities/customer-account-entry.entity';
 import { adjustmentAmounts, AdjustmentVatMode } from './domain/adjustment-amounts';
 import { CreateSaleAdjustmentDto } from './dto/sale-adjustment.dto';
 import { SaleAdjustmentEntity, SaleAdjustmentKind, SaleAdjustmentSettlement } from './entities/sale-adjustment.entity';
@@ -180,6 +185,28 @@ export class SaleAdjustmentsService {
 
     if (dto.settlement === SaleAdjustmentSettlement.CASH) {
       await this.settleCash(manager, tenantId, actor.id, sale, adjustment, totalCents);
+    }
+    // Sin reintegro ni cobro y con cliente identificado: va a su cuenta corriente (débito a cobrar o saldo a favor).
+    if (dto.settlement === SaleAdjustmentSettlement.NONE && sale.customerPersonId) {
+      const customer = await lockCustomer(manager, tenantId, sale.customerPersonId);
+      const today = localToday(await tenantTimeZone(manager, tenantId));
+      const isCredit = dto.kind === SaleAdjustmentKind.CREDIT;
+      await postEntry(manager, {
+        tenantId,
+        branchId: sale.branchId,
+        customerPersonId: customer.id,
+        kind: isCredit ? AccountEntryKind.CREDIT_NOTE : AccountEntryKind.DEBIT_NOTE,
+        direction: isCredit ? AccountEntryDirection.CREDIT : AccountEntryDirection.DEBIT,
+        sourceType: 'SALE_ADJUSTMENT',
+        sourceId: adjustment.id,
+        saleId: sale.id,
+        description: `${isCredit ? 'Nota de crédito' : 'Nota de débito'}: ${adjustment.concept}`,
+        amountCents: totalCents,
+        currency: sale.currency,
+        dueDate: addDays(today, customer.creditTermDays),
+        actorUserId: actor.id,
+      });
+      await autoApply(manager, tenantId, customer.id);
     }
     if (dto.kind === SaleAdjustmentKind.CREDIT) {
       sale.refundedTotal = formatMoney(cents(sale.refundedTotal ?? '0') + totalCents);
