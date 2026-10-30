@@ -1307,15 +1307,15 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(firstCredit.body).toMatchObject({ total: '1100.00', paymentAdjustmentTotal: '100.00' });
     expect(firstCredit.body.payments[0]).toMatchObject({ method: 'ACCOUNT', amount: '1100.00' });
     // Mixta: la parte a cuenta lleva la lista, la de débito no. Supera el límite ($ 1100 + $ 1100 > $ 2000).
-    const mixed = { branchId: A, customerPersonId: debtorId, lines: [{ productId: tileId, quantity: 2 }], payments: [{ method: 'ACCOUNT', amount: 1100 }, { method: 'DEBIT_CARD', amount: 1000 }] };
-    const ownerOver = await api('post', '/sales', mixed, true);
+    const accountMixed = { branchId: A, customerPersonId: debtorId, lines: [{ productId: tileId, quantity: 2 }], payments: [{ method: 'ACCOUNT', amount: 1100 }, { method: 'DEBIT_CARD', amount: 1000 }] };
+    const ownerOver = await api('post', '/sales', accountMixed, true);
     expectStatus(ownerOver, 400);
     expect(ownerOver.body.message).toContain('límite de crédito');
     const cashierAccount = await loginAs('camila.caja', 'Propia-Clave-2026');
     expectStatus(cashierAccount, 200);
     const accountsAdmin = token;
     token = cashierAccount.body.tokens.accessToken as string;
-    const cashierOver = await api('post', '/sales', { ...mixed, creditOverride: true }, true);
+    const cashierOver = await api('post', '/sales', { ...accountMixed, creditOverride: true }, true);
     expectStatus(cashierOver, 400); // la cajera no puede autoexceptuarse
     expect(cashierOver.body.message).toContain('encargado');
     expectStatus(await api('post', `/customer-accounts/${debtorId}/authorizations`, { maxAmount: 1100, reason: 'Cliente histórico' }), 403);
@@ -1323,10 +1323,10 @@ describe('Flujo comercial completo (e2e)', () => {
     const authorization = await api('post', `/customer-accounts/${debtorId}/authorizations`, { maxAmount: 1100, reason: 'Cliente histórico' });
     expectStatus(authorization, 201);
     token = cashierAccount.body.tokens.accessToken as string;
-    const authorizedSale = await api('post', '/sales', mixed, true);
+    const authorizedSale = await api('post', '/sales', accountMixed, true);
     expectStatus(authorizedSale, 201);
     expect(authorizedSale.body.total).toBe('2100.00');
-    expectStatus(await api('post', '/sales', mixed, true), 400); // la autorización era para una sola venta
+    expectStatus(await api('post', '/sales', accountMixed, true), 400); // la autorización era para una sola venta
     token = accountsAdmin;
     const afterSales = await api('get', `/customer-accounts/${debtorId}`);
     expectStatus(afterSales, 200);
@@ -1338,16 +1338,16 @@ describe('Flujo comercial completo (e2e)', () => {
     // Recibo: efectivo + cheque, imputado solo de la factura más vieja a la más nueva.
     token = cashierAccount.body.tokens.accessToken as string;
     expectStatus(await api('post', `/customer-accounts/${debtorId}/receipts`, { branchId: A, payments: [{ method: 'CASH', amount: 500 }] }, true), 400); // falta la caja
-    const receipt = await api('post', `/customer-accounts/${debtorId}/receipts`, {
+    const accountReceipt = await api('post', `/customer-accounts/${debtorId}/receipts`, {
       branchId: A, cashSessionId: paySessionId,
       payments: [{ method: 'CASH', amount: 500 }, { method: 'CHECK', amount: 1000, check: { bank: 'Banco Nación', number: '55660011', payDate: arDay(15) } }],
     }, true);
-    expectStatus(receipt, 201);
-    expect(receipt.body).toMatchObject({ number: 1, total: '1500.00', unapplied: '0.00' });
-    expect(receipt.body.allocations.map((item: { amount: string }) => item.amount)).toEqual(['1100.00', '400.00']);
+    expectStatus(accountReceipt, 201);
+    expect(accountReceipt.body).toMatchObject({ number: 1, total: '1500.00', unapplied: '0.00' });
+    expect(accountReceipt.body.allocations.map((item: { amount: string }) => item.amount)).toEqual(['1100.00', '400.00']);
     token = accountsAdmin;
     expect((await api('get', `/checks?search=55660011`)).body.items[0]).toMatchObject({ customerName: 'Norte Corralón', receiptNumber: 1, saleId: null });
-    const printableReceipt = await api('get', `/customer-receipts/${receipt.body.id}`);
+    const printableReceipt = await api('get', `/customer-receipts/${accountReceipt.body.id}`);
     expectStatus(printableReceipt, 200);
     expect(printableReceipt.body).toMatchObject({ balance: '700.00', customer: { name: 'Norte Corralón' } });
     expect(printableReceipt.body.payments[1].check).toMatchObject({ bank: 'Banco Nación', number: '55660011' });
