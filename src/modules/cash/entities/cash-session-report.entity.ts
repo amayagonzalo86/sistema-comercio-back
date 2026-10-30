@@ -31,6 +31,8 @@ export interface CashReportSummary {
     expenses: string;
     adjustmentsIn: string;
     adjustmentsOut: string;
+    /** Cobranzas de cuenta corriente en efectivo (ausente en cierres anteriores). */
+    collections?: string;
     count: number;
   };
   expectedCash: string;
@@ -39,6 +41,8 @@ export interface CashReportSummary {
   tickets?: { sales: number; invoiced: number; notInvoiced: number };
   /** Comprobantes autorizados por tipo y punto de venta, con el rango de números. */
   documents?: CashReportDocument[];
+  /** Recibos de cuenta corriente cobrados en esta caja, por medio de pago (ausente en cierres anteriores). */
+  collections?: { count: number; total: string; payments: CashReportBreakdown[] };
 }
 
 export interface CashReportDocument {

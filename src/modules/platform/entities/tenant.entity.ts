@@ -56,6 +56,10 @@ export class TenantEntity {
   @Column({ name: 'currency_code', type: 'char', length: 3, default: 'ARS' })
   currencyCode!: string;
 
+  /** Interés mensual por mora de cuentas corrientes (%, 0 = sin intereses). Se cobra con nota de débito. */
+  @Column({ name: 'late_interest_monthly', type: 'decimal', precision: 5, scale: 2, default: 0 })
+  lateInterestMonthly!: string;
+
   /** Régimen de IVA por defecto de la empresa (Tierra del Fuego: ventas exentas, Ley 19.640). Lo configura la plataforma. */
   @Column({ name: 'default_vat_regime', type: 'enum', enum: VatRegime, default: VatRegime.GENERAL })
   defaultVatRegime!: VatRegime;

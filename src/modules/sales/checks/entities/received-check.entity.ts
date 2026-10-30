@@ -17,6 +17,7 @@ export enum CheckStatus {
 @Index('IDX_received_checks_tenant_status_date', ['tenantId', 'status', 'payDate'])
 @Index('IDX_received_checks_sale', ['tenantId', 'saleId'])
 @Index('UQ_received_checks_payment', ['tenantId', 'salePaymentId'], { unique: true })
+@Index('IDX_received_checks_receipt', ['tenantId', 'receiptId'])
 export class ReceivedCheckEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -27,11 +28,23 @@ export class ReceivedCheckEntity {
   @Column({ name: 'branch_id', type: 'varchar', length: 36 })
   branchId!: string;
 
-  @Column({ name: 'sale_id', type: 'varchar', length: 36 })
-  saleId!: string;
+  /** Venta donde se recibió (null si llegó en un recibo de cuenta corriente). */
+  @Column({ name: 'sale_id', type: 'varchar', length: 36, nullable: true })
+  saleId?: string | null;
 
-  @Column({ name: 'sale_payment_id', type: 'varchar', length: 36 })
-  salePaymentId!: string;
+  @Column({ name: 'sale_payment_id', type: 'varchar', length: 36, nullable: true })
+  salePaymentId?: string | null;
+
+  /** Recibo de cuenta corriente donde se recibió (null si fue en una venta). */
+  @Column({ name: 'receipt_id', type: 'varchar', length: 36, nullable: true })
+  receiptId?: string | null;
+
+  @Column({ name: 'receipt_payment_id', type: 'varchar', length: 36, nullable: true })
+  receiptPaymentId?: string | null;
+
+  /** Cliente que lo entregó (para reclamarle si se rechaza). */
+  @Column({ name: 'customer_person_id', type: 'varchar', length: 36, nullable: true })
+  customerPersonId?: string | null;
 
   @Column({ type: 'varchar', length: 80 })
   bank!: string;

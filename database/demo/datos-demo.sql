@@ -53,6 +53,11 @@ DELETE FROM `stock_transfer_items` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a
 DELETE FROM `stock_transfers` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_return_items` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_returns` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_account_allocations` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_account_entries` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_receipt_payments` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_receipts` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `customer_credit_authorizations` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `received_checks` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_adjustments` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `fiscal_documents` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
@@ -21242,6 +21247,15 @@ INSERT INTO `card_plans` (`id`,`tenant_id`,`name`,`card_brand`,`bank_name`,`paym
 ('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e04','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',3,0.00,NULL,1,40),
 ('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e05','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Tarjeta TDF','OTHER','Banco de Tierra del Fuego','CREDIT_CARD',1,0.00,NULL,1,50),
 ('2f6c1a0e-5b7d-4e2a-9c3f-1a2b3c4d5e06','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Mastercard (cualquier banco)','MASTERCARD',NULL,'CREDIT_CARD',6,15.00,NULL,1,60);
+
+-- Cuenta corriente: lista +10 % para lo que se fía, clientes habilitados e interés por mora del 5 % mensual.
+INSERT INTO `price_lists` (`id`,`tenant_id`,`name`,`description`,`percentage`,`payment_condition`,`is_default`,`is_active`,`sort_order`) VALUES
+('6a3e2f10-7c4b-4d9e-8f1a-2b3c4d5e6f70','9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f','Cuenta corriente','Recargo por venta a cuenta corriente (pago a 30 días).',10.00,'ACCOUNT_ONLY',0,1,40);
+UPDATE `persons` SET `credit_enabled` = 1, `credit_limit` = 2000000.00, `credit_term_days` = 30
+ WHERE `id` = '5d0c6c1e-8a43-4f0e-9b7a-2f61c0a9e301' AND `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+UPDATE `persons` SET `credit_enabled` = 1, `credit_limit` = 500000.00, `credit_term_days` = 15
+ WHERE `id` IN ('4cc7cf11-7148-4bb9-b1bf-0f3fbe101a98', '4f81024a-35d5-4bde-b0aa-d3b0ba6d9bf6') AND `tenant_id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+UPDATE `tenants` SET `late_interest_monthly` = 5.00 WHERE `id` = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 
 COMMIT;
 

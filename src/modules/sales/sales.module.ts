@@ -12,6 +12,14 @@ import { SaleAdjustmentsService } from './adjustments/sale-adjustments.service';
 import { ReceivedCheckEntity } from './checks/entities/received-check.entity';
 import { ChecksController } from './checks/checks.controller';
 import { ChecksService } from './checks/checks.service';
+import { CustomerAccountsController, CustomerReceiptsController } from './accounts/customer-accounts.controller';
+import { CustomerAccountsService } from './accounts/customer-accounts.service';
+import {
+  CustomerAccountAllocationEntity,
+  CustomerAccountEntryEntity,
+  CustomerCreditAuthorizationEntity,
+} from './accounts/entities/customer-account-entry.entity';
+import { CustomerReceiptEntity, CustomerReceiptPaymentEntity } from './accounts/entities/customer-receipt.entity';
 import { PromotionEntity } from '../marketing/entities/promotion.entity';
 import { SalesController } from './sales.controller';
 import { SalesQueryService } from './sales-query.service';
@@ -39,10 +47,15 @@ import { SalesQuotesService } from './quotes/sales-quotes.service';
       SalesQuoteEntity,
       SaleAdjustmentEntity,
       ReceivedCheckEntity,
+      CustomerAccountEntryEntity,
+      CustomerAccountAllocationEntity,
+      CustomerCreditAuthorizationEntity,
+      CustomerReceiptEntity,
+      CustomerReceiptPaymentEntity,
     ]),
   ],
-  controllers: [SalesController, SalesOrdersController, SalesQuotesController, ChecksController],
-  providers: [SalesService, SalesQueryService, SaleReturnsService, SalesOrdersService, SalesQuotesService, SaleAdjustmentsService, ChecksService],
+  controllers: [SalesController, SalesOrdersController, SalesQuotesController, ChecksController, CustomerAccountsController, CustomerReceiptsController],
+  providers: [SalesService, SalesQueryService, SaleReturnsService, SalesOrdersService, SalesQuotesService, SaleAdjustmentsService, ChecksService, CustomerAccountsService],
   exports: [SalesService],
 })
 export class SalesModule {}

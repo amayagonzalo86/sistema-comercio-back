@@ -71,6 +71,18 @@ export class PersonEntity extends BaseAuditEntity {
   @Column({ name: 'price_list_id', type: 'varchar', length: 36, nullable: true })
   priceListId?: string | null;
 
+  /** Cuenta corriente habilitada: puede comprar a cuenta (medio de pago ACCOUNT). Lo habilita titular, admin o encargado. */
+  @Column({ name: 'credit_enabled', type: 'boolean', default: false })
+  creditEnabled!: boolean;
+
+  /** Límite de crédito (deuda máxima). null = sin límite. */
+  @Column({ name: 'credit_limit', type: 'decimal', precision: 14, scale: 2, nullable: true })
+  creditLimit?: string | null;
+
+  /** Plazo de pago en días desde la venta (vencimiento de cada factura a cuenta). */
+  @Column({ name: 'credit_term_days', type: 'smallint', unsigned: true, default: 30 })
+  creditTermDays!: number;
+
   /** Número de cuenta del cliente/proveedor (correlativo por empresa). Se imprime en los comprobantes. */
   @Column({ name: 'account_number', type: 'int', unsigned: true, nullable: true })
   accountNumber?: number | null;

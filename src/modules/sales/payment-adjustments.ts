@@ -7,6 +7,7 @@ import { roundDivide, VatLineResult } from '../fiscal/vat/vat';
  * La venta se cotiza con su lista base (por ejemplo, "Precio de lista"). Cada pago cubre una parte de ese total:
  * - Efectivo con descuento: esa parte se cobra con la lista de efectivo (ej.: −5 %). Si se paga mitad en
  *   efectivo y mitad con tarjeta, el descuento se aplica solo a la mitad pagada en efectivo.
+ * - Cuenta corriente: esa parte se cobra con la lista de cuenta corriente (ej.: +10 %), igual que el efectivo.
  * - Plan de tarjeta: esa parte lleva el recargo del plan (0 % = cuotas sin interés).
  * - Otros medios: sin ajuste.
  *
@@ -18,7 +19,7 @@ import { roundDivide, VatLineResult } from '../fiscal/vat/vat';
 const SCALE = 1_000_000n;
 const BASIS = 10_000n;
 
-export type PaymentAdjustmentKind = 'NONE' | 'CASH_LIST' | 'PLAN';
+export type PaymentAdjustmentKind = 'NONE' | 'CASH_LIST' | 'ACCOUNT_LIST' | 'PLAN';
 
 export interface AdjustablePayment {
   amountCents: bigint;
@@ -42,8 +43,11 @@ export interface PaymentSettlement {
 
 const MISMATCH = 'La suma de los medios de pago debe coincidir con el total de la venta.';
 
-function normalize(payment: AdjustablePayment, baseTotal: bigint, cashTotal: bigint | null): AdjustablePayment {
+function normalize(payment: AdjustablePayment, baseTotal: bigint, cashTotal: bigint | null, accountTotal: bigint | null): AdjustablePayment {
   if (payment.kind === 'CASH_LIST' && (cashTotal === null || cashTotal <= 0n || cashTotal === baseTotal)) {
+    return { ...payment, kind: 'NONE', surchargeBasisPoints: 0n };
+  }
+  if (payment.kind === 'ACCOUNT_LIST' && (accountTotal === null || accountTotal <= 0n || accountTotal === baseTotal)) {
     return { ...payment, kind: 'NONE', surchargeBasisPoints: 0n };
   }
   if (payment.kind === 'PLAN' && payment.surchargeBasisPoints === 0n) {
@@ -55,22 +59,28 @@ function normalize(payment: AdjustablePayment, baseTotal: bigint, cashTotal: big
   return payment;
 }
 
-function coveredMicro(payment: AdjustablePayment, baseTotal: bigint, cashTotal: bigint | null): bigint {
+function coveredMicro(payment: AdjustablePayment, baseTotal: bigint, cashTotal: bigint | null, accountTotal: bigint | null): bigint {
   if (payment.kind === 'CASH_LIST' && cashTotal) return (payment.amountCents * baseTotal * SCALE) / cashTotal;
+  if (payment.kind === 'ACCOUNT_LIST' && accountTotal) return (payment.amountCents * baseTotal * SCALE) / accountTotal;
   if (payment.kind === 'PLAN') return (payment.amountCents * BASIS * SCALE) / (BASIS + payment.surchargeBasisPoints);
   return payment.amountCents * SCALE;
 }
 
 /** Valida que los pagos cubran el total base y calcula el total cobrado y el ajuste. */
-export function settlePayments(baseTotalCents: bigint, cashTotalCents: bigint | null, input: AdjustablePayment[]): PaymentSettlement {
-  const payments = input.map((payment) => normalize(payment, baseTotalCents, cashTotalCents));
+export function settlePayments(
+  baseTotalCents: bigint,
+  cashTotalCents: bigint | null,
+  input: AdjustablePayment[],
+  accountTotalCents: bigint | null = null,
+): PaymentSettlement {
+  const payments = input.map((payment) => normalize(payment, baseTotalCents, cashTotalCents, accountTotalCents));
   const totalCents = payments.reduce((sum, payment) => sum + payment.amountCents, 0n);
   const adjustedCount = BigInt(payments.filter((payment) => payment.kind !== 'NONE').length);
   if (adjustedCount === 0n) {
     if (totalCents !== baseTotalCents) throw new BadRequestException(MISMATCH);
     return { adjusted: false, totalCents, adjustmentTotalCents: 0n, coveredCents: payments.map((payment) => payment.amountCents), payments };
   }
-  const micro = payments.map((payment) => coveredMicro(payment, baseTotalCents, cashTotalCents));
+  const micro = payments.map((payment) => coveredMicro(payment, baseTotalCents, cashTotalCents, accountTotalCents));
   const covered = micro.reduce((sum, value) => sum + value, 0n);
   const gap = covered - baseTotalCents * SCALE;
   if ((gap < 0n ? -gap : gap) > adjustedCount * SCALE) {
@@ -92,6 +102,8 @@ export interface AdjustableLine {
   baseTotalCents: bigint;
   /** Total de la línea con la lista de efectivo (igual al base si no hay lista de efectivo). */
   cashTotalCents: bigint;
+  /** Total de la línea con la lista de cuenta corriente (si no se indica, igual al base). */
+  accountTotalCents?: bigint;
 }
 
 /**
@@ -105,12 +117,15 @@ export function distributeLineTotals(
   cashTotalCents: bigint | null,
   payments: AdjustablePayment[],
   targetSumCents: bigint,
+  accountTotalCents: bigint | null = null,
 ): bigint[] {
   const scaled = lines.map((line) => {
     let value = line.baseTotalCents * SCALE;
     for (const payment of payments) {
       if (payment.kind === 'CASH_LIST' && cashTotalCents) {
         value += (payment.amountCents * (line.cashTotalCents - line.baseTotalCents) * SCALE) / cashTotalCents;
+      } else if (payment.kind === 'ACCOUNT_LIST' && accountTotalCents) {
+        value += (payment.amountCents * ((line.accountTotalCents ?? line.baseTotalCents) - line.baseTotalCents) * SCALE) / accountTotalCents;
       } else if (payment.kind === 'PLAN' && baseTotalCents > 0n) {
         value += (payment.amountCents * payment.surchargeBasisPoints * line.baseTotalCents * SCALE) / ((BASIS + payment.surchargeBasisPoints) * baseTotalCents);
       }
@@ -120,7 +135,7 @@ export function distributeLineTotals(
   const totals = scaled.map((value) => value / SCALE);
   const fractions = scaled.map((value) => value % SCALE);
   let diff = targetSumCents - totals.reduce((sum, value) => sum + value, 0n);
-  const eligible = lines.map((line, index) => ({ line, index })).filter(({ line }) => line.baseTotalCents > 0n || line.cashTotalCents > 0n).map(({ index }) => index);
+  const eligible = lines.map((line, index) => ({ line, index })).filter(({ line }) => line.baseTotalCents > 0n || line.cashTotalCents > 0n || (line.accountTotalCents ?? 0n) > 0n).map(({ index }) => index);
   if (eligible.length === 0) return totals;
   if (diff > 0n) {
     const order = [...eligible].sort((a, b) => (fractions[b] > fractions[a] ? 1 : fractions[b] < fractions[a] ? -1 : a - b));

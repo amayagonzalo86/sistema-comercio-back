@@ -9,6 +9,8 @@ import { CheckStatus, ReceivedCheckEntity } from './entities/received-check.enti
 export interface ReceivedCheckView extends ReceivedCheckEntity {
   customerName: string | null;
   branchName: string | null;
+  /** N.º de recibo si el cheque llegó en una cobranza de cuenta corriente. */
+  receiptNumber: number | null;
 }
 
 /** Cambios de estado permitidos: en cartera → depositado → acreditado; rechazado desde cartera o depositado. */
@@ -60,18 +62,23 @@ export class ChecksService {
 
     const names = rows.length
       ? ((await this.dataSource.query(
-          `SELECT c.id, TRIM(CONCAT_WS(' ', NULLIF(p.last_name, '-'), p.first_name)) AS customerName, b.name AS branchName
+          `SELECT c.id, TRIM(CONCAT_WS(' ', NULLIF(p.last_name, '-'), p.first_name)) AS customerName, b.name AS branchName, r.number AS receiptNumber
              FROM received_checks c
-             JOIN sales s ON s.id = c.sale_id AND s.tenant_id = c.tenant_id
-             LEFT JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
+             LEFT JOIN sales s ON s.id = c.sale_id AND s.tenant_id = c.tenant_id
+             LEFT JOIN customer_receipts r ON r.id = c.receipt_id AND r.tenant_id = c.tenant_id
+             LEFT JOIN persons p ON p.id = COALESCE(c.customer_person_id, s.customer_person_id) AND p.tenant_id = c.tenant_id
              LEFT JOIN branches b ON b.id = c.branch_id AND b.tenant_id = c.tenant_id
             WHERE c.tenant_id = ? AND c.id IN (${rows.map(() => '?').join(', ')})`,
           [tenantId, ...rows.map((row) => row.id)],
-        )) as Array<{ id: string; customerName: string | null; branchName: string | null }>)
+        )) as Array<{ id: string; customerName: string | null; branchName: string | null; receiptNumber: number | null }>)
       : [];
     const byId = new Map(names.map((row) => [String(row.id), row]));
     const items = rows.map((row) =>
-      Object.assign(row, { customerName: byId.get(row.id)?.customerName || null, branchName: byId.get(row.id)?.branchName ?? null }),
+      Object.assign(row, {
+        customerName: byId.get(row.id)?.customerName || null,
+        branchName: byId.get(row.id)?.branchName ?? null,
+        receiptNumber: byId.get(row.id)?.receiptNumber != null ? Number(byId.get(row.id)?.receiptNumber) : null,
+      }),
     );
     return { ...paginated(items, total, query.page, query.limit), totals };
   }
@@ -110,7 +117,7 @@ export class ChecksService {
         eventType: 'CHECK_STATUS_CHANGED',
         aggregateType: 'RECEIVED_CHECK',
         aggregateId: check.id,
-        metadata: { saleId: check.saleId, bank: check.bank, number: check.number, amount: check.amount, before, after: dto.status, note: dto.note ?? null },
+        metadata: { saleId: check.saleId ?? null, receiptId: check.receiptId ?? null, bank: check.bank, number: check.number, amount: check.amount, before, after: dto.status, note: dto.note ?? null },
         context,
       });
       return saved;

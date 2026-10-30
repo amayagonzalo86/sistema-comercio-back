@@ -71,7 +71,7 @@ export class PriceListService {
       const existing = await manager.count(PriceListEntity, { where: { tenantId } });
       // La primera lista de la empresa es la principal.
       const condition = dto.paymentCondition ?? PriceListPaymentCondition.ANY;
-      if (dto.isDefault === true && condition === PriceListPaymentCondition.CASH_ONLY) throw new BadRequestException(CASH_DEFAULT_ERROR);
+      if (dto.isDefault === true && condition !== PriceListPaymentCondition.ANY) throw new BadRequestException(CASH_DEFAULT_ERROR);
       // La primera lista común de la empresa es la principal.
       const hasDefault = (await manager.count(PriceListEntity, { where: { tenantId, isDefault: true } })) > 0;
       const isDefault = dto.isDefault === true || (!hasDefault && condition === PriceListPaymentCondition.ANY);
@@ -117,7 +117,7 @@ export class PriceListService {
       }
       const willBeDefault = dto.isDefault === true || list.isDefault;
       const nextCondition = dto.paymentCondition ?? list.paymentCondition;
-      if (willBeDefault && nextCondition === PriceListPaymentCondition.CASH_ONLY) throw new BadRequestException(CASH_DEFAULT_ERROR);
+      if (willBeDefault && nextCondition !== PriceListPaymentCondition.ANY) throw new BadRequestException(CASH_DEFAULT_ERROR);
       if (dto.isActive === false && willBeDefault) throw new BadRequestException('La lista principal no se puede desactivar: elegí otra como principal.');
       if (dto.isDefault === true && !list.isDefault) {
         await manager.update(PriceListEntity, { tenantId, isDefault: true }, { isDefault: false });
@@ -259,7 +259,7 @@ export class PriceListService {
 }
 
 const CASH_DEFAULT_ERROR =
-  'La lista principal tiene que valer para cualquier medio de pago. La de pago contado se aplica sola al cobrar en efectivo.';
+  'La lista principal tiene que valer para cualquier medio de pago. Las de pago contado y cuenta corriente se aplican solas al cobrar.';
 
 function serializeMethods(methods: readonly string[] | null | undefined): string | null {
   return methods && methods.length > 0 ? [...new Set(methods)].sort().join(',') : null;

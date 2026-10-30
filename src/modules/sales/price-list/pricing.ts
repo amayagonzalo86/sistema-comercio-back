@@ -78,6 +78,9 @@ export function assertPaymentCondition(list: ResolvedPriceList | null, payments:
   if (list?.paymentCondition === PriceListPaymentCondition.CASH_ONLY && payments.some((payment) => !list.cashMethods.includes(payment.method))) {
     throw new BadRequestException(`La lista «${list.name}» se aplica solo si se paga todo en efectivo. Cambiá la lista o el medio de pago.`);
   }
+  if (list?.paymentCondition === PriceListPaymentCondition.ACCOUNT_ONLY && payments.some((payment) => payment.method !== 'ACCOUNT')) {
+    throw new BadRequestException(`La lista «${list.name}» es para ventas a cuenta corriente: cambiá la lista o el medio de pago.`);
+  }
 }
 
 /** "DEBIT_CARD,QR" → ["DEBIT_CARD", "QR"]. */
@@ -102,6 +105,19 @@ export function priceListSummary(list: ResolvedPriceList | null) {
 export async function resolveCashPriceList(manager: EntityManager, tenantId: string): Promise<ResolvedPriceList | null> {
   const list = await manager.getRepository(PriceListEntity).findOne({
     where: { tenantId, paymentCondition: PriceListPaymentCondition.CASH_ONLY, isActive: true, deletedAt: IsNull() },
+    order: { sortOrder: 'ASC', name: 'ASC' },
+    select: { id: true },
+  });
+  return list ? resolvePriceList(manager, tenantId, list.id) : null;
+}
+
+/**
+ * Lista de cuenta corriente de la empresa: la primera lista activa "cuenta corriente" (ej.: +10 %).
+ * Se aplica sola a la parte de la venta que se vende a cuenta corriente. null si la empresa no tiene una.
+ */
+export async function resolveAccountPriceList(manager: EntityManager, tenantId: string): Promise<ResolvedPriceList | null> {
+  const list = await manager.getRepository(PriceListEntity).findOne({
+    where: { tenantId, paymentCondition: PriceListPaymentCondition.ACCOUNT_ONLY, isActive: true, deletedAt: IsNull() },
     order: { sortOrder: 'ASC', name: 'ASC' },
     select: { id: true },
   });

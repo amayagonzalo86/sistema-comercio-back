@@ -8,6 +8,8 @@ export enum SalePaymentMethod {
   QR = 'QR',
   /** Cheque (físico o eCheq): sus datos quedan en received_checks para seguirlo hasta la acreditación. */
   CHECK = 'CHECK',
+  /** Cuenta corriente: el cliente lo paga después; genera una deuda con vencimiento (customer_account_entries). */
+  ACCOUNT = 'ACCOUNT',
   OTHER = 'OTHER',
 }
 

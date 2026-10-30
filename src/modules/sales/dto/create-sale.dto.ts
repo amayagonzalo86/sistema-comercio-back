@@ -133,6 +133,14 @@ export class CreateSaleDto {
   @IsOptional()
   @IsBoolean()
   cashDiscount?: boolean;
+
+  /**
+   * Venta a cuenta corriente por encima del límite o con deuda vencida, confirmada como excepción.
+   * Solo vale si quien cobra es titular, administración o encargado; queda auditado.
+   */
+  @IsOptional()
+  @IsBoolean()
+  creditOverride?: boolean;
 }
 
 /** POST /sales/quote — calcula la venta (promociones, IVA y total) sin registrarla. */

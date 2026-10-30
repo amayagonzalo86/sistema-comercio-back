@@ -22,6 +22,11 @@ export enum PriceListPaymentCondition {
    * por ejemplo débito o QR). Nunca con tarjeta de crédito. No puede ser la lista principal.
    */
   CASH_ONLY = 'CASH_ONLY',
+  /**
+   * Cuenta corriente: se aplica sola a la parte que se vende a cuenta corriente (ej.: +10 % por pagar a 30 días).
+   * No puede ser la lista principal.
+   */
+  ACCOUNT_ONLY = 'ACCOUNT_ONLY',
 }
 
 /** Medios que, además del efectivo, pueden recibir el descuento de una lista de pago contado. */

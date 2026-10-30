@@ -27,7 +27,7 @@ type Row = Record<string, string | number | null>;
  */
 export async function buildCashSummary(manager: EntityManager, session: CashSessionEntity, until: Date): Promise<CashReportSummary> {
   const params = [session.tenantId, session.id];
-  const [salesRows, paymentRows, voucherRows, refundRows, movementRows, xRows, documentRows, invoicedRows] = await Promise.all([
+  const [salesRows, paymentRows, voucherRows, refundRows, movementRows, xRows, documentRows, invoicedRows, receiptRows, receiptPaymentRows] = await Promise.all([
     manager.query(
       `SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS total, COALESCE(SUM(discount_total), 0) AS discounts, COALESCE(SUM(tax_total), 0) AS tax
          FROM sales WHERE tenant_id = ? AND cash_session_id = ?`,
@@ -76,6 +76,14 @@ export async function buildCashSummary(manager: EntityManager, session: CashSess
           AND f.source_id IN (SELECT s.id FROM sales s WHERE s.tenant_id = f.tenant_id AND s.cash_session_id = ?)`,
       params,
     ) as Promise<Row[]>,
+    manager.query('SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS total FROM customer_receipts WHERE tenant_id = ? AND cash_session_id = ?', params) as Promise<Row[]>,
+    manager.query(
+      `SELECT p.method AS \`key\`, COUNT(*) AS count, COALESCE(SUM(p.amount), 0) AS amount
+         FROM customer_receipt_payments p JOIN customer_receipts r ON r.id = p.receipt_id AND r.tenant_id = p.tenant_id
+        WHERE r.tenant_id = ? AND r.cash_session_id = ?
+        GROUP BY p.method ORDER BY amount DESC`,
+      params,
+    ) as Promise<Row[]>,
   ]);
 
   const movement = (type: CashMovementType, direction: CashMovementDirection) =>
@@ -108,6 +116,7 @@ export async function buildCashSummary(manager: EntityManager, session: CashSess
       expenses: centsText(movement(CashMovementType.EXPENSE, CashMovementDirection.OUT)),
       adjustmentsIn: centsText(movement(CashMovementType.ADJUSTMENT, CashMovementDirection.IN)),
       adjustmentsOut: centsText(movement(CashMovementType.ADJUSTMENT, CashMovementDirection.OUT)),
+      collections: centsText(movement(CashMovementType.COLLECTION, CashMovementDirection.IN)),
       count: movementRows.reduce((sum, row) => sum + Number(row.count), 0),
     },
     expectedCash: centsText(decimalCents(session.expectedAmount)),
@@ -116,6 +125,11 @@ export async function buildCashSummary(manager: EntityManager, session: CashSess
       sales: Number(sales.count ?? 0),
       invoiced: Number(invoicedRows[0]?.count ?? 0),
       notInvoiced: Math.max(0, Number(sales.count ?? 0) - Number(invoicedRows[0]?.count ?? 0)),
+    },
+    collections: {
+      count: Number(receiptRows[0]?.count ?? 0),
+      total: centsText(decimalCents(receiptRows[0]?.total as string)),
+      payments: breakdown(receiptPaymentRows),
     },
     documents: documentRows.map(
       (row): CashReportDocument => ({
