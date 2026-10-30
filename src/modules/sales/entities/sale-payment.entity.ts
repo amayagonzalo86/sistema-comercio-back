@@ -6,6 +6,8 @@ export enum SalePaymentMethod {
   CREDIT_CARD = 'CREDIT_CARD',
   BANK_TRANSFER = 'BANK_TRANSFER',
   QR = 'QR',
+  /** Cheque (físico o eCheq): sus datos quedan en received_checks para seguirlo hasta la acreditación. */
+  CHECK = 'CHECK',
   OTHER = 'OTHER',
 }
 

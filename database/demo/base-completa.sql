@@ -248,7 +248,7 @@ CREATE TABLE `fiscal_documents` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `source_type` enum('SALE','SALE_RETURN') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source_type` enum('SALE','SALE_RETURN','SALE_ADJUSTMENT') COLLATE utf8mb4_unicode_ci NOT NULL,
   `source_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `environment` enum('HOMOLOGATION','PRODUCTION') COLLATE utf8mb4_unicode_ci NOT NULL,
   `voucher_class` char(1) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -615,6 +615,32 @@ CREATE TABLE `purchase_receipts` (
   KEY `FK_purchase_receipts_order` (`purchase_order_id`),
   CONSTRAINT `FK_purchase_receipts_order` FOREIGN KEY (`purchase_order_id`) REFERENCES `purchase_orders` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `received_checks`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `received_checks` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sale_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sale_payment_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `bank` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `number` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pay_date` date NOT NULL,
+  `drawer_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `drawer_tax_id` varchar(11) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `amount` decimal(14,2) NOT NULL,
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('IN_PORTFOLIO','DEPOSITED','CASHED','REJECTED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'IN_PORTFOLIO',
+  `status_note` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status_changed_at` timestamp(6) NULL DEFAULT NULL,
+  `status_changed_by_user_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_received_checks_payment` (`tenant_id`,`sale_payment_id`),
+  KEY `IDX_received_checks_sale` (`tenant_id`,`sale_id`),
+  KEY `IDX_received_checks_tenant_status_date` (`tenant_id`,`status`,`pay_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `roles`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `roles` (
@@ -627,6 +653,37 @@ CREATE TABLE `roles` (
   `is_active` tinyint NOT NULL DEFAULT '1',
   PRIMARY KEY (`id`),
   UNIQUE KEY `IDX_648e3f5447f725579d7d4ffdfb` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `sale_adjustments`;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sale_adjustments` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `number` int unsigned NOT NULL,
+  `sale_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `branch_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` enum('CREDIT','DEBIT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `concept` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tax_rate` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `arca_vat_rate_id` smallint unsigned DEFAULT NULL,
+  `net_amount` decimal(14,2) NOT NULL,
+  `tax_amount` decimal(14,2) NOT NULL,
+  `exempt_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `total` decimal(14,2) NOT NULL,
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `settlement` enum('CASH','OTHER','NONE') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cash_session_id` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `external_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `fiscal_status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NOT_ISSUED',
+  `idempotency_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `request_fingerprint` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UQ_sale_adjustments_tenant_idempotency` (`tenant_id`,`idempotency_key`),
+  UNIQUE KEY `UQ_sale_adjustments_tenant_number` (`tenant_id`,`number`),
+  KEY `IDX_sale_adjustments_sale` (`tenant_id`,`sale_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `sale_items`;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -663,7 +720,7 @@ CREATE TABLE `sale_payments` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tenant_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `sale_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `method` enum('CASH','DEBIT_CARD','CREDIT_CARD','BANK_TRANSFER','QR','OTHER') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `method` enum('CASH','DEBIT_CARD','CREDIT_CARD','BANK_TRANSFER','QR','CHECK','OTHER') COLLATE utf8mb4_unicode_ci NOT NULL,
   `amount` decimal(14,2) NOT NULL,
   `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL,
   `external_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -1181,6 +1238,8 @@ DELETE FROM `stock_transfer_items` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a
 DELETE FROM `stock_transfers` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_return_items` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_returns` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `received_checks` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+DELETE FROM `sale_adjustments` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `fiscal_documents` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_payments` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
 DELETE FROM `sale_items` WHERE tenant_id = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';

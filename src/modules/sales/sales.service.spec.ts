@@ -13,6 +13,7 @@ import { SalePaymentEntity, SalePaymentMethod } from './entities/sale-payment.en
 import { CashMovementEntity, CashMovementDirection, CashMovementType } from '../cash/entities/cash-movement.entity';
 import { CashSessionEntity, CashSessionStatus } from '../cash/entities/cash-session.entity';
 import { SalesService } from './sales.service';
+import { ReceivedCheckEntity } from './checks/entities/received-check.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
 
 const tenantId = 'tenant-0000-4000-8000-000000000001';
@@ -69,6 +70,7 @@ function setup() {
     // Sin listas de precios configuradas: se usa el precio de la sucursal.
     [PriceListEntity, createRepository(PriceListEntity)],
     [ProductPriceListEntity, createRepository(ProductPriceListEntity)],
+    [ReceivedCheckEntity, createRepository(ReceivedCheckEntity)],
   ]);
   const queryBuilder = (result: unknown) => ({
     leftJoinAndSelect: jest.fn().mockReturnThis(),

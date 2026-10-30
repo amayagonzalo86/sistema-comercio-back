@@ -263,7 +263,7 @@ START TRANSACTION;
 -- ── Limpieza de una carga anterior de la demo ───────────────────────────────""")
 for table in ["sales_order_items", "sales_orders", "supplier_payment_allocations", "supplier_payments", "supplier_payables", "purchase_receipt_items", "purchase_receipts",
               "purchase_order_items", "purchase_orders", "stock_transfer_items", "stock_transfers", "sale_return_items", "sale_returns",
-              "fiscal_documents", "sale_payments", "sale_items", "sales", "cash_movements", "cash_sessions", "cash_registers",
+              "received_checks", "sale_adjustments", "fiscal_documents", "sale_payments", "sale_items", "sales", "cash_movements", "cash_sessions", "cash_registers",
               "inventory_movements", "product_price_history", "product_price_lists", "price_lists", "product_branches", "products",
               "promotions", "fiscal_points_of_sale", "arca_tickets", "fiscal_profiles", "document_sequences", "audit_events"]:
     emit(f"DELETE FROM `{table}` WHERE tenant_id = '{TENANT}';")

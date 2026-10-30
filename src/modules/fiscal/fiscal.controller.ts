@@ -81,6 +81,14 @@ export class FiscalController {
     return this.fiscal.creditNoteForReturn(tenantId, request.user.id, id, scope(request), buildAuditContext(request));
   }
 
+  /** Nota de crédito o débito por importe (sale_adjustments), asociada a la factura. Idempotente y reintentable. */
+  @Post('adjustments/:id/note')
+  @Roles(...ISSUE)
+  @HttpCode(HttpStatus.OK)
+  adjustmentNote(@GetTenantId() tenantId: string, @Req() request: ActorRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.fiscal.noteForAdjustment(tenantId, request.user.id, id, scope(request), buildAuditContext(request));
+  }
+
   @Get('documents')
   @Roles(...READ)
   documents(@GetTenantId() tenantId: string, @Req() request: ActorRequest, @Query() query: FiscalDocumentQueryDto) {

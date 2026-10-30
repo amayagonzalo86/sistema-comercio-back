@@ -7,14 +7,15 @@ export const WSFE_NAMESPACE = 'http://ar.gov.afip.dif.FEV1/';
 
 export enum FiscalDocumentKind {
   INVOICE = 'INVOICE',
+  DEBIT_NOTE = 'DEBIT_NOTE',
   CREDIT_NOTE = 'CREDIT_NOTE',
 }
 
 /** Códigos de tipo de comprobante de WSFEv1. La clase E (exportación) se emite por WSFEX. */
 const VOUCHER_TYPES: Record<string, Record<FiscalDocumentKind, number>> = {
-  A: { INVOICE: 1, CREDIT_NOTE: 3 },
-  B: { INVOICE: 6, CREDIT_NOTE: 8 },
-  C: { INVOICE: 11, CREDIT_NOTE: 13 },
+  A: { INVOICE: 1, DEBIT_NOTE: 2, CREDIT_NOTE: 3 },
+  B: { INVOICE: 6, DEBIT_NOTE: 7, CREDIT_NOTE: 8 },
+  C: { INVOICE: 11, DEBIT_NOTE: 12, CREDIT_NOTE: 13 },
 };
 
 export function voucherTypeCode(voucherClass: VoucherClass | string, kind: FiscalDocumentKind): number {

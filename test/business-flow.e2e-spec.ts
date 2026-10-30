@@ -1218,6 +1218,65 @@ describe('Flujo comercial completo (e2e)', () => {
       payments: [{ method: 'CREDIT_CARD', amount: 1900 }],
     }, true), 400);
 
+    // ── Notas de crédito y débito por importe (sin devolver mercadería) ──
+    const noInvoiceNote = await api('post', `/sales/${surcharged.body.id}/adjustments`, { kind: 'DEBIT', concept: 'Intereses', reason: 'Pago fuera de término', amount: 100, settlement: 'NONE' }, true);
+    expectStatus(noInvoiceNote, 400); // primero la factura
+    expect(noInvoiceNote.body.message).toContain('factura');
+    const surchargedInvoice = await api('post', `/fiscal/sales/${surcharged.body.id}/invoice`);
+    expectStatus(surchargedInvoice, 200);
+    expect(surchargedInvoice.body).toMatchObject({ status: 'AUTHORIZED', voucherType: 6 });
+    // Nota de débito B: $121 con IVA 21 % (neto $100 + IVA $21), queda pendiente de cobro.
+    const debit = await api('post', `/sales/${surcharged.body.id}/adjustments`, {
+      kind: 'DEBIT', concept: 'Cheque rechazado N.º 00112233', reason: 'Sin fondos', amount: 121, taxRate: 21, settlement: 'NONE',
+    }, true);
+    expectStatus(debit, 201);
+    expect(debit.body).toMatchObject({ kind: 'DEBIT', total: '121.00', netAmount: '100.00', taxAmount: '21.00', taxRate: '21.00', fiscalStatus: 'NOT_ISSUED' });
+    const debitNote = await api('post', `/fiscal/adjustments/${debit.body.id}/note`);
+    expectStatus(debitNote, 200);
+    expect(debitNote.body).toMatchObject({ status: 'AUTHORIZED', voucherType: 7, total: '121.00' });
+    const debitRequest = arca.requests[arca.requests.length - 1];
+    expect(debitRequest.associated).toMatchObject({ voucherType: 6, number: surchargedInvoice.body.number });
+    expect(debitRequest.vatRates).toEqual([{ arcaId: 5, base: '100.00', amount: '21.00' }]);
+    expect((await api('post', `/fiscal/adjustments/${debit.body.id}/note`)).body.id).toBe(debitNote.body.id); // idempotente
+    // Nota de crédito B por bonificación: tope = factura + débitos − créditos.
+    expectStatus(await api('post', `/sales/${surcharged.body.id}/adjustments`, { kind: 'CREDIT', concept: 'Bonificación', reason: 'Excede', amount: 1272, settlement: 'NONE' }, true), 400);
+    const credit = await api('post', `/sales/${surcharged.body.id}/adjustments`, {
+      kind: 'CREDIT', concept: 'Bonificación comercial', reason: 'Cliente frecuente', amount: 242, settlement: 'OTHER', externalReference: 'Transferencia 991',
+    }, true);
+    expectStatus(credit, 201);
+    expect(credit.body).toMatchObject({ kind: 'CREDIT', netAmount: '200.00', taxAmount: '42.00', settlement: 'OTHER' });
+    const creditNoteB = await api('post', `/fiscal/adjustments/${credit.body.id}/note`);
+    expect(creditNoteB.body).toMatchObject({ status: 'AUTHORIZED', voucherType: 8 });
+    const adjustments = await api('get', `/sales/${surcharged.body.id}/adjustments`);
+    expect(adjustments.body.map((item: { fiscalDocumentId: string | null }) => Boolean(item.fiscalDocumentId))).toEqual([true, true]);
+    const printableDebit = await api('get', `/fiscal/documents/${debitNote.body.id}`);
+    expect(printableDebit.body.items[0]).toMatchObject({ nameSnapshot: 'Cheque rechazado N.º 00112233', total: '121.00' });
+    expect(printableDebit.body.adjustment).toMatchObject({ kind: 'DEBIT', settlement: 'NONE' });
+    expect(printableDebit.body.associated).toMatchObject({ voucherType: 6 });
+
+    // ── Cheque como medio de pago y cartera ──
+    expectStatus(await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 1 }], cashSessionId: paySessionId,
+      payments: [{ method: 'CHECK', amount: 1000 }],
+    }, true), 400); // faltan los datos del cheque
+    const checkSale = await api('post', '/sales', {
+      branchId: A, lines: [{ productId: tileId, quantity: 1 }], cashSessionId: paySessionId,
+      payments: [{ method: 'CHECK', amount: 1000, check: { bank: 'Banco de Tierra del Fuego', number: '00112233', payDate: '2026-12-15', drawerName: 'Ferretería Sur SRL', drawerTaxId: '30712345671' } }],
+    }, true);
+    expectStatus(checkSale, 201);
+    expect(checkSale.body.payments[0]).toMatchObject({ method: 'CHECK', check: { bank: 'Banco de Tierra del Fuego', number: '00112233', payDate: '2026-12-15', status: 'IN_PORTFOLIO' } });
+    const portfolio = await api('get', '/checks?status=IN_PORTFOLIO');
+    expectStatus(portfolio, 200);
+    expect(portfolio.body.total).toBe(1);
+    expect(portfolio.body.totals.IN_PORTFOLIO).toBe('1000.00');
+    const checkId = portfolio.body.items[0].id as string;
+    expectStatus(await api('patch', `/checks/${checkId}/status`, { status: 'REJECTED' }), 400); // falta el motivo
+    expectStatus(await api('patch', `/checks/${checkId}/status`, { status: 'DEPOSITED' }), 200);
+    const rejected = await api('patch', `/checks/${checkId}/status`, { status: 'REJECTED', note: 'Sin fondos' });
+    expect(rejected.body).toMatchObject({ status: 'REJECTED', statusNote: 'Sin fondos' });
+    expectStatus(await api('patch', `/checks/${checkId}/status`, { status: 'CASHED' }), 400); // un rechazado no se acredita
+    expect((await api('get', '/checks?search=Ferreter')).body.items[0].customerName).toBeNull();
+
     // Baja lógica: deja de ofrecerse.
     expectStatus(await api('delete', `/card-plans/${tdfOtherDay.body.id}`), 200);
     expect(((await api('get', '/card-plans?includeInactive=true')).body as Array<{ id: string }>).map((plan) => plan.id)).not.toContain(tdfOtherDay.body.id);
