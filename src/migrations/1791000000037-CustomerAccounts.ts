@@ -109,6 +109,7 @@ export class CustomerAccounts1791000000037 implements MigrationInterface {
         \`id\` varchar(36) NOT NULL,
         \`tenant_id\` varchar(36) NOT NULL,
         \`receipt_id\` varchar(36) NOT NULL,
+        \`position\` smallint UNSIGNED NOT NULL DEFAULT 0,
         \`method\` enum ('CASH', 'DEBIT_CARD', 'CREDIT_CARD', 'BANK_TRANSFER', 'QR', 'CHECK', 'OTHER') NOT NULL,
         \`amount\` decimal(14,2) NOT NULL,
         \`external_reference\` varchar(100) NULL,

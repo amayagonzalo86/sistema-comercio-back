@@ -566,6 +566,7 @@ export class CustomerAccountsService {
         manager.create(CustomerReceiptPaymentEntity, {
           tenantId,
           receiptId: receipt.id,
+          position: index,
           method: payment.method,
           amount: formatMoney(amounts[index]),
           externalReference: payment.externalReference || null,
@@ -685,7 +686,7 @@ export class CustomerAccountsService {
 
   private async receiptView(manager: EntityManager, tenantId: string, receipt: CustomerReceiptEntity): Promise<ReceiptView> {
     const [payments, checks, credit, actor] = await Promise.all([
-      manager.find(CustomerReceiptPaymentEntity, { where: { tenantId, receiptId: receipt.id } }),
+      manager.find(CustomerReceiptPaymentEntity, { where: { tenantId, receiptId: receipt.id }, order: { position: 'ASC' } }),
       manager.find(ReceivedCheckEntity, { where: { tenantId, receiptId: receipt.id } }),
       manager.findOne(CustomerAccountEntryEntity, { where: { tenantId, sourceType: 'CUSTOMER_RECEIPT', sourceId: receipt.id } }),
       manager.query(

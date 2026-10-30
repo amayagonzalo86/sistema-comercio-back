@@ -71,6 +71,10 @@ export class CustomerReceiptPaymentEntity {
   @Column({ name: 'receipt_id', type: 'varchar', length: 36 })
   receiptId!: string;
 
+  /** Orden en el recibo (como lo cargó el cajero). */
+  @Column({ type: 'smallint', unsigned: true, default: 0 })
+  position!: number;
+
   @Column({ type: 'enum', enum: ReceiptPaymentMethod })
   method!: ReceiptPaymentMethod;
 
