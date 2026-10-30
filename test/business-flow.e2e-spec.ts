@@ -1312,7 +1312,8 @@ describe('Flujo comercial completo (e2e)', () => {
     const ownerOver = await api('post', '/sales', accountMixed, true);
     expectStatus(ownerOver, 400);
     expect(ownerOver.body.message).toContain('límite de crédito');
-    const cashierAccount = await loginAs('camila.caja', 'Propia-Clave-2026');
+    expectStatus(await api('post', '/employees', { firstName: 'Caja', lastName: 'Cuentas', username: 'caja.cuentas', password: 'Caja-Cuentas-2026', roles: ['CASHIER'], branchId: A }), 201);
+    const cashierAccount = await loginAs('caja.cuentas', 'Caja-Cuentas-2026');
     expectStatus(cashierAccount, 200);
     const accountsAdmin = token;
     token = cashierAccount.body.tokens.accessToken as string;
