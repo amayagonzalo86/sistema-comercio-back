@@ -7,6 +7,11 @@ import { SalePaymentEntity } from './entities/sale-payment.entity';
 import { SaleReturnEntity } from './returns/entities/sale-return.entity';
 import { SaleReturnItemEntity } from './returns/entities/sale-return-item.entity';
 import { SaleReturnsService } from './returns/sale-returns.service';
+import { SaleAdjustmentEntity } from './adjustments/entities/sale-adjustment.entity';
+import { SaleAdjustmentsService } from './adjustments/sale-adjustments.service';
+import { ReceivedCheckEntity } from './checks/entities/received-check.entity';
+import { ChecksController } from './checks/checks.controller';
+import { ChecksService } from './checks/checks.service';
 import { PromotionEntity } from '../marketing/entities/promotion.entity';
 import { SalesController } from './sales.controller';
 import { SalesQueryService } from './sales-query.service';
@@ -32,10 +37,12 @@ import { SalesQuotesService } from './quotes/sales-quotes.service';
       SalesOrderEntity,
       SalesOrderItemEntity,
       SalesQuoteEntity,
+      SaleAdjustmentEntity,
+      ReceivedCheckEntity,
     ]),
   ],
-  controllers: [SalesController, SalesOrdersController, SalesQuotesController],
-  providers: [SalesService, SalesQueryService, SaleReturnsService, SalesOrdersService, SalesQuotesService],
+  controllers: [SalesController, SalesOrdersController, SalesQuotesController, ChecksController],
+  providers: [SalesService, SalesQueryService, SaleReturnsService, SalesOrdersService, SalesQuotesService, SaleAdjustmentsService, ChecksService],
   exports: [SalesService],
 })
 export class SalesModule {}

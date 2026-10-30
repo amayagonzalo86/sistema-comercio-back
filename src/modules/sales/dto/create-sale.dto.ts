@@ -16,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { SalePaymentMethod } from '../entities/sale-payment.entity';
+import { CheckDataDto } from '../checks/dto/check.dto';
 import { VatExemptionReason, VatRegime, VoucherClass } from '../../fiscal/vat/vat';
 
 /**
@@ -59,6 +60,12 @@ export class CreateSalePaymentDto {
   @IsOptional()
   @IsUUID('4')
   cardPlanId?: string;
+
+  /** Obligatorio si method = CHECK: banco, número, fecha de cobro y librador. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CheckDataDto)
+  check?: CheckDataDto;
 }
 
 export class CreateSaleDto {

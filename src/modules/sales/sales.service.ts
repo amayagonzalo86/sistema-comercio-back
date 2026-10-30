@@ -26,6 +26,7 @@ import { InventoryAuditContext } from '../inventory/product/inventory-audit-cont
 import { SaleEntity, SaleFiscalStatus } from './entities/sale.entity';
 import { SaleItemEntity } from './entities/sale-item.entity';
 import { SalePaymentEntity } from './entities/sale-payment.entity';
+import { CheckStatus, ReceivedCheckEntity } from './checks/entities/received-check.entity';
 import { CreateSaleDto, QuoteSaleDto } from './dto/create-sale.dto';
 import { SalesOrderEntity, SalesOrderStatus } from './orders/entities/sales-order.entity';
 import { lockSalesOrder, salesOrderProductQuantities } from './orders/sales-order-lock';
@@ -210,6 +211,9 @@ export class SalesService {
         amount: Number(payment.amount).toFixed(2),
         ...(payment.cashSessionId ? { cashSessionId: payment.cashSessionId } : {}),
         ...(payment.cardPlanId ? { cardPlanId: payment.cardPlanId } : {}),
+        ...(payment.check
+          ? { check: [payment.check.bank, payment.check.number, payment.check.payDate, payment.check.drawerName ?? '', payment.check.drawerTaxId ?? ''].join('|') }
+          : {}),
       }))
       .sort((a, b) =>
         a.method.localeCompare(b.method) ||
@@ -248,6 +252,12 @@ export class SalesService {
     }
     if (dto.payments.some((payment) => payment.method !== 'CASH' && payment.cashSessionId)) {
       throw new BadRequestException('cashSessionId solo corresponde a pagos en efectivo.');
+    }
+    if (dto.payments.some((payment) => payment.method === 'CHECK' && !payment.check)) {
+      throw new BadRequestException('Cada pago con cheque debe indicar banco, número y fecha de cobro.');
+    }
+    if (dto.payments.some((payment) => payment.method !== 'CHECK' && payment.check)) {
+      throw new BadRequestException('Los datos del cheque solo corresponden a pagos con cheque.');
     }
     if (dto.payments.some((payment) => payment.cardPlanId && payment.method !== 'CREDIT_CARD' && payment.method !== 'DEBIT_CARD')) {
       throw new BadRequestException('El plan de tarjeta solo corresponde a pagos con tarjeta de crédito o débito.');
@@ -561,6 +571,31 @@ export class SalesService {
         });
       });
       const savedPayments = await paymentRepository.save(payments);
+      // Cheques: quedan en cartera para seguirlos hasta la acreditación (depósito, cobro o rechazo).
+      const checkRows = dto.payments
+        .map((payment, index) => ({ payment, saved: savedPayments[index] }))
+        .filter(({ payment }) => payment.method === 'CHECK' && payment.check);
+      if (checkRows.length > 0) {
+        await queryRunner.manager.save(
+          ReceivedCheckEntity,
+          checkRows.map(({ payment, saved }) =>
+            queryRunner.manager.create(ReceivedCheckEntity, {
+              tenantId,
+              branchId: branch.id,
+              saleId: sale.id,
+              salePaymentId: saved.id,
+              bank: payment.check!.bank,
+              number: payment.check!.number,
+              payDate: payment.check!.payDate,
+              drawerName: payment.check!.drawerName || null,
+              drawerTaxId: payment.check!.drawerTaxId || null,
+              amount: saved.amount,
+              currency: tenant.currencyCode,
+              status: CheckStatus.IN_PORTFOLIO,
+            }),
+          ),
+        );
+      }
       const cashMovementRepository = queryRunner.manager.getRepository(CashMovementEntity);
       for (let index = 0; index < dto.payments.length; index += 1) {
         const requestPayment = dto.payments[index];
@@ -896,7 +931,7 @@ export class SalesService {
     if (!sale) {
       throw new NotFoundException('Venta no encontrada.');
     }
-    const [items, payments] = await Promise.all([
+    const [items, paymentRows, checks] = await Promise.all([
       this.dataSource.getRepository(SaleItemEntity).find({
         where: { tenantId, saleId },
         order: { id: 'ASC' },
@@ -905,7 +940,11 @@ export class SalesService {
         where: { tenantId, saleId },
         order: { createdAt: 'ASC' },
       }),
+      this.dataSource.getRepository(ReceivedCheckEntity).find({ where: { tenantId, saleId } }),
     ]);
+    // Cada pago con cheque trae sus datos y su estado (en cartera, depositado, acreditado o rechazado).
+    const checkByPayment = new Map(checks.map((check) => [check.salePaymentId, check]));
+    const payments = paymentRows.map((payment) => ({ ...payment, check: checkByPayment.get(payment.id) ?? null }));
     const [names, customer] = await Promise.all([
       userDisplayNames(this.dataSource.manager, [sale.sellerUserId ?? sale.actorUserId, sale.actorUserId]),
       loadPrintCustomer(this.dataSource.manager, tenantId, sale.customerPersonId),

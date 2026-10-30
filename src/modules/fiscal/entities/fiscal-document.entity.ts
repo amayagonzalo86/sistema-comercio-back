@@ -15,6 +15,8 @@ export enum FiscalDocumentStatus {
 export enum FiscalSourceType {
   SALE = 'SALE',
   SALE_RETURN = 'SALE_RETURN',
+  /** Nota de crédito o débito por importe (sale_adjustments). */
+  SALE_ADJUSTMENT = 'SALE_ADJUSTMENT',
 }
 
 /** Comprobante electrónico autorizado (o en proceso) ante ARCA. */

@@ -64,10 +64,11 @@ export async function buildCashSummary(manager: EntityManager, session: CashSess
          FROM fiscal_documents f
         WHERE f.tenant_id = ? AND f.status = 'AUTHORIZED' AND f.number IS NOT NULL AND (
               (f.source_type = 'SALE' AND f.source_id IN (SELECT s.id FROM sales s WHERE s.tenant_id = f.tenant_id AND s.cash_session_id = ?))
-           OR (f.source_type = 'SALE_RETURN' AND f.source_id IN (SELECT r.id FROM sale_returns r WHERE r.tenant_id = f.tenant_id AND r.cash_session_id = ?)))
+           OR (f.source_type = 'SALE_RETURN' AND f.source_id IN (SELECT r.id FROM sale_returns r WHERE r.tenant_id = f.tenant_id AND r.cash_session_id = ?))
+           OR (f.source_type = 'SALE_ADJUSTMENT' AND f.source_id IN (SELECT a.id FROM sale_adjustments a WHERE a.tenant_id = f.tenant_id AND a.cash_session_id = ?)))
         GROUP BY f.voucher_type, f.point_of_sale
         ORDER BY f.voucher_type, f.point_of_sale`,
-      [session.tenantId, session.id, session.id],
+      [session.tenantId, session.id, session.id, session.id],
     ) as Promise<Row[]>,
     manager.query(
       `SELECT COUNT(DISTINCT f.source_id) AS count FROM fiscal_documents f

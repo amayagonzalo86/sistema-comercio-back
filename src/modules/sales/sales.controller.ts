@@ -34,6 +34,9 @@ import { SaleEntity } from './entities/sale.entity';
 import { SaleReturnsService } from './returns/sale-returns.service';
 import { CreateSaleReturnDto } from './returns/dto/sale-return.dto';
 import { SaleReturnEntity } from './returns/entities/sale-return.entity';
+import { SaleAdjustmentsService } from './adjustments/sale-adjustments.service';
+import { CreateSaleAdjustmentDto } from './adjustments/dto/sale-adjustment.dto';
+import { SaleAdjustmentEntity } from './adjustments/entities/sale-adjustment.entity';
 
 const VAT_EXEMPTION_ROLES = new Set(['OWNER', 'ADMIN']);
 
@@ -44,6 +47,7 @@ export class SalesController {
     private readonly salesService: SalesService,
     private readonly salesQuery: SalesQueryService,
     private readonly saleReturns: SaleReturnsService,
+    private readonly saleAdjustments: SaleAdjustmentsService,
   ) {}
 
   /** Calcula la venta (promociones, IVA, clase de comprobante y total a cobrar) sin registrarla. */
@@ -97,6 +101,33 @@ export class SalesController {
     const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
     const branchId = requireAssignedBranch(actor) ?? actor.branchId ?? null;
     return this.saleReturns.create(tenantId, { id: actor.id, branchId }, id, idempotencyKey, dto, buildAuditContext(request));
+  }
+
+  /**
+   * Nota de crédito o débito por importe (sin mover mercadería) sobre una venta facturada. Requiere Idempotency-Key.
+   * El comprobante electrónico se emite después con POST /fiscal/adjustments/:id/note.
+   */
+  @Post(':id/adjustments')
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER)
+  @HttpCode(HttpStatus.CREATED)
+  createAdjustment(
+    @GetTenantId() tenantId: string,
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() dto: CreateSaleAdjustmentDto,
+  ): Promise<SaleAdjustmentEntity> {
+    if (!idempotencyKey) throw new BadRequestException('El encabezado Idempotency-Key es obligatorio.');
+    const actor = request.user as { id: string; branchId?: string | null; tenantRole?: string };
+    const branchId = requireAssignedBranch(actor) ?? actor.branchId ?? null;
+    return this.saleAdjustments.create(tenantId, { id: actor.id, branchId }, id, idempotencyKey, dto, buildAuditContext(request));
+  }
+
+  @Get(':id/adjustments')
+  @Roles(UserRoleEnum.ADMIN, UserRoleEnum.MANAGER, UserRoleEnum.CASHIER, UserRoleEnum.SELLER, UserRoleEnum.USER)
+  listAdjustments(@GetTenantId() tenantId: string, @Req() request: Request, @Param('id', ParseUUIDPipe) id: string) {
+    const actor = request.user as { branchId?: string | null; tenantRole?: string };
+    return this.saleAdjustments.listForSale(tenantId, id, requireAssignedBranch(actor) ?? actor.branchId ?? null);
   }
 
   @Get(':id/returns')

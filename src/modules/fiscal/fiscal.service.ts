@@ -27,6 +27,7 @@ import { SaleItemEntity } from '../sales/entities/sale-item.entity';
 import { SaleEntity, SaleFiscalStatus } from '../sales/entities/sale.entity';
 import { SaleReturnItemEntity } from '../sales/returns/entities/sale-return-item.entity';
 import { SaleReturnEntity } from '../sales/returns/entities/sale-return.entity';
+import { SaleAdjustmentEntity, SaleAdjustmentKind } from '../sales/adjustments/entities/sale-adjustment.entity';
 import { ARCA_CLIENT, ArcaClient, ArcaTransportError } from './arca/arca-client';
 import { SecretBox } from './arca/secrets';
 import { ArcaAuthError } from './arca/wsaa';
@@ -64,7 +65,7 @@ interface IssueInput {
 const LOCK_TIMEOUT_SECONDS = 30;
 
 /**
- * Facturación electrónica con ARCA (WSFEv1): facturas y notas de crédito A, B y C.
+ * Facturación electrónica con ARCA (WSFEv1): facturas, notas de débito y notas de crédito A, B y C.
  * Numeración serializada por punto de venta y tipo, ticket WSAA cifrado y conciliación ante cortes.
  */
 @Injectable()
@@ -276,6 +277,40 @@ export class FiscalService {
     });
   }
 
+  /** Emite la nota de crédito o débito por importe, asociada a la factura de la venta. */
+  async noteForAdjustment(tenantId: string, actorUserId: string, adjustmentId: string, branchScope: string | null, context: RequestAuditContext) {
+    const adjustment = await this.dataSource.getRepository(SaleAdjustmentEntity).findOne({ where: { id: adjustmentId, tenantId } });
+    if (!adjustment || (branchScope && adjustment.branchId !== branchScope)) throw new NotFoundException('Nota no encontrada.');
+    const sale = await this.dataSource.getRepository(SaleEntity).findOneOrFail({ where: { id: adjustment.saleId, tenantId } });
+    const invoice = await this.dataSource.getRepository(FiscalDocumentEntity).findOne({
+      where: { tenantId, sourceType: FiscalSourceType.SALE, sourceId: sale.id, status: FiscalDocumentStatus.AUTHORIZED },
+    });
+    if (!invoice) throw new BadRequestException('La venta no tiene una factura autorizada: no corresponde nota de crédito ni de débito.');
+    return this.issue({
+      tenantId,
+      actorUserId,
+      branchId: adjustment.branchId,
+      sourceType: FiscalSourceType.SALE_ADJUSTMENT,
+      sourceId: adjustment.id,
+      voucherClass: invoice.voucherClass,
+      kind: adjustment.kind === SaleAdjustmentKind.DEBIT ? FiscalDocumentKind.DEBIT_NOTE : FiscalDocumentKind.CREDIT_NOTE,
+      customerPersonId: sale.customerPersonId ?? null,
+      customerVatCondition: sale.customerVatCondition ?? null,
+      amounts: {
+        total: adjustment.total,
+        netTaxed: adjustment.netAmount,
+        vat: adjustment.taxAmount,
+        exempt: adjustment.exemptAmount,
+        notTaxed: '0.00',
+        vatRates: adjustment.arcaVatRateId
+          ? [{ arcaId: adjustment.arcaVatRateId, base: money(adjustment.netAmount), amount: money(adjustment.taxAmount) }]
+          : [],
+      },
+      associated: invoice,
+      context,
+    });
+  }
+
   async listDocuments(
     tenantId: string,
     query: FiscalDocumentQueryDto,
@@ -312,7 +347,8 @@ export class FiscalService {
       `SELECT d.id AS documentId, TRIM(CONCAT_WS(' ', NULLIF(p.last_name, '-'), p.first_name)) AS name
          FROM fiscal_documents d
          LEFT JOIN sale_returns r ON d.source_type = 'SALE_RETURN' AND r.id = d.source_id AND r.tenant_id = d.tenant_id
-         JOIN sales s ON s.tenant_id = d.tenant_id AND s.id = IF(d.source_type = 'SALE', d.source_id, r.sale_id)
+         LEFT JOIN sale_adjustments a ON d.source_type = 'SALE_ADJUSTMENT' AND a.id = d.source_id AND a.tenant_id = d.tenant_id
+         JOIN sales s ON s.tenant_id = d.tenant_id AND s.id = CASE d.source_type WHEN 'SALE' THEN d.source_id WHEN 'SALE_RETURN' THEN r.sale_id ELSE a.sale_id END
          JOIN persons p ON p.tenant_id = s.tenant_id AND p.id = s.customer_person_id
         WHERE d.tenant_id = ? AND d.id IN (${ids.map(() => '?').join(', ')})`,
       [tenantId, ...ids],
@@ -328,14 +364,24 @@ export class FiscalService {
       where: { tenantId, environment: document.environment },
       order: { isActive: 'DESC', updatedAt: 'DESC' },
     });
+    const adjustment =
+      document.sourceType === FiscalSourceType.SALE_ADJUSTMENT
+        ? await this.dataSource.getRepository(SaleAdjustmentEntity).findOne({ where: { id: document.sourceId, tenantId } })
+        : null;
     const items =
       document.sourceType === FiscalSourceType.SALE
         ? await this.dataSource.getRepository(SaleItemEntity).find({ where: { tenantId, saleId: document.sourceId }, order: { id: 'ASC' } })
-        : await this.dataSource.getRepository(SaleReturnItemEntity).find({ where: { tenantId, saleReturnId: document.sourceId }, order: { id: 'ASC' } });
+        : document.sourceType === FiscalSourceType.SALE_RETURN
+          ? await this.dataSource.getRepository(SaleReturnItemEntity).find({ where: { tenantId, saleReturnId: document.sourceId }, order: { id: 'ASC' } })
+          : adjustment
+            ? [adjustmentItem(adjustment)]
+            : [];
     // Receptor (RG 1415: apellido y nombre o razón social y domicilio en comprobantes identificados).
     const sourceSale =
       document.sourceType === FiscalSourceType.SALE
         ? await this.dataSource.getRepository(SaleEntity).findOne({ where: { id: document.sourceId, tenantId } })
+        : adjustment
+          ? await this.dataSource.getRepository(SaleEntity).findOne({ where: { id: adjustment.saleId, tenantId } })
         : await this.dataSource
             .getRepository(SaleReturnEntity)
             .findOne({ where: { id: document.sourceId, tenantId } })
@@ -356,6 +402,10 @@ export class FiscalService {
       : null;
     return {
       document,
+      /** Nota por importe: concepto y cómo se liquidó (el comprobante lo imprime). */
+      adjustment: adjustment
+        ? { kind: adjustment.kind, concept: adjustment.concept, settlement: adjustment.settlement, number: adjustment.number }
+        : null,
       // Encabezado completo de la empresa (domicilio del local, teléfono, IIBB, inicio de actividades).
       issuer: { ...letterhead, commercialAddress: letterhead.address },
       receiver: customer,
@@ -638,6 +688,8 @@ export class FiscalService {
   private async updateSourceStatus(input: IssueInput, status: SaleFiscalStatus): Promise<void> {
     if (input.sourceType === FiscalSourceType.SALE) {
       await this.dataSource.getRepository(SaleEntity).update({ id: input.sourceId, tenantId: input.tenantId }, { fiscalStatus: status });
+    } else if (input.sourceType === FiscalSourceType.SALE_ADJUSTMENT) {
+      await this.dataSource.getRepository(SaleAdjustmentEntity).update({ id: input.sourceId, tenantId: input.tenantId }, { fiscalStatus: status });
     } else {
       await this.dataSource.getRepository(SaleReturnEntity).update({ id: input.sourceId, tenantId: input.tenantId }, { fiscalStatus: status });
     }
@@ -729,7 +781,11 @@ function applyDocumentSearch(qb: SelectQueryBuilder<FiscalDocumentEntity>, term:
     OR d.sourceId IN (
       SELECT r.id FROM sale_returns r JOIN sales s ON s.id = r.sale_id AND s.tenant_id = r.tenant_id
         JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
-       WHERE r.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))`;
+       WHERE r.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))
+    OR d.sourceId IN (
+      SELECT a.id FROM sale_adjustments a JOIN sales s ON s.id = a.sale_id AND s.tenant_id = a.tenant_id
+        JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
+       WHERE a.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))`;
   const params = { searchName: likePattern(term), searchDigits: digits };
   if (/^\d{1,14}$/.test(digits)) {
     qb.andWhere(
@@ -741,4 +797,23 @@ function applyDocumentSearch(qb: SelectQueryBuilder<FiscalDocumentEntity>, term:
     return;
   }
   qb.andWhere(`(${customerMatch})`, params);
+}
+
+/** Ítem imprimible de una nota por importe: una línea con el concepto. */
+function adjustmentItem(adjustment: SaleAdjustmentEntity) {
+  return {
+    id: adjustment.id,
+    productId: null,
+    skuSnapshot: '',
+    nameSnapshot: adjustment.concept,
+    quantity: '1.000',
+    unitPrice: adjustment.total,
+    taxRate: adjustment.taxRate,
+    netAmount: adjustment.netAmount,
+    taxAmount: adjustment.taxAmount,
+    exemptAmount: adjustment.exemptAmount,
+    notTaxedAmount: '0.00',
+    total: adjustment.total,
+    discountAmount: '0.00',
+  };
 }
