@@ -1278,6 +1278,7 @@ describe('Flujo comercial completo (e2e)', () => {
     expect((await api('get', '/checks?search=Ferreter')).body.items[0].customerName).toBeNull();
 
     // ── Cuenta corriente de clientes ──
+    token = adminToken;
     const arDay = (offset = 0) =>
       new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + offset * 86_400_000));
     expectStatus(await api('post', '/price-lists', { name: 'Imposible principal', percentage: 10, paymentCondition: 'ACCOUNT_ONLY', isDefault: true }), 400);
