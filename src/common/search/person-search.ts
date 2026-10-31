@@ -49,8 +49,9 @@ export function personSearchSql(columns: PersonSearchColumns, term: string, bind
   const { words, digits } = parsePersonSearch(term);
   const nameMatch = words.length
     ? words.map((word) => {
-        const pattern = bind(`%${escapeLike(word)}%`);
-        return `(${columns.firstName} LIKE ${pattern} OR ${columns.lastName} LIKE ${pattern})`;
+        // Un marcador por uso: con '?' cada aparición necesita su propio parámetro.
+        const pattern = `%${escapeLike(word)}%`;
+        return `(${columns.firstName} LIKE ${bind(pattern)} OR ${columns.lastName} LIKE ${bind(pattern)})`;
       })
     : [];
   const documentMatch: string[] = [];
@@ -71,8 +72,8 @@ export function personSearchSql(columns: PersonSearchColumns, term: string, bind
   }
   const whole = term.trim().slice(0, 80);
   if (whole && columns.extra?.length) {
-    const pattern = bind(`%${escapeLike(whole)}%`);
-    for (const column of columns.extra) branches.push(`${column} LIKE ${pattern}`);
+    const pattern = `%${escapeLike(whole)}%`;
+    for (const column of columns.extra) branches.push(`${column} LIKE ${bind(pattern)}`);
   }
   return branches.length ? `(${branches.join(' OR ')})` : null;
 }
