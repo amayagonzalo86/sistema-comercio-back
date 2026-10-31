@@ -184,7 +184,7 @@ describe('Flujo comercial completo (e2e)', () => {
     expect(ids((await api('get', '/persons?role=customers&search=12.345.678')).body)).toContain(customer.body.id);
     expect(ids((await api('get', '/persons?role=customers&search=1234567')).body)).toContain(customer.body.id);
     expect(ids((await api('get', '/persons?role=customers&search=inscripto%2012345678')).body)).toContain(customer.body.id);
-    expect((await api('get', '/persons?role=customers&search=otro%2012345678')).body.total).toBe(0);
+    expect((await api('get', '/persons?role=customers&search=zzqx%2012345678')).body.total).toBe(0);
 
     // Promoción: 10 % en bebidas
     expectStatus(
