@@ -177,6 +177,14 @@ describe('Flujo comercial completo (e2e)', () => {
     const customersList = await api('get', '/persons?role=customers&search=Inscripto');
     expectStatus(customersList, 200);
     expect(customersList.body.total).toBe(1);
+    // Apellido y nombre en cualquier orden, y DNI (dentro de la CUIT 20-12345678-6), con o sin puntos.
+    const ids = (body: { items: Array<{ id: string }> }) => body.items.map((person) => person.id);
+    expect(ids((await api('get', '/persons?role=customers&search=inscripto%20cliente')).body)).toContain(customer.body.id);
+    expect(ids((await api('get', '/persons?role=customers&search=Cliente%20Inscripto')).body)).toContain(customer.body.id);
+    expect(ids((await api('get', '/persons?role=customers&search=12.345.678')).body)).toContain(customer.body.id);
+    expect(ids((await api('get', '/persons?role=customers&search=1234567')).body)).toContain(customer.body.id);
+    expect(ids((await api('get', '/persons?role=customers&search=inscripto%2012345678')).body)).toContain(customer.body.id);
+    expect((await api('get', '/persons?role=customers&search=otro%2012345678')).body.total).toBe(0);
 
     // Promoción: 10 % en bebidas
     expectStatus(
