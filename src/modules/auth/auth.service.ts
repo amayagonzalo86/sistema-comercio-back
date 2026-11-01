@@ -25,6 +25,7 @@ import {
   cleanDeviceName,
   deviceCode,
   deviceThumbprint,
+  deviceTokenThumbprint,
   isValidDeviceChallenge,
   normalizeDeviceJwk,
   verifyDeviceSignature,
@@ -465,12 +466,22 @@ export class AuthService {
       }
       return null;
     }
-    const jwk = normalizeDeviceJwk(proof.publicKey);
-    if (!jwk || !isValidDeviceChallenge(proof.challenge) || !verifyDeviceSignature(jwk, proof.challenge, proof.signature)) {
-      if (enforced) throw new UnauthorizedException('No se pudo verificar este equipo. Volvé a intentar.');
-      return null;
+    let thumbprint: string;
+    let publicKey: string;
+    if (proof.token) {
+      // Navegador sin WebCrypto (http en la red local): secreto aleatorio del equipo, se guarda solo su huella.
+      thumbprint = deviceTokenThumbprint(proof.token);
+      publicKey = JSON.stringify({ kind: 'token' });
+    } else {
+      const jwk = normalizeDeviceJwk(proof.publicKey);
+      const challenge = proof.challenge ?? '';
+      if (!jwk || !isValidDeviceChallenge(challenge) || !verifyDeviceSignature(jwk, challenge, proof.signature ?? '')) {
+        if (enforced) throw new UnauthorizedException('No se pudo verificar este equipo. Volvé a intentar.');
+        return null;
+      }
+      thumbprint = deviceThumbprint(jwk);
+      publicKey = JSON.stringify(jwk);
     }
-    const thumbprint = deviceThumbprint(jwk);
     const repo = this.dataSource.getRepository(TrustedDeviceEntity);
     let device = await repo.findOne({ where: { tenantId: tenant.id, keyThumbprint: thumbprint } });
     const name = cleanDeviceName(proof.name, userAgent);
@@ -482,7 +493,7 @@ export class AuthService {
             manager.create(TrustedDeviceEntity, {
               tenantId: tenant.id,
               keyThumbprint: thumbprint,
-              publicKey: JSON.stringify(jwk),
+              publicKey,
               name,
               status: TrustedDeviceStatus.PENDING,
               userAgent: userAgent?.slice(0, 255) ?? null,

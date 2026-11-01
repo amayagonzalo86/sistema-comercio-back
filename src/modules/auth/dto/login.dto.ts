@@ -1,20 +1,34 @@
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 
-/** Prueba de equipo: el navegador firma el desafío con su llave (ver device-proof.ts). */
+/**
+ * Prueba de equipo (ver device-proof.ts). Dos formas:
+ * - Con https: el navegador firma el desafío con su llave ECDSA no exportable (publicKey + challenge + signature).
+ * - Sin https (http://IP en la red local, donde el navegador no habilita WebCrypto): `token`, un secreto aleatorio
+ *   del equipo. El servidor guarda solo su huella.
+ */
 export class DeviceProofDto {
   /** Llave pública ECDSA P-256 en formato JWK. */
+  @ValidateIf((proof: DeviceProofDto) => proof.token === undefined)
   @IsObject()
-  readonly publicKey!: Record<string, unknown>;
+  readonly publicKey?: Record<string, unknown>;
 
+  @ValidateIf((proof: DeviceProofDto) => proof.token === undefined)
   @IsString()
   @MaxLength(200)
-  readonly challenge!: string;
+  readonly challenge?: string;
 
   /** Firma r||s (64 bytes) en base64url. */
+  @ValidateIf((proof: DeviceProofDto) => proof.token === undefined)
   @IsString()
   @Matches(/^[A-Za-z0-9_-]{60,100}$/, { message: 'Firma del equipo inválida.' })
-  readonly signature!: string;
+  readonly signature?: string;
+
+  /** Secreto aleatorio del equipo (32 bytes en base64url) cuando el navegador no tiene WebCrypto. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{43}$/, { message: 'Identificador del equipo inválido.' })
+  readonly token?: string;
 
   /** Nombre que el local le da al equipo (opcional). */
   @IsOptional()

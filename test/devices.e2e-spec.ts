@@ -80,6 +80,11 @@ describe('Equipos autorizados (e2e)', () => {
       }),
       201,
     );
+    // Segundo usuario para la PC de la red local (el ingreso tiene un tope de intentos por usuario).
+    expectStatus(
+      await asAdmin('post', '/employees', { firstName: 'Luis', lastName: 'Lan', username: 'luis.lan', password: 'Luis-Lan-2026x', roles: ['MANAGER'] }),
+      201,
+    );
     const caja1 = new FakeDevice('Caja 1');
     const intruso = new FakeDevice('PC desconocida');
 
@@ -93,12 +98,14 @@ describe('Equipos autorizados (e2e)', () => {
     expect(caja1Row).toMatchObject({ name: 'Caja 1', status: 'PENDING', lastUser: 'Carla Caja' });
     expect(caja1Row.code).toMatch(/^[0-9A-F]{4}-[0-9A-F]{4}$/);
 
-    // No se puede exigir sin al menos un equipo aprobado (evita dejar a la empresa afuera).
-    expectStatus(await asAdmin('patch', `/platform/tenants/${tenantId}/device-approval`, { required: true }), 409);
-    expectStatus(await asAdmin('post', `/platform/tenants/${tenantId}/devices/${caja1Row.id}/approve`, { name: 'Caja 1 – Centro' }), 200);
+    // Se puede exigir aunque no haya ninguno aprobado: la PC queda bloqueada con su código hasta la aprobación.
     view = await asAdmin('patch', `/platform/tenants/${tenantId}/device-approval`, { required: true });
     expectStatus(view, 200);
-    expect(view.body).toMatchObject({ deviceApprovalRequired: true, counts: { APPROVED: 1 } });
+    expect(view.body).toMatchObject({ deviceApprovalRequired: true, counts: { APPROVED: 0, PENDING: 1 } });
+    const blocked = await login('carla.caja', 'Carla-Caja-2026', caja1);
+    expectStatus(blocked, 403);
+    expect(blocked.body.details).toBe(`DEVICE_PENDING:${caja1Row.code}`);
+    expectStatus(await asAdmin('post', `/platform/tenants/${tenantId}/devices/${caja1Row.id}/approve`, { name: 'Caja 1 – Centro' }), 200);
 
     // La sesión abierta antes de exigir sigue valiendo: venía de un equipo que ahora está aprobado.
     expectStatus(await http().get('/api/v1/branches').set('Authorization', `Bearer ${free.body.tokens.accessToken as string}`), 200);
@@ -120,11 +127,29 @@ describe('Equipos autorizados (e2e)', () => {
     expect(noDevice.body.details).toBe('DEVICE_REQUIRED');
     // Contraseña incorrecta: no registra equipos (nadie de afuera llena la lista).
     expectStatus(await login('carla.caja', 'mal-clave-123', new FakeDevice('Spam')), 401);
-    expect((await asAdmin('get', `/platform/tenants/${tenantId}/devices?status=PENDING`)).body.devices).toHaveLength(1);
+    expect((await asAdmin('get', `/platform/tenants/${tenantId}/devices?status=PENDING`)).body.devices.map((device: { name: string }) => device.name)).toEqual(['PC desconocida']);
     // Firma de otro equipo con la llave pública robada: rechazada.
     const challenge = (await http().post('/api/v1/auth/device-challenge')).body.challenge as string;
     const forged = { ...intruso.proof(challenge), publicKey: caja1.publicKey };
     expectStatus(await http().post('/api/v1/auth/login').send({ username: 'carla.caja', password: 'Carla-Caja-2026', device: forged }), 401);
+
+    // Navegador por http (sin WebCrypto): se identifica con un secreto propio y sigue el mismo circuito.
+    const lanToken = Buffer.alloc(32, 7).toString('base64url');
+    const lanLogin = () => http().post('/api/v1/auth/login').send({ username: 'luis.lan', password: 'Luis-Lan-2026x', device: { token: lanToken, name: 'PC red local' } });
+    const lanPending = await lanLogin();
+    expectStatus(lanPending, 403);
+    const lanCode = (lanPending.body.details as string).replace('DEVICE_PENDING:', '');
+    const lanRow = (await asAdmin('get', `/platform/tenants/${tenantId}/devices?status=PENDING`)).body.devices.find(
+      (device: { code: string }) => device.code === lanCode,
+    ) as { id: string; name: string };
+    expect(lanRow.name).toBe('PC red local');
+    expectStatus(await asAdmin('post', `/platform/tenants/${tenantId}/devices/${lanRow.id}/approve`), 200);
+    expectStatus(await lanLogin(), 200);
+    // Otro secreto (otra PC) no entra con el código ya aprobado.
+    expectStatus(
+      await http().post('/api/v1/auth/login').send({ username: 'luis.lan', password: 'Luis-Lan-2026x', device: { token: Buffer.alloc(32, 8).toString('base64url') } }),
+      403,
+    );
 
     // El operador de la plataforma entra desde cualquier equipo (es quien aprueba).
     expectStatus(await login('admin', process.env.ADMIN_BOOTSTRAP_PASSWORD as string), 200);
