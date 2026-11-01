@@ -103,7 +103,11 @@ export class AiSalesAgent {
       { lastMessageAt: new Date(), ...(incoming.contactName && !conversation.contactName ? { contactName: incoming.contactName.slice(0, 150) } : {}) },
     );
 
-    if (incoming.text === null && conversation.status === AiConversationStatus.ACTIVE) {
+    if (
+      incoming.text === null &&
+      settings.enabled &&
+      (conversation.status === AiConversationStatus.ACTIVE || conversation.status === AiConversationStatus.ORDER_PLACED)
+    ) {
       await this.markProcessed(tenantId, conversation.id);
       await this.reply(tenantId, settings, conversation, NON_TEXT_MESSAGE, null);
       return { conversationId: conversation.id, replies: [NON_TEXT_MESSAGE], status: conversation.status };
