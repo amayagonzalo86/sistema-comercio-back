@@ -13,6 +13,8 @@ import { DEFAULT_TIME_ZONE } from '../time/local-day-range';
 export enum TenantModule {
   /** Promociones (se aplican al vender) y fidelización de clientes. */
   MARKETING = 'MARKETING',
+  /** Premium: vendedor con IA por WhatsApp que arma el pedido y lo deja listo para cobrar en caja. */
+  AI_SALES = 'AI_SALES',
 }
 
 export const ALL_TENANT_MODULES = Object.values(TenantModule);
@@ -21,6 +23,11 @@ export const TENANT_MODULE_INFO: Record<TenantModule, { name: string; descriptio
   [TenantModule.MARKETING]: {
     name: 'Marketing y fidelización',
     description: 'Promociones que se aplican solas al vender (3x2, porcentajes, por día) y análisis de clientes.',
+  },
+  [TenantModule.AI_SALES]: {
+    name: 'Vendedor IA por WhatsApp (premium)',
+    description:
+      'Un vendedor virtual atiende el WhatsApp de la empresa: asesora con precios, stock y promociones vigentes, toma los datos del cliente, acuerda la forma de pago y la entrega, y deja el pedido listo para cobrar en caja.',
   },
 };
 

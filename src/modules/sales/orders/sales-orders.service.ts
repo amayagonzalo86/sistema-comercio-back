@@ -41,6 +41,19 @@ export interface SalesOrderView extends Omit<SalesOrderEntity, 'items' | 'tenant
 
 type NameRow = { id: string; name: string | null };
 
+/** Datos extra de un pedido que no llega desde el mostrador (p. ej. el vendedor IA por WhatsApp). */
+export interface SalesOrderExtras {
+  source: 'POS' | 'WHATSAPP_AI';
+  deliveryNotes?: string | null;
+  paymentPreference?: string | null;
+  contactPhone?: string | null;
+}
+
+const clip = (value: string | null | undefined, max: number): string | null => {
+  const clean = value?.trim();
+  return clean ? clean.slice(0, max) : null;
+};
+
 /**
  * Preventa: el vendedor arma el pedido, el cliente lo paga en caja con el número y el cajero lo cobra
  * (POST /sales con salesOrderId). El pedido no reserva stock: la disponibilidad se valida al cobrar.
@@ -60,6 +73,7 @@ export class SalesOrdersService {
     idempotencyKey: string,
     dto: CreateSalesOrderDto,
     context: RequestAuditContext,
+    extras?: SalesOrderExtras,
   ): Promise<SalesOrderView> {
     const key = idempotencyKey.trim();
     if (!key || key.length > 100) {
@@ -69,6 +83,10 @@ export class SalesOrdersService {
       throw new ForbiddenException('No tiene acceso a la sucursal solicitada.');
     }
     const notes = dto.notes ? dto.notes.trim() || null : null;
+    const source = extras?.source ?? 'POS';
+    const deliveryNotes = clip(extras?.deliveryNotes, 500);
+    const paymentPreference = clip(extras?.paymentPreference, 200);
+    const contactPhone = clip(extras?.contactPhone, 30);
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({
         branchId: dto.branchId,
@@ -78,6 +96,8 @@ export class SalesOrdersService {
           .sort((a, b) => a.productId.localeCompare(b.productId)),
         notes,
         priceListId: dto.priceListId ?? null,
+        // Los pedidos de mostrador conservan la huella de siempre (reintentos de claves viejas).
+        ...(source !== 'POS' ? { source, deliveryNotes, paymentPreference, contactPhone } : {}),
       }))
       .digest('hex');
 
@@ -106,6 +126,10 @@ export class SalesOrdersService {
             sellerUserId: actor.id,
             status: SalesOrderStatus.PENDING,
             notes,
+            source,
+            deliveryNotes,
+            paymentPreference,
+            contactPhone,
             priceListId: quote.priceList?.id ?? null,
             currency: tenant.currencyCode,
             voucherClass: quote.voucherClass,
@@ -143,6 +167,7 @@ export class SalesOrdersService {
             customerPersonId: dto.customerPersonId ?? null,
             lines: quote.lines.length,
             estimatedTotal: quote.total,
+            ...(source !== 'POS' ? { source } : {}),
           },
           context,
         });
