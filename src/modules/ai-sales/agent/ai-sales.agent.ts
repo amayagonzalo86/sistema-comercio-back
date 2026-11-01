@@ -210,7 +210,7 @@ export class AiSalesAgent {
     }
 
     if (!finalText.trim()) {
-      finalText = conversation.status === AiConversationStatus.HANDOFF
+      finalText = (conversation.status as AiConversationStatus) === AiConversationStatus.HANDOFF
         ? 'Listo, ya le avisé a una persona del local para que te responda por acá en breve. 🙌'
         : '¿Me contás un poco más qué estás buscando así te ayudo mejor?';
     }
