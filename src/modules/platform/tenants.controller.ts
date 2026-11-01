@@ -2,12 +2,15 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseEnumPipe,
   ParseUUIDPipe,
   Put,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -22,6 +25,9 @@ import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantModule } from '../../common/modules/tenant-modules';
 import { UpdateTenantModuleDto } from './dto/tenant-module.dto';
 import { PlatformModulesService, TenantModulesView } from './platform-modules.service';
+import { PlatformDevicesService, TenantDevicesView } from './platform-devices.service';
+import { ApproveDeviceDto, RenameDeviceDto, TrustedDeviceQueryDto, UpdateDeviceApprovalDto } from './dto/trusted-device.dto';
+import { TrustedDeviceStatus } from '../auth/entities/trusted-device.entity';
 
 type AuthenticatedRequest = Request & { user: { id: string } };
 
@@ -32,7 +38,56 @@ export class TenantsController {
     private readonly tenantProvisioning: TenantProvisioningService,
     private readonly platformVat: PlatformVatService,
     private readonly platformModules: PlatformModulesService,
+    private readonly platformDevices: PlatformDevicesService,
   ) {}
+
+  /** Equipos de la empresa (pendientes primero) y si exige equipos autorizados. */
+  @Get(':tenantId/devices')
+  devices(@Param('tenantId', ParseUUIDPipe) tenantId: string, @Query() query: TrustedDeviceQueryDto): Promise<TenantDevicesView> {
+    return this.platformDevices.view(tenantId, query.status as TrustedDeviceStatus | undefined);
+  }
+
+  /** Exigir equipos autorizados (requiere al menos un equipo aprobado). */
+  @Patch(':tenantId/device-approval')
+  setDeviceApproval(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Body() dto: UpdateDeviceApprovalDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<TenantDevicesView> {
+    return this.platformDevices.setRequired(tenantId, dto.required, request.user.id, buildAuditContext(request));
+  }
+
+  @Post(':tenantId/devices/:deviceId/approve')
+  @HttpCode(HttpStatus.OK)
+  approveDevice(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @Body() dto: ApproveDeviceDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<TenantDevicesView> {
+    return this.platformDevices.approve(tenantId, deviceId, dto.name, request.user.id, buildAuditContext(request));
+  }
+
+  /** Baja: cierra las sesiones del equipo y bloquea su ingreso. */
+  @Post(':tenantId/devices/:deviceId/revoke')
+  @HttpCode(HttpStatus.OK)
+  revokeDevice(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<TenantDevicesView> {
+    return this.platformDevices.revoke(tenantId, deviceId, request.user.id, buildAuditContext(request));
+  }
+
+  @Patch(':tenantId/devices/:deviceId')
+  renameDevice(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @Body() dto: RenameDeviceDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<TenantDevicesView> {
+    return this.platformDevices.rename(tenantId, deviceId, dto.name, request.user.id, buildAuditContext(request));
+  }
 
   /** Módulos de la empresa (plan base + los contratados), sucursales activas y límite del plan. */
   @Get(':tenantId/modules')

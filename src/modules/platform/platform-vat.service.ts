@@ -14,6 +14,8 @@ export interface PlatformTenantVatView {
   /** Nombre que se muestra en el encabezado del sistema (null: nombre de fantasía o razón social). */
   displayName: string | null;
   status: string;
+  /** Exige equipos autorizados. */
+  deviceApprovalRequired: boolean;
   defaultVatRegime: VatRegime;
   branches: Array<{ id: string; code: string; name: string; status: boolean; vatRegime: VatRegime | null; effectiveVatRegime: VatRegime }>;
 }
@@ -124,6 +126,7 @@ export class PlatformVatService {
       tradeName: tenant.tradeName ?? null,
       displayName: tenant.displayName ?? null,
       status: tenant.status,
+      deviceApprovalRequired: Boolean(tenant.deviceApprovalRequired),
       defaultVatRegime: tenant.defaultVatRegime,
       branches: branches.map((branch) => ({
         id: branch.id,

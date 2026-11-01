@@ -28,6 +28,11 @@ export class SessionEntity extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'user_agent' })
   userAgent?: string;
 
+  /** Equipo desde el que se inició la sesión (si la empresa exige equipos autorizados, se revalida al renovar). */
+  @Index('IDX_user_sessions_device')
+  @Column({ type: 'varchar', length: 36, nullable: true, name: 'device_id' })
+  deviceId?: string | null;
+
   @Column({ type: 'boolean', default: true, name: 'is_valid' })
   isValid!: boolean;
 

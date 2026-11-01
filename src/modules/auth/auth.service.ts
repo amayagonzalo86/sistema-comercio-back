@@ -3,6 +3,7 @@ import { recordAudit } from '../../common/audit/audit';
 import { isPlatformOperator } from '../../common/security/platform-operators';
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -16,9 +17,18 @@ import * as argon2 from 'argon2';
 import { DataSource, Repository } from 'typeorm';
 import { createHmac, randomUUID } from 'node:crypto';
 import { MembershipStatus, TenantMembershipEntity, TenantRole } from '../platform/entities/tenant-membership.entity';
-import { TenantStatus } from '../platform/entities/tenant.entity';
+import { TenantEntity, TenantStatus } from '../platform/entities/tenant.entity';
 import { UserEntity } from '../users/entities/user.entity';
-import { LoginDto } from './dto/login.dto';
+import { DeviceProofDto, LoginDto } from './dto/login.dto';
+import { TrustedDeviceEntity, TrustedDeviceStatus } from './entities/trusted-device.entity';
+import {
+  cleanDeviceName,
+  deviceCode,
+  deviceThumbprint,
+  isValidDeviceChallenge,
+  normalizeDeviceJwk,
+  verifyDeviceSignature,
+} from './device-proof';
 import { SessionEntity } from './entities/session.entity';
 import { UserRoleEnum } from '../roles/entities/role.entity';
 import { enabledTenantModules, TenantModule } from '../../common/modules/tenant-modules';
@@ -33,6 +43,8 @@ export interface JwtPayload {
   /** Todos los roles en la empresa (principal + adicionales), para que el frontend arme el menú. */
   tenantRoles: TenantRole[];
   jti?: string;
+  /** Equipo autorizado desde el que se inició la sesión. */
+  did?: string;
 }
 
 export interface AuthTokens {
@@ -132,6 +144,9 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas o empresa inactiva.');
     }
 
+    // Equipos autorizados: si la empresa los exige, solo entra un equipo aprobado por la plataforma.
+    const deviceId = await this.resolveLoginDevice(membership.tenant, user.id, loginDto.device, ipAddress, userAgent);
+
     // Branch assignment is scoped to the selected tenant membership.
     user.branch = membership.branch ?? null;
     user.branchId = membership.branchId ?? null;
@@ -149,6 +164,7 @@ export class AuthService {
       tenantRole: membership.role,
       tenantRoles: membershipRoles(membership),
       jti: sessionTokenId,
+      ...(deviceId ? { did: deviceId } : {}),
     };
 
     const { accessToken, refreshToken } = this.signTokens(payload);
@@ -168,6 +184,7 @@ export class AuthService {
         userId: user.id,
         refreshTokenHash,
         tokenId: sessionTokenId,
+        deviceId,
         ipAddress: ipAddress || '127.0.0.1',
         userAgent: userAgent || 'Unknown Client',
         isValid: true,
@@ -320,6 +337,8 @@ export class AuthService {
       throw new UnauthorizedException('Acceso denegado o sesión inválida');
     }
 
+    await this.assertSessionDevice(membership.tenant, user.id, session);
+
     let isRefreshTokenValid = false;
     try {
       isRefreshTokenValid = await argon2.verify(session.refreshTokenHash, refreshToken);
@@ -340,6 +359,7 @@ export class AuthService {
       tenantRole: membership.role,
       tenantRoles: membershipRoles(membership),
       jti: nextTokenId,
+      ...(session.deviceId ? { did: session.deviceId } : {}),
     };
     const { accessToken, refreshToken: nextRefreshToken } = this.signTokens(nextPayload);
     const nextRefreshTokenHash = await argon2.hash(nextRefreshToken);
@@ -421,6 +441,109 @@ export class AuthService {
       { userId: payload.sub, tokenId: payload.jti!, isValid: true },
       { isValid: false },
     );
+  }
+
+  /**
+   * Registra o reconoce el equipo del inicio de sesión. Si la empresa exige equipos autorizados (y quien entra no
+   * es operador de la plataforma), rechaza los equipos sin aprobar. Si no lo exige, igual los registra para que la
+   * plataforma pueda aprobarlos antes de activar la exigencia. Devuelve el id del equipo (o null sin prueba válida).
+   */
+  private async resolveLoginDevice(
+    tenant: TenantEntity,
+    userId: string,
+    proof: DeviceProofDto | undefined,
+    ipAddress: string | undefined,
+    userAgent: string | undefined,
+  ): Promise<string | null> {
+    const enforced = Boolean(tenant.deviceApprovalRequired) && !(await isPlatformOperator(this.dataSource.manager, userId));
+    if (!proof) {
+      if (enforced) {
+        throw new ForbiddenException(
+          'Este equipo no está autorizado. Abrí el sistema con https en un navegador actualizado (no en modo incógnito).',
+          { description: 'DEVICE_REQUIRED' },
+        );
+      }
+      return null;
+    }
+    const jwk = normalizeDeviceJwk(proof.publicKey);
+    if (!jwk || !isValidDeviceChallenge(proof.challenge) || !verifyDeviceSignature(jwk, proof.challenge, proof.signature)) {
+      if (enforced) throw new UnauthorizedException('No se pudo verificar este equipo. Volvé a intentar.');
+      return null;
+    }
+    const thumbprint = deviceThumbprint(jwk);
+    const repo = this.dataSource.getRepository(TrustedDeviceEntity);
+    let device = await repo.findOne({ where: { tenantId: tenant.id, keyThumbprint: thumbprint } });
+    const name = cleanDeviceName(proof.name, userAgent);
+    if (!device) {
+      try {
+        device = await this.dataSource.transaction(async (manager) => {
+          const created = await manager.save(
+            TrustedDeviceEntity,
+            manager.create(TrustedDeviceEntity, {
+              tenantId: tenant.id,
+              keyThumbprint: thumbprint,
+              publicKey: JSON.stringify(jwk),
+              name,
+              status: TrustedDeviceStatus.PENDING,
+              userAgent: userAgent?.slice(0, 255) ?? null,
+              requestedByUserId: userId,
+              lastSeenAt: new Date(),
+              lastIp: ipAddress?.slice(0, 45) ?? null,
+              lastUserId: userId,
+            }),
+          );
+          await recordAudit(manager, {
+            tenantId: tenant.id,
+            actorUserId: userId,
+            eventType: 'DEVICE_REGISTERED',
+            aggregateType: 'TRUSTED_DEVICE',
+            aggregateId: created.id,
+            metadata: { name, code: deviceCode(thumbprint) },
+            context: { ipAddress: ipAddress ?? null, userAgent: userAgent?.slice(0, 512) ?? null },
+          });
+          return created;
+        });
+      } catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+          device = await repo.findOne({ where: { tenantId: tenant.id, keyThumbprint: thumbprint } });
+        }
+        if (!device) throw error;
+      }
+    } else {
+      await repo.update(
+        { id: device.id },
+        {
+          lastSeenAt: new Date(),
+          lastIp: ipAddress?.slice(0, 45) ?? null,
+          lastUserId: userId,
+          userAgent: userAgent?.slice(0, 255) ?? null,
+          // Mientras espera aprobación, el local puede corregir el nombre con el que lo pidió.
+          ...(device.status === TrustedDeviceStatus.PENDING && proof.name?.trim() ? { name } : {}),
+        },
+      );
+    }
+    if (enforced && device.status === TrustedDeviceStatus.PENDING) {
+      const code = deviceCode(thumbprint);
+      throw new ForbiddenException(
+        `Este equipo todavía no está autorizado. Pedile al proveedor del sistema que apruebe el equipo con código ${code}.`,
+        { description: `DEVICE_PENDING:${code}` },
+      );
+    }
+    if (enforced && device.status === TrustedDeviceStatus.REVOKED) {
+      throw new ForbiddenException('Este equipo fue dado de baja y no puede ingresar al sistema.', { description: 'DEVICE_REVOKED' });
+    }
+    return device.id;
+  }
+
+  /** Al renovar el acceso, el equipo de la sesión tiene que seguir aprobado (si la empresa lo exige). */
+  private async assertSessionDevice(tenant: TenantEntity, userId: string, session: SessionEntity): Promise<void> {
+    if (!tenant.deviceApprovalRequired || (await isPlatformOperator(this.dataSource.manager, userId))) return;
+    const device = session.deviceId
+      ? await this.dataSource.getRepository(TrustedDeviceEntity).findOne({ where: { id: session.deviceId, tenantId: tenant.id } })
+      : null;
+    if (device?.status === TrustedDeviceStatus.APPROVED) return;
+    await this.sessionRepository.update({ id: session.id }, { isValid: false });
+    throw new UnauthorizedException('Este equipo no está autorizado. Iniciá sesión nuevamente.');
   }
 
   private verifyRefreshToken(refreshToken: string): JwtPayload {

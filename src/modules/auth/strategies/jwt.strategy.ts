@@ -14,6 +14,7 @@ export interface JwtCustomPayload {
   tenantRole?: string;
   tenantRoles?: string[];
   jti?: string;
+  did?: string;
 }
 
 export interface AuthenticatedUser {
@@ -28,6 +29,8 @@ export interface AuthenticatedUser {
   branchId?: string;
   /** Id de la sesión que emitió el token (permite cerrar las demás sesiones). */
   sessionId?: string;
+  /** Equipo autorizado de la sesión (si la empresa los exige). */
+  deviceId?: string;
 }
 
 @Injectable()
@@ -64,6 +67,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       tenantId: payload.tenantId,
       tenantRole: payload.tenantRole,
       sessionId: typeof payload.jti === 'string' ? payload.jti : undefined,
+      deviceId: typeof payload.did === 'string' ? payload.did : undefined,
       tenantRoles: Array.isArray(payload.tenantRoles) ? payload.tenantRoles.filter((role) => typeof role === 'string') : undefined,
     };
   }
