@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { recordAudit } from '../../common/audit/audit';
 import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
@@ -94,15 +94,14 @@ export class PlatformDevicesService {
     };
   }
 
-  /** Exigir (o no) equipos autorizados. Al activarlo, quien no tenga un equipo aprobado deja de poder entrar. */
+  /** Exigir (o no) equipos autorizados. Al activarlo, quien no tenga un equipo aprobado deja de poder entrar hasta que lo apruebes. */
   async setRequired(tenantId: string, required: boolean, actorUserId: string, context: RequestAuditContext): Promise<TenantDevicesView> {
     await this.dataSource.transaction(async (manager) => {
       const tenant = await this.tenant(manager, tenantId, true);
       if (Boolean(tenant.deviceApprovalRequired) === required) return;
       const approved = await manager.count(TrustedDeviceEntity, { where: { tenantId, status: TrustedDeviceStatus.APPROVED } });
-      if (required && approved === 0) {
-        throw new ConflictException('Aprobá al menos un equipo de la empresa antes de exigir equipos autorizados.');
-      }
+      // Con cero equipos aprobados igual se permite: cada PC nueva queda bloqueada con su código hasta que la
+      // apruebe el operador de la plataforma (que entra desde cualquier equipo).
       await manager.update(TenantEntity, { id: tenantId }, { deviceApprovalRequired: required });
       await recordAudit(manager, {
         tenantId,

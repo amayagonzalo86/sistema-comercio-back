@@ -89,3 +89,8 @@ export function cleanDeviceName(name: string | undefined | null, userAgent: stri
   const clean = printable.replace(/\s+/g, ' ').trim().slice(0, 80);
   return clean || defaultDeviceName(userAgent);
 }
+
+/** Huella del secreto de un equipo sin WebCrypto (el secreto nunca se guarda). */
+export function deviceTokenThumbprint(token: string): string {
+  return createHash('sha256').update(`device-token:${token}`).digest('hex');
+}
