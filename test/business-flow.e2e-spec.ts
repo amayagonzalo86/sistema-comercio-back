@@ -987,8 +987,8 @@ describe('Flujo comercial completo (e2e)', () => {
     // ── Módulos por empresa: solo la plataforma los activa; sin el módulo, la API lo rechaza ──
     const modulesView = await api('get', `/platform/tenants/${tenantId}/modules`);
     expectStatus(modulesView, 200);
-    // Único módulo pago: Marketing y fidelización. Mercadería, reportes, sucursales, compras y preventa son del plan base.
-    expect(modulesView.body.modules.map((item: { module: string }) => item.module)).toEqual(['MARKETING']);
+    // Módulos pagos: Marketing y fidelización, y el vendedor IA por WhatsApp (premium). Mercadería, reportes, sucursales, compras y preventa son del plan base.
+    expect(modulesView.body.modules.map((item: { module: string }) => item.module)).toEqual(['MARKETING', 'AI_SALES']);
     expect(modulesView.body.modules[0].active).toBe(true);
     token = adrianLogin.body.tokens.accessToken as string; // administración de la empresa: no puede activarse módulos
     expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/MARKETING`, { enabled: true }), 403);

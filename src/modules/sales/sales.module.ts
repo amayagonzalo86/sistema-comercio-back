@@ -56,6 +56,6 @@ import { SalesQuotesService } from './quotes/sales-quotes.service';
   ],
   controllers: [SalesController, SalesOrdersController, SalesQuotesController, ChecksController, CustomerAccountsController, CustomerReceiptsController],
   providers: [SalesService, SalesQueryService, SaleReturnsService, SalesOrdersService, SalesQuotesService, SaleAdjustmentsService, ChecksService, CustomerAccountsService],
-  exports: [SalesService],
+  exports: [SalesService, SalesOrdersService],
 })
 export class SalesModule {}

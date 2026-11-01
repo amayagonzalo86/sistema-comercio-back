@@ -14,6 +14,8 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
+    // Guarda el cuerpo crudo (request.rawBody) para verificar la firma HMAC del webhook de WhatsApp.
+    rawBody: true,
   });
   const configService = app.get(ConfigService);
   const isProduction = configService.get<string>('NODE_ENV') === 'production';

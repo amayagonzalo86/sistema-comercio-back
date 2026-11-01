@@ -25,6 +25,7 @@ import { InventoryOpsModule } from './modules/inventory/ops/inventory-ops.module
 import { ReportsModule } from './modules/reports/reports.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
+import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { FiscalModule } from './modules/fiscal/fiscal.module';
     ReportsModule,
     MarketingModule,
     FiscalModule,
+    AiSalesModule,
   ],
   controllers: [AppController],
   providers: [

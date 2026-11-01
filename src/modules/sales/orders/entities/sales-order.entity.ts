@@ -51,6 +51,22 @@ export class SalesOrderEntity {
   notes?: string | null;
 
   /** Lista de precios elegida por el vendedor (la caja cobra con esa lista). */
+  /** Origen del pedido: mostrador/preventa (POS) o el vendedor IA por WhatsApp. */
+  @Column({ type: 'varchar', length: 20, default: 'POS' })
+  source!: string;
+
+  /** Entrega: retiro o envío, dirección, horario y comentarios de flete. */
+  @Column({ name: 'delivery_notes', type: 'varchar', length: 500, nullable: true })
+  deliveryNotes?: string | null;
+
+  /** Forma de pago acordada con el cliente (se cobra en caja). */
+  @Column({ name: 'payment_preference', type: 'varchar', length: 200, nullable: true })
+  paymentPreference?: string | null;
+
+  /** Teléfono de contacto (WhatsApp) del cliente. */
+  @Column({ name: 'contact_phone', type: 'varchar', length: 30, nullable: true })
+  contactPhone?: string | null;
+
   @Column({ name: 'price_list_id', type: 'varchar', length: 36, nullable: true })
   priceListId?: string | null;
 
