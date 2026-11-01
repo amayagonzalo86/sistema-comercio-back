@@ -121,6 +121,13 @@ export class AiSalesAgent {
         const outcome = await this.runTurn(tenantId, settings, conversationId);
         replies.push(...outcome.replies);
         status = outcome.status;
+      } catch (error) {
+        // Una falla inesperada no deja al cliente sin respuesta: se avisa y pasa a una persona.
+        this.logger.error(`Falló el turno del vendedor IA en la conversación ${conversationId}`, error);
+        const outcome = await this.failSafe(tenantId, settings, conversationId);
+        replies.push(...outcome.replies);
+        status = outcome.status;
+        break;
       } finally {
         await this.release(tenantId, conversationId);
       }
@@ -132,6 +139,23 @@ export class AiSalesAgent {
     }
     const conversation = await this.dataSource.getRepository(AiConversationEntity).findOne({ where: { id: conversationId, tenantId } });
     return { conversationId, replies, status: conversation?.status ?? status };
+  }
+
+  private async failSafe(tenantId: string, settings: AiSalesSettingsEntity, conversationId: string): Promise<{ replies: string[]; status: AiConversationStatus }> {
+    try {
+      const conversation = await this.dataSource.getRepository(AiConversationEntity).findOne({ where: { id: conversationId, tenantId } });
+      if (!conversation) return { replies: [], status: AiConversationStatus.CLOSED };
+      await this.markProcessed(tenantId, conversationId);
+      if (conversation.status === AiConversationStatus.ACTIVE || conversation.status === AiConversationStatus.ORDER_PLACED) {
+        await this.handoff(tenantId, conversation, 'Error inesperado del asistente: revisá la conversación.');
+        await this.reply(tenantId, settings, conversation, HANDOFF_MESSAGE, null);
+        return { replies: [HANDOFF_MESSAGE], status: AiConversationStatus.HANDOFF };
+      }
+      return { replies: [], status: conversation.status };
+    } catch (error) {
+      this.logger.error(`No se pudo derivar la conversación ${conversationId} tras la falla`, error);
+      return { replies: [], status: AiConversationStatus.HANDOFF };
+    }
   }
 
   private async runTurn(tenantId: string, settings: AiSalesSettingsEntity, conversationId: string): Promise<{ replies: string[]; status: AiConversationStatus }> {
@@ -289,7 +313,7 @@ export class AiSalesAgent {
 
   private async systemPrompt(tenantId: string, settings: AiSalesSettingsEntity, conversation: AiConversationEntity): Promise<string> {
     const [tenantRows, branchRows] = await Promise.all([
-      this.dataSource.query('SELECT COALESCE(trade_name, name) AS name, time_zone AS timeZone FROM tenants WHERE id = ? LIMIT 1', [tenantId]) as Promise<Array<{ name: string; timeZone: string | null }>>,
+      this.dataSource.query("SELECT COALESCE(NULLIF(trade_name, ''), legal_name) AS name, time_zone AS timeZone FROM tenants WHERE id = ? LIMIT 1", [tenantId]) as Promise<Array<{ name: string; timeZone: string | null }>>,
       settings.branchId
         ? (this.dataSource.query('SELECT name FROM branches WHERE id = ? AND tenant_id = ? LIMIT 1', [settings.branchId, tenantId]) as Promise<Array<{ name: string }>>)
         : Promise.resolve([] as Array<{ name: string }>),
