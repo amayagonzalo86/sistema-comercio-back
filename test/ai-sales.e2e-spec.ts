@@ -278,8 +278,9 @@ describe('Vendedor IA por WhatsApp (e2e)', () => {
     ]);
 
     // Reintento de Meta con el mismo wamid: no responde dos veces.
+    const firstId = `wamid.in.${waCounter}`;
     const repeated = webhookBody('Hola! tienen gaseosa?');
-    repeated.entry[0].changes[0].value.messages[0].id = `wamid.in.${waCounter}`;
+    repeated.entry[0].changes[0].value.messages[0].id = firstId;
     expectStatus(await sendWebhook(repeated), 200);
     expect(whatsapp.sent).toHaveLength(1);
 
