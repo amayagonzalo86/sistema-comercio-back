@@ -11,14 +11,22 @@ import { ALL_TENANT_MODULES } from '../common/modules/tenant-modules';
  * - Sin migraciones pendientes: no hace nada.
  * - Pendientes y el esquema YA coincide con las entidades: las registra como aplicadas sin ejecutarlas
  *   (y completa los datos que agregaban: módulos de la empresa de la plataforma).
- * - Pendientes y el esquema NO coincide: las ejecuta normalmente, cada una en su transacción.
+ * - Base creada sin migraciones (tiene las tablas pero no registra la migración inicial) y con un esquema más viejo
+ *   que el código: aplica solo los cambios que AGREGAN (tablas, columnas, índices) y después las registra. Si hiciera
+ *   falta borrar o modificar algo, se detiene y lo lista sin tocar la base.
+ * - En cualquier otro caso: ejecuta las migraciones pendientes, cada una en su transacción.
  */
 
 const PLATFORM_TENANT_SLUG = 'plataforma';
+/** Primera migración del esquema actual: si no está registrada pero sus tablas existen, la base se creó sin migraciones. */
+const CORE_MIGRATION = 'CreateSaasCore1791000000000';
+
+/** Cambios que solo agregan estructura (no borran ni modifican datos existentes). */
+const ADDITIVE = /^(CREATE TABLE|CREATE (UNIQUE )?INDEX|ALTER TABLE `[^`]+` ADD (`|CONSTRAINT|UNIQUE INDEX|INDEX|PRIMARY KEY))/i;
 
 export type MigrateOutcome =
   | { mode: 'UP_TO_DATE'; pending: string[] }
-  | { mode: 'BASELINE'; pending: string[] }
+  | { mode: 'BASELINE'; pending: string[]; applied: string[] }
   | { mode: 'MIGRATED'; pending: string[] };
 
 interface MigrationEntry {
@@ -43,13 +51,17 @@ function migrationsTable(dataSource: DataSource): string {
   return name;
 }
 
-async function executedMigrations(dataSource: DataSource): Promise<Set<string>> {
-  const table = migrationsTable(dataSource);
-  const exists = (await dataSource.query(
+async function tableExists(dataSource: DataSource, table: string): Promise<boolean> {
+  const rows = (await dataSource.query(
     'SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?',
     [table],
   )) as Array<{ total: number | string }>;
-  if (Number(exists[0]?.total ?? 0) === 0) return new Set();
+  return Number(rows[0]?.total ?? 0) > 0;
+}
+
+async function executedMigrations(dataSource: DataSource): Promise<Set<string>> {
+  const table = migrationsTable(dataSource);
+  if (!(await tableExists(dataSource, table))) return new Set();
   const rows = (await dataSource.query(`SELECT name FROM \`${table}\``)) as Array<{ name: string }>;
   return new Set(rows.map((row) => row.name));
 }
@@ -70,11 +82,26 @@ export async function migrateDatabase(dataSource: DataSource, log: (message: str
   }
 
   const differences = await schemaDifferences(dataSource);
+  const createdWithoutMigrations = !executed.has(CORE_MIGRATION) && (await tableExists(dataSource, 'tenants'));
+  let applied: string[] = [];
   if (differences.length > 0) {
-    log(`Aplicando ${pending.length} migraciones pendientes…`);
-    await dataSource.runMigrations({ transaction: 'each' });
-    log('Migraciones aplicadas.');
-    return { mode: 'MIGRATED', pending: pending.map((migration) => migration.name) };
+    if (!createdWithoutMigrations) {
+      log(`Aplicando ${pending.length} migraciones pendientes…`);
+      await dataSource.runMigrations({ transaction: 'each' });
+      log('Migraciones aplicadas.');
+      return { mode: 'MIGRATED', pending: pending.map((migration) => migration.name) };
+    }
+    const destructive = differences.filter((query) => !ADDITIVE.test(query));
+    if (destructive.length > 0) {
+      throw new Error(
+        'La base se creó sin migraciones y para ponerla al día habría que borrar o modificar estructura existente. ' +
+          'No se tocó nada. Hacé un respaldo y revisá estos cambios:\n' +
+          destructive.slice(0, 20).map((query) => `  - ${query}`).join('\n'),
+      );
+    }
+    log(`La base se creó sin migraciones: agregando ${differences.length} cambios de estructura (tablas, columnas e índices nuevos)…`);
+    for (const query of differences) await dataSource.query(query);
+    applied = differences;
   }
 
   // La base ya tiene el esquema completo (base-completa.sql o synchronize): solo falta registrarlas.
@@ -102,10 +129,10 @@ export async function migrateDatabase(dataSource: DataSource, log: (message: str
     }
   });
   log(
-    `El esquema ya estaba completo (base creada con base-completa.sql o con la API en desarrollo): ` +
-      `se registraron ${pending.length} migraciones como aplicadas sin ejecutarlas.`,
+    `${applied.length ? 'Esquema completado' : 'El esquema ya estaba completo'} (base creada con base-completa.sql o con la API en desarrollo): ` +
+      `se registraron ${pending.length} migraciones como aplicadas.`,
   );
-  return { mode: 'BASELINE', pending: pending.map((migration) => migration.name) };
+  return { mode: 'BASELINE', pending: pending.map((migration) => migration.name), applied };
 }
 
 if (require.main === module) {

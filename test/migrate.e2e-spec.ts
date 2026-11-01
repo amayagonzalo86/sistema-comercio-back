@@ -41,4 +41,28 @@ describe('npm run migration:run sobre una base creada sin migraciones (e2e)', ()
     expect(second.mode).toBe('UP_TO_DATE');
     expect(await schemaDifferences(dataSource)).toEqual([]);
   });
+
+  it('completa una base vieja creada sin migraciones (solo agrega columnas e índices) y la registra', async () => {
+    // Base de una versión anterior: sin el nombre en el sistema ni las columnas de pedidos por WhatsApp.
+    await dataSource.query('DROP TABLE migrations');
+    await dataSource.query('ALTER TABLE tenants DROP COLUMN display_name');
+    await dataSource.query('ALTER TABLE sales_orders DROP COLUMN contact_phone');
+    const outcome = await migrateDatabase(dataSource, () => undefined);
+    expect(outcome.mode).toBe('BASELINE');
+    if (outcome.mode !== 'BASELINE') throw new Error('modo inesperado');
+    expect(outcome.applied.some((query) => query.includes('`display_name`'))).toBe(true);
+    expect(outcome.applied.some((query) => query.includes('`contact_phone`'))).toBe(true);
+    expect(await schemaDifferences(dataSource)).toEqual([]);
+    expect((await migrateDatabase(dataSource, () => undefined)).mode).toBe('UP_TO_DATE');
+  });
+
+  it('no toca una base sin migraciones si habría que borrar o modificar estructura', async () => {
+    await dataSource.query('DROP TABLE migrations');
+    await dataSource.query('ALTER TABLE tenants MODIFY slug varchar(20) NOT NULL');
+    await expect(migrateDatabase(dataSource, () => undefined)).rejects.toThrow('No se tocó nada');
+    const exists = (await dataSource.query(
+      "SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'migrations'",
+    )) as Array<{ total: string | number }>;
+    expect(Number(exists[0].total)).toBe(0);
+  });
 });
