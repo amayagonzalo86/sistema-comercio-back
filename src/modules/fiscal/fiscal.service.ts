@@ -1,3 +1,4 @@
+import { personSearchNamed } from '../../common/search/person-search';
 import { SalePaymentEntity } from '../sales/entities/sale-payment.entity';
 import { Letterhead, loadLetterhead, loadPrintCustomer } from './printable';
 import { showsFiscalTransparency } from './vat/vat';
@@ -16,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { Brackets, DataSource, SelectQueryBuilder } from 'typeorm';
 import { recordAudit } from '../../common/audit/audit';
 import { parseTaxCondition, TaxConditionEnum } from '../../common/enums/afip.enum';
-import { likePattern, Paginated, paginated } from '../../common/dto/page-query.dto';
+import { Paginated, paginated } from '../../common/dto/page-query.dto';
 import { RequestAuditContext } from '../../common/http/request-context';
 import { cents, formatMoney } from '../../common/utils/money';
 import { BranchEntity } from '../branches/entities/branch.entity';
@@ -775,18 +776,21 @@ function applyDocumentSearch(qb: SelectQueryBuilder<FiscalDocumentEntity>, term:
     return;
   }
   const digits = term.replace(/[\s.-]/g, '');
+  // Cliente por apellido y nombre (cualquier orden), DNI (también dentro de la CUIT) o CUIT.
+  const person = personSearchNamed({ firstName: 'p.first_name', lastName: 'p.last_name', nationalId: 'p.national_id' }, term, 'searchPerson');
+  const personSql = person.sql ?? '1 = 0';
   const customerMatch = `d.sourceId IN (
       SELECT s.id FROM sales s JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
-       WHERE s.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))
+       WHERE s.tenant_id = d.tenantId AND ${personSql})
     OR d.sourceId IN (
       SELECT r.id FROM sale_returns r JOIN sales s ON s.id = r.sale_id AND s.tenant_id = r.tenant_id
         JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
-       WHERE r.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))
+       WHERE r.tenant_id = d.tenantId AND ${personSql})
     OR d.sourceId IN (
       SELECT a.id FROM sale_adjustments a JOIN sales s ON s.id = a.sale_id AND s.tenant_id = a.tenant_id
         JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
-       WHERE a.tenant_id = d.tenantId AND (p.first_name LIKE :searchName OR p.last_name LIKE :searchName OR p.national_id = :searchDigits))`;
-  const params = { searchName: likePattern(term), searchDigits: digits };
+       WHERE a.tenant_id = d.tenantId AND ${personSql})`;
+  const params = { ...person.params, searchDigits: digits };
   if (/^\d{1,14}$/.test(digits)) {
     qb.andWhere(
       new Brackets((where) => {

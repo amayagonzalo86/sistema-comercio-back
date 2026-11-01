@@ -1,11 +1,12 @@
+import { personSearchNamed } from '../../common/search/person-search';
 import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PersonEntity } from './entities/person.entity';
-import { Brackets, In, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { UpdatePersonDto } from './dto/update-person.dto';
 import { PersonListQueryDto, PersonRoleFilter, PersonStatusFilter } from './dto/person-query.dto';
-import { likePattern, Paginated, paginated } from '../../common/dto/page-query.dto';
+import { Paginated, paginated } from '../../common/dto/page-query.dto';
 import { PersonType } from './entities/person.entity';
 import {
   CUIT_REQUIRED_CONDITIONS,
@@ -144,19 +145,18 @@ export class PersonsService {
       qb.andWhere('person.personType IN (:...types)', { types: [PersonType.SUPPLIER, PersonType.BOTH] });
     }
     if (query.search) {
-      const pattern = likePattern(query.search);
-      const digits = query.search.replace(/[\s.-]/g, '');
-      qb.andWhere(
-        new Brackets((where) => {
-          where
-            .where('person.firstName LIKE :pattern', { pattern })
-            .orWhere('person.lastName LIKE :pattern', { pattern })
-            .orWhere('person.email LIKE :pattern', { pattern })
-            .orWhere('person.phone LIKE :pattern', { pattern })
-            .orWhere('person.nationalId = :digits', { digits });
-          if (/^\d{1,9}$/.test(digits)) where.orWhere('person.accountNumber = :account', { account: Number(digits) });
-        }),
+      // Apellido y nombre en cualquier orden, DNI (también dentro de una CUIT/CUIL), CUIT, n.º de cuenta, email o teléfono.
+      const search = personSearchNamed(
+        {
+          firstName: 'person.first_name',
+          lastName: 'person.last_name',
+          nationalId: 'person.national_id',
+          accountNumber: 'person.account_number',
+          extra: ['person.email', 'person.phone'],
+        },
+        query.search,
       );
+      if (search.sql) qb.andWhere(search.sql, search.params);
     }
     const [items, total] = await qb
       .orderBy('person.lastName', 'ASC')

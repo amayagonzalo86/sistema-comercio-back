@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { createHash } from 'node:crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { recordAudit } from '../../../common/audit/audit';
-import { likePattern, paginated, Paginated } from '../../../common/dto/page-query.dto';
+import { paginated, Paginated } from '../../../common/dto/page-query.dto';
+import { personSearchPositional } from '../../../common/search/person-search';
 import { RequestAuditContext } from '../../../common/http/request-context';
 import { nextSequence } from '../../../common/sequences/sequences';
 import { localDayRange, tenantTimeZone } from '../../../common/time/local-day-range';
@@ -168,10 +169,14 @@ export class CustomerAccountsService {
     const params: unknown[] = [today, tenantId];
     let where = "p.tenant_id = ? AND p.person_type <> 'SUPPLIER'";
     if (query.search) {
-      const digits = query.search.replace(/\D/g, '');
-      where += ' AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.national_id = ?' + (digits ? ' OR p.account_number = ?' : '') + ')';
-      params.push(likePattern(query.search), likePattern(query.search), digits || query.search);
-      if (digits) params.push(Number(digits));
+      const search = personSearchPositional(
+        { firstName: 'p.first_name', lastName: 'p.last_name', nationalId: 'p.national_id', accountNumber: 'p.account_number' },
+        query.search,
+      );
+      if (search.sql) {
+        where += ` AND ${search.sql}`;
+        params.push(...search.params);
+      }
     }
     const having =
       query.status === 'OVERDUE' ? 'overdue > 0' : query.status === 'WITH_DEBT' ? 'balance > 0' : '(p.credit_enabled = 1 OR balance <> 0)';
