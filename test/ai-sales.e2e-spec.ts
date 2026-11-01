@@ -220,7 +220,7 @@ describe('Vendedor IA por WhatsApp (e2e)', () => {
     expectStatus(await api('put', `/platform/tenants/${tenantId}/modules/AI_SALES`, { enabled: true }), 200);
 
     // ── Catálogo ──
-    const branch = await api('post', '/branches', { code: 'WA', name: 'Sucursal WhatsApp' });
+    const branch = await api('post', '/branches', { code: 'WAPP', name: 'Sucursal WhatsApp' });
     expectStatus(branch, 201);
     const branchId = branch.body.id as string;
     const product = await api('post', '/products', {
