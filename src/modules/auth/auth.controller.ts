@@ -6,6 +6,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangeOwnPasswordDto } from '../users/dto/employee.dto';
 import { getClientIp } from '../../common/http/request-context';
+import { issueDeviceChallenge } from './device-proof';
 
 const REFRESH_COOKIE = 'refreshToken';
 // La cookie se envía solo a /api/v1/auth (refresh y logout), nunca al resto de la API.
@@ -43,6 +44,13 @@ export class AuthController {
     response.cookie(REFRESH_COOKIE, tokens.refreshToken, refreshCookieOptions());
 
     return { user, tokens: { accessToken: tokens.accessToken } };
+  }
+
+  /** Desafío que el navegador firma con la llave del equipo antes de iniciar sesión (equipos autorizados). */
+  @Post('device-challenge')
+  @HttpCode(HttpStatus.OK)
+  deviceChallenge(): { challenge: string; expiresAt: string } {
+    return issueDeviceChallenge();
   }
 
   @Get('tenants')

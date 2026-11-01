@@ -68,6 +68,10 @@ export class TenantEntity {
   @Column({ name: 'default_vat_regime', type: 'enum', enum: VatRegime, default: VatRegime.GENERAL })
   defaultVatRegime!: VatRegime;
 
+  /** Solo se puede entrar desde equipos aprobados por la plataforma (ver trusted_devices). */
+  @Column({ name: 'device_approval_required', type: 'boolean', default: false })
+  deviceApprovalRequired!: boolean;
+
   @OneToMany(() => TenantMembershipEntity, (membership) => membership.tenant)
   memberships!: TenantMembershipEntity[];
 

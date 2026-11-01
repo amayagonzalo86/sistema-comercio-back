@@ -11,11 +11,12 @@ import { SessionEntity } from './entities/session.entity';
 import { AuthRateLimitEntity } from './entities/auth-rate-limit.entity';
 import { TenantMembershipEntity } from '../platform/entities/tenant-membership.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { TrustedDeviceEntity } from './entities/trusted-device.entity';
 
 @Global()
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, SessionEntity, TenantMembershipEntity, AuthRateLimitEntity]),
+    TypeOrmModule.forFeature([UserEntity, SessionEntity, TenantMembershipEntity, AuthRateLimitEntity, TrustedDeviceEntity]),
     PassportModule.register({ defaultStrategy: 'jwt', property: 'user' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

@@ -15,6 +15,7 @@ import {
 } from '../../modules/platform/entities/tenant-membership.entity';
 import { TenantStatus } from '../../modules/platform/entities/tenant.entity';
 import { isIpAllowed } from '../security/ip-allowlist';
+import { TrustedDeviceEntity, TrustedDeviceStatus } from '../../modules/auth/entities/trusted-device.entity';
 import { membershipRoles } from '../security/tenant-roles';
 import { hasTenantModule, moduleNotEnabled, TENANT_MODULE_METADATA, TenantModule } from '../modules/tenant-modules';
 
@@ -27,12 +28,18 @@ type TenantRequest = {
     tenantRole?: string;
     tenantRoles?: string[];
     branchId?: string | null;
+    roles?: string[];
+    deviceId?: string;
   };
 };
+
+/** Cuánto se recuerda el estado de un equipo (una baja corta el acceso en este plazo como máximo). */
+const DEVICE_CACHE_MS = 30_000;
 
 @Injectable()
 export class TenantContextGuard implements CanActivate {
   private readonly logger = new Logger(TenantContextGuard.name);
+  private static readonly deviceCache = new Map<string, { approved: boolean; at: number }>();
 
   constructor(
     @InjectRepository(TenantMembershipEntity)
@@ -76,6 +83,13 @@ export class TenantContextGuard implements CanActivate {
       throw new ForbiddenException('El acceso no está permitido desde esta red para su sucursal.');
     }
 
+    // Equipos autorizados: el token tiene que venir de un equipo aprobado (los operadores de la plataforma, no).
+    if (membership.tenant.deviceApprovalRequired && !(user.roles ?? []).includes('SUPER_ADMIN')) {
+      if (!user.deviceId || !(await this.isDeviceApproved(user.deviceId, user.tenantId))) {
+        throw new UnauthorizedException('Este equipo no está autorizado para usar el sistema.');
+      }
+    }
+
     // Use the current database role, not a possibly stale role claim in the JWT.
     // Roles múltiples: los permisos son la unión de todos los roles de la membresía.
     user.tenantRole = membership.role;
@@ -91,5 +105,24 @@ export class TenantContextGuard implements CanActivate {
       throw moduleNotEnabled(requiredModule);
     }
     return true;
+  }
+
+  private async isDeviceApproved(deviceId: string, tenantId: string): Promise<boolean> {
+    const key = `${tenantId}:${deviceId}`;
+    const cached = TenantContextGuard.deviceCache.get(key);
+    if (cached && Date.now() - cached.at < DEVICE_CACHE_MS) return cached.approved;
+    const device = await this.membershipRepository.manager.findOne(TrustedDeviceEntity, {
+      where: { id: deviceId, tenantId },
+      select: { id: true, status: true },
+    });
+    const approved = device?.status === TrustedDeviceStatus.APPROVED;
+    if (TenantContextGuard.deviceCache.size > 5_000) TenantContextGuard.deviceCache.clear();
+    TenantContextGuard.deviceCache.set(key, { approved, at: Date.now() });
+    return approved;
+  }
+
+  /** Olvida el estado recordado de un equipo (al aprobarlo o darlo de baja). */
+  static forgetDevice(tenantId: string, deviceId: string): void {
+    TenantContextGuard.deviceCache.delete(`${tenantId}:${deviceId}`);
   }
 }
