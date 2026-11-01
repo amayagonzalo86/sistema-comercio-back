@@ -11,6 +11,8 @@ export interface PlatformTenantVatView {
   slug: string;
   legalName: string;
   tradeName: string | null;
+  /** Nombre que se muestra en el encabezado del sistema (null: nombre de fantasía o razón social). */
+  displayName: string | null;
   status: string;
   defaultVatRegime: VatRegime;
   branches: Array<{ id: string; code: string; name: string; status: boolean; vatRegime: VatRegime | null; effectiveVatRegime: VatRegime }>;
@@ -82,6 +84,27 @@ export class PlatformVatService {
     return this.one(tenantId);
   }
 
+  /** Nombre que se muestra en el sistema para la empresa (encabezado del menú). Queda auditado. */
+  async setDisplayName(tenantId: string, displayName: string | null, actorUserId: string, context: RequestAuditContext): Promise<PlatformTenantVatView> {
+    await this.dataSource.transaction(async (manager) => {
+      const tenant = await manager.findOne(TenantEntity, { where: { id: tenantId } });
+      if (!tenant) throw new NotFoundException('La empresa no existe.');
+      const before = tenant.displayName ?? null;
+      if (before === displayName) return;
+      await manager.update(TenantEntity, { id: tenantId }, { displayName });
+      await recordAudit(manager, {
+        tenantId,
+        actorUserId,
+        eventType: 'TENANT_DISPLAY_NAME_CHANGED',
+        aggregateType: 'TENANT',
+        aggregateId: tenantId,
+        metadata: { before, after: displayName },
+        context,
+      });
+    });
+    return this.one(tenantId);
+  }
+
   private async one(tenantId: string): Promise<PlatformTenantVatView> {
     const tenant = await this.dataSource.getRepository(TenantEntity).findOne({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException('La empresa no existe.');
@@ -99,6 +122,7 @@ export class PlatformVatService {
       slug: tenant.slug,
       legalName: tenant.legalName,
       tradeName: tenant.tradeName ?? null,
+      displayName: tenant.displayName ?? null,
       status: tenant.status,
       defaultVatRegime: tenant.defaultVatRegime,
       branches: branches.map((branch) => ({

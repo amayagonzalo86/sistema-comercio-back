@@ -254,7 +254,7 @@ export class AuthService {
   }
 
   /** Empresas del usuario con los módulos contratados de cada una (el plan base no figura: siempre está). */
-  async listUserTenants(userId: string): Promise<Array<{ id: string; slug: string; legalName: string; tradeName: string | null; role: TenantRole; modules: TenantModule[] }>> {
+  async listUserTenants(userId: string): Promise<Array<{ id: string; slug: string; legalName: string; tradeName: string | null; displayName: string | null; role: TenantRole; modules: TenantModule[] }>> {
     const memberships = await this.membershipRepository.find({
       where: { userId, status: MembershipStatus.ACTIVE },
       relations: { tenant: true },
@@ -267,6 +267,7 @@ export class AuthService {
         slug: tenant.slug,
         legalName: tenant.legalName,
         tradeName: tenant.tradeName ?? null,
+        displayName: tenant.displayName ?? null,
         role,
         modules: await enabledTenantModules(this.membershipRepository.manager, tenant.id, tenant.timeZone),
       })),

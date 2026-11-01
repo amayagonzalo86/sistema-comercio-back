@@ -12,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { buildAuditContext } from '../../common/http/request-context';
-import { UpdateBranchVatRegimeDto, UpdateTenantVatRegimeDto } from './dto/vat-regime.dto';
+import { UpdateBranchVatRegimeDto, UpdateTenantDisplayNameDto, UpdateTenantVatRegimeDto } from './dto/vat-regime.dto';
 import { PlatformTenantVatView, PlatformVatService } from './platform-vat.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
@@ -55,6 +55,16 @@ export class TenantsController {
   @Get()
   list(): Promise<PlatformTenantVatView[]> {
     return this.platformVat.list();
+  }
+
+  /** Nombre de la empresa que se muestra en el encabezado del sistema (no cambia los comprobantes). */
+  @Patch(':tenantId/display-name')
+  setDisplayName(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Body() dto: UpdateTenantDisplayNameDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<PlatformTenantVatView> {
+    return this.platformVat.setDisplayName(tenantId, dto.displayName, request.user.id, buildAuditContext(request));
   }
 
   /** Régimen de IVA por defecto de la empresa (por ejemplo, Tierra del Fuego — Ley 19.640). */

@@ -34,6 +34,10 @@ export class TenantEntity {
   @Column({ name: 'trade_name', type: 'varchar', length: 200, nullable: true })
   tradeName?: string | null;
 
+  /** Nombre que se muestra en el sistema (encabezado del menú). Lo asigna el operador de la plataforma; no va en los comprobantes. */
+  @Column({ name: 'display_name', type: 'varchar', length: 60, nullable: true })
+  displayName?: string | null;
+
   // CUIT is stored without punctuation. Null is allowed until fiscal onboarding.
   @Column({ name: 'tax_id', type: 'varchar', length: 11, nullable: true })
   taxId?: string | null;
