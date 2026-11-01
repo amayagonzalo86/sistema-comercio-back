@@ -54,7 +54,7 @@ describe('AuditEventsService', () => {
       { eventType: 'SALE_COMPLETED' },
     );
     expect(queryBuilder.take).toHaveBeenCalledWith(26);
-    expect(page).toEqual({ items: [{ id: '9007199254740999', actorName: 'Sistema', actorType: 'SYSTEM' }], nextCursor: null });
+    expect(page).toEqual({ items: [{ id: '9007199254740999', actorName: 'Sistema', actorType: 'SYSTEM', refs: {} }], nextCursor: null });
   });
 
   it('returns a next cursor without coercing BIGINT IDs to Number', async () => {
@@ -97,6 +97,22 @@ describe('AuditEventsService', () => {
     expect(page.items[0]).toMatchObject({ actorUserId: null, ipAddress: null, userAgent: null, actorName: 'Soporte de la plataforma', actorType: 'PLATFORM_SUPPORT' });
     expect(JSON.stringify(page.items[0])).not.toContain('Dueño del Sistema');
     expect(page.items[1]).toMatchObject({ actorUserId: 'employee-1', ipAddress: '10.0.0.5', actorName: 'Julián Sosa', actorType: 'USER' });
+  });
+
+  it('agrega nombres legibles de productos y sucursales y filtra por varios tipos', async () => {
+    const productId = '0b6f1d1e-1111-4a2b-8c3d-000000000001';
+    const branchId = '0b6f1d1e-2222-4a2b-8c3d-000000000002';
+    queryBuilder.getMany.mockResolvedValue([
+      { id: '5', aggregateType: 'PRODUCT', aggregateId: productId, metadata: { branchId, quantityDelta: '-2.000' } },
+    ]);
+    managerQuery.mockImplementation((sql: string) =>
+      Promise.resolve(
+        sql.includes('FROM products') ? [{ id: productId, label: 'Yerba mate (YER-001)' }] : sql.includes('FROM branches') ? [{ id: branchId, label: 'Casa Central' }] : [],
+      ),
+    );
+    const page = await service.findTenantEvents('tenant-a', Object.assign(new AuditEventQueryDto(), { eventTypes: 'INVENTORY_STOCK_ADJUSTED,PRODUCT_UPDATED' }));
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith('audit.eventType IN (:...eventTypes)', { eventTypes: ['INVENTORY_STOCK_ADJUSTED', 'PRODUCT_UPDATED'] });
+    expect(page.items[0].refs).toEqual({ [productId]: 'Yerba mate (YER-001)', [branchId]: 'Casa Central' });
   });
 
   it('rejects an inverted date range', async () => {

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { AuditEventEntity } from './entities/audit-event.entity';
 import { AuditEventQueryDto } from './dto/audit-event-query.dto';
 import { PLATFORM_SUPPORT_LABEL, platformOperatorIds } from '../../common/security/platform-operators';
+import { localDayRange, tenantTimeZone } from '../../common/time/local-day-range';
 
 export type AuditActorType = 'USER' | 'PLATFORM_SUPPORT' | 'SYSTEM';
 
@@ -11,6 +12,8 @@ export type AuditEventView = AuditEventEntity & {
   /** Nombre legible de quien hizo la acción (empleado, "Soporte de la plataforma" o "Sistema"). */
   actorName: string;
   actorType: AuditActorType;
+  /** Nombres legibles de los identificadores que menciona el evento (producto, sucursal, cliente…). */
+  refs?: Record<string, string>;
 };
 
 export interface AuditEventPage {
@@ -44,6 +47,9 @@ export class AuditEventsService {
     if (filters.eventType) {
       query.andWhere('audit.eventType = :eventType', { eventType: filters.eventType });
     }
+    if (filters.eventTypes) {
+      query.andWhere('audit.eventType IN (:...eventTypes)', { eventTypes: filters.eventTypes.split(',').slice(0, 100) });
+    }
     if (filters.aggregateType) {
       query.andWhere('audit.aggregateType = :aggregateType', {
         aggregateType: filters.aggregateType,
@@ -62,11 +68,16 @@ export class AuditEventsService {
     if (filters.requestId) {
       query.andWhere('audit.requestId = :requestId', { requestId: filters.requestId });
     }
+    // Fechas AAAA-MM-DD: días completos en la hora local de la empresa; con hora, tal cual.
+    const isDay = (value?: string) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+    const timeZone = isDay(filters.from) || isDay(filters.to) ? await tenantTimeZone(this.auditEventRepository.manager, tenantId) : null;
+    const range = timeZone ? localDayRange(timeZone, isDay(filters.from) ? filters.from : null, isDay(filters.to) ? filters.to : null) : { start: null, end: null };
     if (filters.from) {
-      query.andWhere('audit.createdAt >= :from', { from: filters.from });
+      query.andWhere('audit.createdAt >= :from', { from: range.start ?? filters.from });
     }
     if (filters.to) {
-      query.andWhere('audit.createdAt <= :to', { to: filters.to });
+      if (range.end) query.andWhere('audit.createdAt < :to', { to: range.end });
+      else query.andWhere('audit.createdAt <= :to', { to: filters.to });
     }
 
     const rows = await query
@@ -77,7 +88,7 @@ export class AuditEventsService {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     return {
-      items: await this.withActors(page),
+      items: await this.withReferences(tenantId, await this.withActors(page)),
       nextCursor: hasMore ? page[page.length - 1].id : null,
     };
   }
@@ -128,6 +139,74 @@ export class AuditEventsService {
         });
       }
       return Object.assign(event, { actorName: nameById.get(event.actorUserId) ?? 'Usuario', actorType: 'USER' as const });
+    });
+  }
+
+  /**
+   * Nombres legibles de lo que mencionan los eventos (productos, sucursales, clientes, proveedores, empleados,
+   * cajas, ventas): así la auditoría muestra «Yerba mate suave 1 kg · Casa Central» en vez de identificadores.
+   */
+  private async withReferences(tenantId: string, events: AuditEventView[]): Promise<AuditEventView[]> {
+    if (events.length === 0) return events;
+    const manager = this.auditEventRepository.manager;
+    const ids = { product: new Set<string>(), branch: new Set<string>(), person: new Set<string>(), user: new Set<string>(), register: new Set<string>(), sale: new Set<string>() };
+    const KEY_KIND: Record<string, keyof typeof ids> = {
+      productId: 'product',
+      branchId: 'branch',
+      originBranchId: 'branch',
+      destinationBranchId: 'branch',
+      customerPersonId: 'person',
+      supplierPersonId: 'person',
+      personId: 'person',
+      sellerUserId: 'user',
+      authorizedByUserId: 'user',
+      registerId: 'register',
+      saleId: 'sale',
+    };
+    const AGGREGATE_KIND: Record<string, keyof typeof ids> = { PRODUCT: 'product', BRANCH: 'branch', PERSON: 'person', USER: 'user', CASH_REGISTER: 'register', SALE: 'sale' };
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    for (const event of events) {
+      const aggregateKind = AGGREGATE_KIND[event.aggregateType];
+      if (aggregateKind && uuid.test(event.aggregateId)) ids[aggregateKind].add(event.aggregateId);
+      for (const [key, value] of Object.entries(event.metadata ?? {})) {
+        const kind = KEY_KIND[key];
+        if (kind && typeof value === 'string' && uuid.test(value)) ids[kind].add(value);
+      }
+    }
+    const lookup = async (kind: keyof typeof ids, sql: string): Promise<Array<[string, string]>> => {
+      const list = [...ids[kind]];
+      if (list.length === 0) return [];
+      const rows = (await manager.query(sql.replace('(?)', `(${list.map(() => '?').join(', ')})`), [tenantId, ...list])) as Array<{ id: string; label: string | null }>;
+      return rows.filter((row) => row.label).map((row) => [String(row.id), String(row.label)]);
+    };
+    const pairs = (
+      await Promise.all([
+        lookup('product', `SELECT id, CONCAT(name, ' (', sku, ')') AS label FROM products WHERE tenant_id = ? AND id IN (?)`),
+        lookup('branch', `SELECT id, name AS label FROM branches WHERE tenant_id = ? AND id IN (?)`),
+        lookup('person', `SELECT id, TRIM(CONCAT_WS(' ', NULLIF(last_name, '-'), first_name)) AS label FROM persons WHERE tenant_id = ? AND id IN (?)`),
+        lookup(
+          'user',
+          `SELECT u.id, COALESCE(NULLIF(TRIM(CONCAT_WS(' ', p.first_name, p.last_name)), ''), u.username) AS label
+             FROM users u JOIN tenant_memberships m ON m.user_id = u.id AND m.tenant_id = ? LEFT JOIN persons p ON p.id = u.person_id
+            WHERE u.id IN (?)`,
+        ),
+        lookup('register', `SELECT id, CONCAT(name, ' (', code, ')') AS label FROM cash_registers WHERE tenant_id = ? AND id IN (?)`),
+        lookup(
+          'sale',
+          `SELECT s.id, CONCAT('Venta $ ', FORMAT(s.total, 2, 'es_AR'), COALESCE(CONCAT(' · ', NULLIF(TRIM(CONCAT_WS(' ', NULLIF(p.last_name, '-'), p.first_name)), '')), '')) AS label
+             FROM sales s LEFT JOIN persons p ON p.id = s.customer_person_id AND p.tenant_id = s.tenant_id
+            WHERE s.tenant_id = ? AND s.id IN (?)`,
+        ),
+      ])
+    ).flat();
+    const labels = new Map(pairs);
+    return events.map((event) => {
+      const refs: Record<string, string> = {};
+      if (labels.has(event.aggregateId)) refs[event.aggregateId] = labels.get(event.aggregateId) as string;
+      for (const value of Object.values(event.metadata ?? {})) {
+        if (typeof value === 'string' && labels.has(value)) refs[value] = labels.get(value) as string;
+      }
+      return Object.assign(event, { refs });
     });
   }
 }

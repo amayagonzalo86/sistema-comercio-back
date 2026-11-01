@@ -21,13 +21,20 @@ export class AuditEventQueryDto {
   // Audit IDs are unsigned BIGINT strings; never coerce them to JavaScript Number.
   @IsOptional()
   @IsString()
-  @Matches(/^\\d{1,20}$/)
+  @Matches(/^\d{1,20}$/)
   cursor?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(80)
   eventType?: string;
+
+  /** Varios tipos de evento separados por coma (filtro por área: ventas, caja, stock…). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  @Matches(/^[A-Z_]+(,[A-Z_]+)*$/)
+  eventTypes?: string;
 
   @IsOptional()
   @IsString()
