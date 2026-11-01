@@ -900,9 +900,19 @@ describe('Flujo comercial completo (e2e)', () => {
     const tenantId = claimsOf(adminToken).tenantId as string;
     token = adrianLogin.body.tokens.accessToken as string;
     expectStatus(await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'TIERRA_DEL_FUEGO' }), 403);
+    // El nombre que se muestra en el sistema también lo asigna solo la plataforma.
+    expectStatus(await api('patch', `/platform/tenants/${tenantId}/display-name`, { displayName: 'Hackeado' }), 403);
     token = adminToken;
     const platformTenants = await api('get', '/platform/tenants');
     expectStatus(platformTenants, 200);
+    const named = await api('patch', `/platform/tenants/${tenantId}/display-name`, { displayName: '  Almacenes   del Sur  ' });
+    expectStatus(named, 200);
+    expect(named.body.displayName).toBe('Almacenes del Sur');
+    expect((await api('get', '/auth/tenants')).body.find((item: { id: string }) => item.id === tenantId).displayName).toBe('Almacenes del Sur');
+    expectStatus(await api('patch', `/platform/tenants/${tenantId}/display-name`, { displayName: 'x'.repeat(61) }), 400);
+    const nameAudit = await api('get', '/audit-events?eventType=TENANT_DISPLAY_NAME_CHANGED');
+    expect(nameAudit.body.items[0].metadata).toMatchObject({ before: null, after: 'Almacenes del Sur' });
+    expect((await api('patch', `/platform/tenants/${tenantId}/display-name`, { displayName: '' })).body.displayName).toBeNull();
     const tdf = await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'TIERRA_DEL_FUEGO' });
     expectStatus(tdf, 200);
     expect(tdf.body.branches.every((branch: { effectiveVatRegime: string }) => branch.effectiveVatRegime === 'TIERRA_DEL_FUEGO')).toBe(true);
