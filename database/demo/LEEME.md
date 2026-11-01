@@ -10,6 +10,9 @@ mysql -u root -p --default-character-set=utf8mb4 -e "source database/demo/base-c
 ```
 
 Ingreso: usuario `admin`, contraseña `Admin-Comercio-2026!` (cambiala después de entrar).
+
+Después, `npm run migration:run` reconoce que el esquema ya está completo y solo registra las migraciones
+(no vuelve a crear tablas). A partir de ahí, cada actualización se aplica con `npm run migration:run`.
 Para regenerarlo cuando cambien las entidades: esquema con `synchronize` + `npm run seed` + `datos-demo.sql`,
 y volcado con `mysqldump` (esquema, tablas del administrador y luego `datos-demo.sql`).
 
