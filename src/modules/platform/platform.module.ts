@@ -14,6 +14,8 @@ import { TenantEntity } from './entities/tenant.entity';
 import { TenantModuleEntity } from './entities/tenant-module.entity';
 import { PlatformModulesService } from './platform-modules.service';
 import { PlatformDevicesService } from './platform-devices.service';
+import { TenantBrandingService } from './tenant-branding.service';
+import { CompanyBrandingController, PlatformBrandingController, TenantLogosController } from './tenant-branding.controller';
 import { TrustedDeviceEntity } from '../auth/entities/trusted-device.entity';
 import { SessionEntity } from '../auth/entities/session.entity';
 
@@ -30,8 +32,8 @@ import { SessionEntity } from '../auth/entities/session.entity';
       SessionEntity,
     ]),
   ],
-  controllers: [TenantsController, AuditEventsController],
-  providers: [TenantContextGuard, PlatformSuperAdminGuard, TenantProvisioningService, AuditEventsService, PlatformVatService, PlatformModulesService, PlatformDevicesService],
+  controllers: [TenantsController, AuditEventsController, TenantLogosController, CompanyBrandingController, PlatformBrandingController],
+  providers: [TenantContextGuard, PlatformSuperAdminGuard, TenantProvisioningService, AuditEventsService, PlatformVatService, PlatformModulesService, PlatformDevicesService, TenantBrandingService],
   exports: [TypeOrmModule, TenantContextGuard, PlatformSuperAdminGuard],
 })
 export class PlatformModule {}
