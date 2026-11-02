@@ -1,4 +1,5 @@
 import { EntityManager } from 'typeorm';
+import { tenantLogoUrl } from '../platform/tenant-logo';
 import { IdentificationTypeEnum, TaxConditionEnum } from '../../common/enums/afip.enum';
 import { BranchEntity } from '../branches/entities/branch.entity';
 import { FiscalProfileEntity } from '../platform/entities/fiscal-profile.entity';
@@ -23,6 +24,8 @@ export interface Letterhead {
   cuit: string | null;
   grossIncomeRegistration: string | null;
   activityStartDate: string | null;
+  /** Logo de la empresa para el encabezado (null sin logo). */
+  logoUrl: string | null;
 }
 
 /** Datos del cliente para el bloque "Señor / Dirección / IVA / DNI" del comprobante. */
@@ -54,7 +57,7 @@ export async function loadLetterhead(
   profileOverride?: FiscalProfileEntity | null,
 ): Promise<Letterhead> {
   const [tenant, profile, branch] = await Promise.all([
-    manager.findOne(TenantEntity, { where: { id: tenantId }, select: { id: true, legalName: true, tradeName: true, taxId: true } }),
+    manager.findOne(TenantEntity, { where: { id: tenantId }, select: { id: true, legalName: true, tradeName: true, taxId: true, logoPath: true } }),
     profileOverride !== undefined
       ? Promise.resolve(profileOverride)
       : manager.findOne(FiscalProfileEntity, { where: { tenantId, isActive: true }, order: { updatedAt: 'DESC' } }),
@@ -74,6 +77,7 @@ export async function loadLetterhead(
     cuit: profile?.taxId ?? tenant?.taxId ?? null,
     grossIncomeRegistration: blank(profile?.grossIncomeRegistration),
     activityStartDate: profile?.activityStartDate ?? null,
+    logoUrl: tenantLogoUrl(tenant?.logoPath),
   };
 }
 
