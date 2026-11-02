@@ -915,18 +915,18 @@ describe('Flujo comercial completo (e2e)', () => {
     expect((await api('patch', `/platform/tenants/${tenantId}/display-name`, { displayName: '' })).body.displayName).toBeNull();
 
     // Logo de la empresa: la administración lo sube (PNG/JPG/WebP reales) y se sirve público con nombre aleatorio.
-    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const logoPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
     const uploadLogo = (path: string, buffer: Buffer, name: string) =>
       request(app.getHttpServer()).post(`/api/v1${path}`).set('Authorization', `Bearer ${token}`).attach('logo', buffer, name);
     expectStatus(await uploadLogo('/company/logo', Buffer.from('<svg onload="alert(1)"/>'), 'logo.png'), 400);
-    const logo = await uploadLogo('/company/logo', png, 'logo.png');
+    const logo = await uploadLogo('/company/logo', logoPng, 'logo.png');
     expectStatus(logo, 200);
     expect(logo.body.logoUrl).toMatch(/^\/api\/v1\/tenant-logos\/[0-9a-f-]{36}\.png$/);
-    const served = await request(app.getHttpServer()).get(logo.body.logoUrl as string);
-    expectStatus(served, 200);
-    expect(served.headers['content-type']).toBe('image/png');
+    const servedLogo = await request(app.getHttpServer()).get(logo.body.logoUrl as string);
+    expectStatus(servedLogo, 200);
+    expect(servedLogo.headers['content-type']).toBe('image/png');
     expect((await api('get', '/auth/tenants')).body.find((item: { id: string }) => item.id === tenantId).logoUrl).toBe(logo.body.logoUrl);
-    const replaced = await uploadLogo(`/platform/tenants/${tenantId}/logo`, png, 'nuevo.png');
+    const replaced = await uploadLogo(`/platform/tenants/${tenantId}/logo`, logoPng, 'nuevo.png');
     expectStatus(replaced, 200);
     expect(replaced.body.logoUrl).not.toBe(logo.body.logoUrl);
     expectStatus(await request(app.getHttpServer()).get(logo.body.logoUrl as string), 404); // el anterior se borró
