@@ -5,6 +5,7 @@ import { RequestAuditContext } from '../../common/http/request-context';
 import { BranchEntity } from '../branches/entities/branch.entity';
 import { resolveVatRegime, VatRegime } from '../fiscal/vat/vat';
 import { TenantEntity } from './entities/tenant.entity';
+import { tenantLogoUrl } from './tenant-logo';
 
 export interface PlatformTenantVatView {
   id: string;
@@ -13,6 +14,7 @@ export interface PlatformTenantVatView {
   tradeName: string | null;
   /** Nombre que se muestra en el encabezado del sistema (null: nombre de fantasía o razón social). */
   displayName: string | null;
+  logoUrl: string | null;
   status: string;
   /** Exige equipos autorizados. */
   deviceApprovalRequired: boolean;
@@ -125,6 +127,7 @@ export class PlatformVatService {
       legalName: tenant.legalName,
       tradeName: tenant.tradeName ?? null,
       displayName: tenant.displayName ?? null,
+      logoUrl: tenantLogoUrl(tenant.logoPath),
       status: tenant.status,
       deviceApprovalRequired: Boolean(tenant.deviceApprovalRequired),
       defaultVatRegime: tenant.defaultVatRegime,

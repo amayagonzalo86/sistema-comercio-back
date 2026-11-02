@@ -913,6 +913,25 @@ describe('Flujo comercial completo (e2e)', () => {
     const nameAudit = await api('get', '/audit-events?eventType=TENANT_DISPLAY_NAME_CHANGED');
     expect(nameAudit.body.items[0].metadata).toMatchObject({ before: null, after: 'Almacenes del Sur' });
     expect((await api('patch', `/platform/tenants/${tenantId}/display-name`, { displayName: '' })).body.displayName).toBeNull();
+
+    // Logo de la empresa: la administración lo sube (PNG/JPG/WebP reales) y se sirve público con nombre aleatorio.
+    const logoPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const uploadLogo = (path: string, buffer: Buffer, name: string) =>
+      request(app.getHttpServer()).post(`/api/v1${path}`).set('Authorization', `Bearer ${token}`).attach('logo', buffer, name);
+    expectStatus(await uploadLogo('/company/logo', Buffer.from('<svg onload="alert(1)"/>'), 'logo.png'), 400);
+    const logo = await uploadLogo('/company/logo', logoPng, 'logo.png');
+    expectStatus(logo, 200);
+    expect(logo.body.logoUrl).toMatch(/^\/api\/v1\/tenant-logos\/[0-9a-f-]{36}\.png$/);
+    const servedLogo = await request(app.getHttpServer()).get(logo.body.logoUrl as string);
+    expectStatus(servedLogo, 200);
+    expect(servedLogo.headers['content-type']).toBe('image/png');
+    expect((await api('get', '/auth/tenants')).body.find((item: { id: string }) => item.id === tenantId).logoUrl).toBe(logo.body.logoUrl);
+    const replaced = await uploadLogo(`/platform/tenants/${tenantId}/logo`, logoPng, 'nuevo.png');
+    expectStatus(replaced, 200);
+    expect(replaced.body.logoUrl).not.toBe(logo.body.logoUrl);
+    expectStatus(await request(app.getHttpServer()).get(logo.body.logoUrl as string), 404); // el anterior se borró
+    expect((await api('get', '/audit-events?eventType=TENANT_LOGO_CHANGED')).body.items).toHaveLength(2);
+    expect((await api('delete', '/company/logo')).body.logoUrl).toBeNull();
     const tdf = await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'TIERRA_DEL_FUEGO' });
     expectStatus(tdf, 200);
     expect(tdf.body.branches.every((branch: { effectiveVatRegime: string }) => branch.effectiveVatRegime === 'TIERRA_DEL_FUEGO')).toBe(true);

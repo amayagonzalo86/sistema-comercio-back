@@ -38,6 +38,10 @@ export class TenantEntity {
   @Column({ name: 'display_name', type: 'varchar', length: 60, nullable: true })
   displayName?: string | null;
 
+  /** Archivo del logo (UPLOADS_DIR/logos); se sirve en /api/v1/tenant-logos/<archivo>. */
+  @Column({ name: 'logo_path', type: 'varchar', length: 60, nullable: true })
+  logoPath?: string | null;
+
   // CUIT is stored without punctuation. Null is allowed until fiscal onboarding.
   @Column({ name: 'tax_id', type: 'varchar', length: 11, nullable: true })
   taxId?: string | null;
