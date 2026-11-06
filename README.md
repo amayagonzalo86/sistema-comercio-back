@@ -79,6 +79,10 @@ No habilites `synchronize` en producción. Revisá y respaldá la base antes de 
 
 Ver [.env.example](.env.example). La aplicación valida variables de base de datos, entorno, JWT y CORS durante el arranque. Configurá `ALLOWED_ORIGINS` con los orígenes exactos que usan los clientes.
 
+## Documentación
+
+Índice completo (técnica, legal y para el cliente): [docs/README.md](docs/README.md).
+
 ## Seguridad y operación
 
 Controles activos: validación estricta de variables al arrancar (secretos de 32+ caracteres, CORS sin comodines, HTTPS y claves robustas en producción), rate limit global por IP, Helmet con CSP restrictiva para API, límite de tamaño de cuerpo, JWT con algoritmo fijo y rotación de refresh token con detección de reutilización, mensajes de login que no revelan si el usuario existe, bloqueo de asignación de SUPER_ADMIN desde empresas, lista blanca de IP opcional por sucursal (`allowedIpRanges` en la sucursal) y errores 5xx sin detalles internos. Detrás de Cloudflare o Nginx configurá `TRUST_PROXY_HOPS`. Guía completa en [despliegue seguro](docs/operations/despliegue-seguro.md).
