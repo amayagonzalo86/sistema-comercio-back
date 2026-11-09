@@ -1,6 +1,7 @@
 import { personSearchNamed } from '../../common/search/person-search';
 import { SalePaymentEntity } from '../sales/entities/sale-payment.entity';
 import { Letterhead, loadLetterhead, loadPrintCustomer } from './printable';
+import { AccountEntryKind, CustomerAccountEntryEntity } from '../sales/accounts/entities/customer-account-entry.entity';
 import { showsFiscalTransparency } from './vat/vat';
 import { userDisplayNames } from '../../common/security/platform-operators';
 import {
@@ -392,12 +393,19 @@ export class FiscalService {
       loadLetterhead(this.dataSource.manager, tenantId, document.branchId, profile),
     ]);
     // Quién vendió, quién cobró y cómo se pagó (se imprimen en el comprobante).
-    const [names, payments] = sourceSale
+    const [names, payments, accountEntry] = sourceSale
       ? await Promise.all([
           userDisplayNames(this.dataSource.manager, [sourceSale.sellerUserId ?? sourceSale.actorUserId, sourceSale.actorUserId]),
           this.dataSource.getRepository(SalePaymentEntity).find({ where: { tenantId, saleId: sourceSale.id }, order: { createdAt: 'ASC' } }),
+          // Venta a cuenta corriente: el vencimiento del cargo se imprime como «Fecha Vto. de Pago».
+          document.sourceType === FiscalSourceType.SALE
+            ? this.dataSource.getRepository(CustomerAccountEntryEntity).findOne({
+                where: { tenantId, saleId: sourceSale.id, kind: AccountEntryKind.SALE },
+                select: { id: true, dueDate: true },
+              })
+            : Promise.resolve(null),
         ])
-      : [new Map<string, string>(), [] as SalePaymentEntity[]];
+      : [new Map<string, string>(), [] as SalePaymentEntity[], null];
     const associated = document.associatedDocumentId
       ? await this.dataSource.getRepository(FiscalDocumentEntity).findOne({ where: { id: document.associatedDocumentId, tenantId } })
       : null;
@@ -432,6 +440,7 @@ export class FiscalService {
             soldAt: sourceSale.createdAt,
             priceList: sourceSale.priceListName ? { name: sourceSale.priceListName, percentage: sourceSale.priceListPercentage ?? '0.00' } : null,
             discountTotal: sourceSale.discountTotal,
+            paymentDueDate: accountEntry?.dueDate ?? null,
           }
         : null,
       // Leyendas: Transparencia Fiscal (Ley 27.743) solo fuera de Tierra del Fuego; allí, la de la Ley 19.640.

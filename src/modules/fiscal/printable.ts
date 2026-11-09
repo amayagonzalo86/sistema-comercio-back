@@ -26,6 +26,14 @@ export interface Letterhead {
   activityStartDate: string | null;
   /** Logo de la empresa para el encabezado (null sin logo). */
   logoUrl: string | null;
+  /** WhatsApp y web del pie del comprobante (null si no se cargaron). */
+  whatsapp: string | null;
+  website: string | null;
+  /** Leyenda en negrita de la factura. */
+  invoiceLegend: string | null;
+  /** «Condición» y % de descuento contado/débito del presupuesto. */
+  quoteCondition: string | null;
+  quoteCashDiscount: string;
 }
 
 /** Datos del cliente para el bloque "Señor / Dirección / IVA / DNI" del comprobante. */
@@ -57,7 +65,21 @@ export async function loadLetterhead(
   profileOverride?: FiscalProfileEntity | null,
 ): Promise<Letterhead> {
   const [tenant, profile, branch] = await Promise.all([
-    manager.findOne(TenantEntity, { where: { id: tenantId }, select: { id: true, legalName: true, tradeName: true, taxId: true, logoPath: true } }),
+    manager.findOne(TenantEntity, {
+      where: { id: tenantId },
+      select: {
+        id: true,
+        legalName: true,
+        tradeName: true,
+        taxId: true,
+        logoPath: true,
+        printWhatsapp: true,
+        printWebsite: true,
+        invoiceLegend: true,
+        quoteCondition: true,
+        quoteCashDiscount: true,
+      },
+    }),
     profileOverride !== undefined
       ? Promise.resolve(profileOverride)
       : manager.findOne(FiscalProfileEntity, { where: { tenantId, isActive: true }, order: { updatedAt: 'DESC' } }),
@@ -78,6 +100,11 @@ export async function loadLetterhead(
     grossIncomeRegistration: blank(profile?.grossIncomeRegistration),
     activityStartDate: profile?.activityStartDate ?? null,
     logoUrl: tenantLogoUrl(tenant?.logoPath),
+    whatsapp: blank(tenant?.printWhatsapp),
+    website: blank(tenant?.printWebsite),
+    invoiceLegend: blank(tenant?.invoiceLegend),
+    quoteCondition: blank(tenant?.quoteCondition),
+    quoteCashDiscount: tenant?.quoteCashDiscount ?? '0.00',
   };
 }
 

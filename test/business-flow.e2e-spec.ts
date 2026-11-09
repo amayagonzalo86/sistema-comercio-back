@@ -932,7 +932,33 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(await request(app.getHttpServer()).get(logo.body.logoUrl as string), 404); // el anterior se borró
     expect((await api('get', '/audit-events?eventType=TENANT_LOGO_CHANGED')).body.items).toHaveLength(2);
     expect((await api('delete', '/company/logo')).body.logoUrl).toBeNull();
-    const tdf = await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'TIERRA_DEL_FUEGO' });
+
+    // Datos de impresión: WhatsApp, web, leyenda de la factura y condición/descuento del presupuesto.
+    expectStatus(await api('put', '/company/print-settings', { whatsapp: 'llamame<script>' }), 400);
+    expectStatus(await api('put', '/company/print-settings', { quoteCashDiscount: 80 }), 400);
+    const printSettings = await api('put', '/company/print-settings', {
+      whatsapp: ' +54 9 2964 49-4926 ',
+      website: 'www.almacenesdelsur.com.ar',
+      invoiceLegend: 'La mercadería debe retirarse dentro de los 7 días.',
+      quoteCondition: '3 y 6 cuotas sin interés',
+      quoteCashDiscount: 5,
+    });
+    expectStatus(printSettings, 200);
+    expect(printSettings.body.print).toEqual({
+      whatsapp: '+54 9 2964 49-4926',
+      website: 'www.almacenesdelsur.com.ar',
+      invoiceLegend: 'La mercadería debe retirarse dentro de los 7 días.',
+      quoteCondition: '3 y 6 cuotas sin interés',
+      quoteCashDiscount: '5.00',
+    });
+    const printedHead = await api('get', `/fiscal/letterhead?branchId=${A}`);
+    expect(printedHead.body).toMatchObject({ whatsapp: '+54 9 2964 49-4926', quoteCondition: '3 y 6 cuotas sin interés', quoteCashDiscount: '5.00' });
+    // Un campo vacío se quita del impreso; los no enviados quedan como estaban.
+    const cleared = await api('put', '/company/print-settings', { website: '' });
+    expect(cleared.body.print).toMatchObject({ website: null, whatsapp: '+54 9 2964 49-4926' });
+    expect((await api('get', '/audit-events?eventType=TENANT_PRINT_SETTINGS_CHANGED')).body.items).toHaveLength(2);
+
+    const tdf =await api('patch', `/platform/tenants/${tenantId}/vat-regime`, { defaultVatRegime: 'TIERRA_DEL_FUEGO' });
     expectStatus(tdf, 200);
     expect(tdf.body.branches.every((branch: { effectiveVatRegime: string }) => branch.effectiveVatRegime === 'TIERRA_DEL_FUEGO')).toBe(true);
     const regime = await api('get', `/sales/vat-regime?branchId=${A}`);

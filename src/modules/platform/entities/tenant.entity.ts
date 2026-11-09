@@ -42,6 +42,26 @@ export class TenantEntity {
   @Column({ name: 'logo_path', type: 'varchar', length: 60, nullable: true })
   logoPath?: string | null;
 
+  /** WhatsApp que se imprime al pie de facturas y presupuestos (texto libre, por ejemplo +54 9 2964 49-4926). */
+  @Column({ name: 'print_whatsapp', type: 'varchar', length: 30, nullable: true })
+  printWhatsapp?: string | null;
+
+  /** Sitio web que se imprime al pie de los comprobantes. */
+  @Column({ name: 'print_website', type: 'varchar', length: 120, nullable: true })
+  printWebsite?: string | null;
+
+  /** Leyenda en negrita en el cuerpo de la factura (retiro de mercadería, garantía, etc.). */
+  @Column({ name: 'invoice_legend', type: 'varchar', length: 300, nullable: true })
+  invoiceLegend?: string | null;
+
+  /** «Condición» del pie del presupuesto (por ejemplo «3 y 6 cuotas sin interés»). */
+  @Column({ name: 'quote_condition', type: 'varchar', length: 80, nullable: true })
+  quoteCondition?: string | null;
+
+  /** % de descuento pagando en efectivo o débito que informa el presupuesto («A pagar con descuento»). */
+  @Column({ name: 'quote_cash_discount', type: 'decimal', precision: 5, scale: 2, default: 0 })
+  quoteCashDiscount!: string;
+
   // CUIT is stored without punctuation. Null is allowed until fiscal onboarding.
   @Column({ name: 'tax_id', type: 'varchar', length: 11, nullable: true })
   taxId?: string | null;
