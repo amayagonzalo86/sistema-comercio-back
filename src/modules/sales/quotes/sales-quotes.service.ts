@@ -27,8 +27,8 @@ import { buildQuotePaymentTerms } from './quote-payment-terms';
 
 /** Vigencia real de un presupuesto X en el sistema: pasado este plazo se borra de la base. */
 export const QUOTE_VALIDITY_MS = 24 * 60 * 60 * 1000;
-/** Validez que se informa al cliente en el presupuesto impreso (decisión comercial de la empresa). */
-export const QUOTE_PRINTED_VALIDITY_HOURS = 72;
+/** Validez que se informa al cliente en el presupuesto impreso: la misma que en el sistema (24 h desde la emisión). */
+export const QUOTE_PRINTED_VALIDITY_HOURS = 24;
 const EXPIRE_EVERY_MS = 60 * 60 * 1000;
 /** Ven y descartan presupuestos de cualquier vendedor de su alcance (no los convierten: eso es solo de quien lo emitió). */
 const SUPERVISOR_ROLES = new Set(['OWNER', 'ADMIN', 'MANAGER']);
