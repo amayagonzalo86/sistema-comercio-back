@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 const trimOrNull = ({ value }: { value: unknown }): unknown => {
   if (value === undefined) return undefined;
@@ -9,7 +9,10 @@ const trimOrNull = ({ value }: { value: unknown }): unknown => {
   return clean === '' ? null : clean;
 };
 
-/** Datos que la empresa imprime en facturas y presupuestos. Un campo vacío lo quita del impreso. */
+/**
+ * Datos que la empresa imprime en facturas y presupuestos. Un campo vacío lo quita del impreso.
+ * El descuento de efectivo y las cuotas del presupuesto no se cargan acá: salen de la lista de efectivo y de los planes de tarjeta.
+ */
 export class UpdatePrintSettingsDto {
   @IsOptional()
   @Transform(trimOrNull)
@@ -35,13 +38,7 @@ export class UpdatePrintSettingsDto {
   @IsOptional()
   @Transform(trimOrNull)
   @IsString()
-  @MaxLength(80, { message: 'La condición admite hasta 80 caracteres.' })
-  @Matches(/^[^<>]*$/, { message: 'La condición no puede tener los caracteres < o >.' })
+  @MaxLength(80, { message: 'La nota de condición admite hasta 80 caracteres.' })
+  @Matches(/^[^<>]*$/, { message: 'La nota de condición no puede tener los caracteres < o >.' })
   quoteCondition?: string | null;
-
-  @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El descuento debe ser un número con hasta 2 decimales.' })
-  @Min(0, { message: 'El descuento no puede ser negativo.' })
-  @Max(50, { message: 'El descuento no puede superar el 50 %.' })
-  quoteCashDiscount?: number;
 }

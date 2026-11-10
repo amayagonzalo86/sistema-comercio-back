@@ -31,9 +31,8 @@ export interface Letterhead {
   website: string | null;
   /** Leyenda en negrita de la factura. */
   invoiceLegend: string | null;
-  /** «Condición» y % de descuento contado/débito del presupuesto. */
+  /** Nota que acompaña las formas de pago del presupuesto. */
   quoteCondition: string | null;
-  quoteCashDiscount: string;
 }
 
 /** Datos del cliente para el bloque "Señor / Dirección / IVA / DNI" del comprobante. */
@@ -77,7 +76,6 @@ export async function loadLetterhead(
         printWebsite: true,
         invoiceLegend: true,
         quoteCondition: true,
-        quoteCashDiscount: true,
       },
     }),
     profileOverride !== undefined
@@ -104,7 +102,6 @@ export async function loadLetterhead(
     website: blank(tenant?.printWebsite),
     invoiceLegend: blank(tenant?.invoiceLegend),
     quoteCondition: blank(tenant?.quoteCondition),
-    quoteCashDiscount: tenant?.quoteCashDiscount ?? '0.00',
   };
 }
 

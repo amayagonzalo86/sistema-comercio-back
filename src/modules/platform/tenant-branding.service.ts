@@ -21,7 +21,6 @@ export interface TenantPrintSettings {
   website: string | null;
   invoiceLegend: string | null;
   quoteCondition: string | null;
-  quoteCashDiscount: string;
 }
 
 const PRINT_FIELDS = {
@@ -50,7 +49,6 @@ export class TenantBrandingService {
         website: tenant.printWebsite ?? null,
         invoiceLegend: tenant.invoiceLegend ?? null,
         quoteCondition: tenant.quoteCondition ?? null,
-        quoteCashDiscount: tenant.quoteCashDiscount ?? '0.00',
       },
     };
   }
@@ -69,13 +67,6 @@ export class TenantBrandingService {
         if (next === previous) continue;
         changes[column] = next;
         changed[key] = { from: previous, to: next };
-      }
-      if (dto.quoteCashDiscount !== undefined) {
-        const next = dto.quoteCashDiscount.toFixed(2);
-        if (next !== Number(tenant.quoteCashDiscount).toFixed(2)) {
-          changes.quoteCashDiscount = next;
-          changed.quoteCashDiscount = { from: tenant.quoteCashDiscount, to: next };
-        }
       }
       if (Object.keys(changes).length === 0) return;
       await manager.update(TenantEntity, { id: tenantId }, changes);

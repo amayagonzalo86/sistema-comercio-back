@@ -54,13 +54,9 @@ export class TenantEntity {
   @Column({ name: 'invoice_legend', type: 'varchar', length: 300, nullable: true })
   invoiceLegend?: string | null;
 
-  /** «Condición» del pie del presupuesto (por ejemplo «3 y 6 cuotas sin interés»). */
+  /** Nota que acompaña las formas de pago del presupuesto (por ejemplo «Consultar promociones de la semana»). */
   @Column({ name: 'quote_condition', type: 'varchar', length: 80, nullable: true })
   quoteCondition?: string | null;
-
-  /** % de descuento pagando en efectivo o débito que informa el presupuesto («A pagar con descuento»). */
-  @Column({ name: 'quote_cash_discount', type: 'decimal', precision: 5, scale: 2, default: 0 })
-  quoteCashDiscount!: string;
 
   // CUIT is stored without punctuation. Null is allowed until fiscal onboarding.
   @Column({ name: 'tax_id', type: 'varchar', length: 11, nullable: true })
