@@ -18,10 +18,12 @@ import { hasAnyTenantRole } from '../../../common/security/tenant-roles';
 import { nextSequence } from '../../../common/sequences/sequences';
 import { loadPrintCustomer, PrintCustomer } from '../../fiscal/printable';
 import { TenantEntity } from '../../platform/entities/tenant.entity';
+import { CardPlansService } from '../card-plans/card-plans.service';
 import { SalesOrdersService, SalesOrderView } from '../orders/sales-orders.service';
 import { SalesService } from '../sales.service';
 import { CreateSalesQuoteDto, SalesQuoteQueryDto } from './dto/sales-quote.dto';
 import { SalesQuoteEntity, SalesQuoteStatus } from './entities/sales-quote.entity';
+import { buildQuotePaymentTerms } from './quote-payment-terms';
 
 /** Vigencia real de un presupuesto X en el sistema: pasado este plazo se borra de la base. */
 export const QUOTE_VALIDITY_MS = 24 * 60 * 60 * 1000;
@@ -71,6 +73,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
     private readonly dataSource: DataSource,
     private readonly salesService: SalesService,
     private readonly salesOrders: SalesOrdersService,
+    private readonly cardPlans: CardPlansService,
   ) {}
 
   onModuleInit(): void {
@@ -127,6 +130,20 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
       { branchId: dto.branchId, customerPersonId: dto.customerPersonId, lines: dto.lines, priceListId: dto.priceListId },
       actor.branchId,
     );
+    // Formas de pago del día: descuento de la lista de efectivo (no para clientes de cuenta corriente) y cuotas sin interés.
+    const paymentTerms = buildQuotePaymentTerms(
+      quote.total,
+      quote.cashDiscount ? { name: quote.cashDiscount.name, methods: quote.cashDiscount.methods, total: quote.cashDiscount.total } : null,
+      Boolean(quote.customerAccount?.creditEnabled),
+      (await this.cardPlans.available(tenantId)).map((plan) => ({
+        name: plan.name,
+        paymentMethod: plan.paymentMethod,
+        installments: plan.installments,
+        surchargePercentage: plan.surchargePercentage,
+        weekdays: plan.weekdays,
+        validTo: plan.validTo,
+      })),
+    );
     const saved = await this.dataSource.transaction(async (manager) => {
       const tenant = await manager.findOne(TenantEntity, { where: { id: tenantId }, select: { id: true, currencyCode: true } });
       if (!tenant) throw new NotFoundException('La empresa no existe.');
@@ -158,6 +175,7 @@ export class SalesQuotesService implements OnModuleInit, OnModuleDestroy {
             discount: line.discount,
             total: line.total,
           })),
+          paymentTerms,
           expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
           idempotencyKey: key,
           requestFingerprint: fingerprint,

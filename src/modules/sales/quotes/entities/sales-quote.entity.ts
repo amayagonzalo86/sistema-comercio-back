@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { BranchEntity } from '../../../branches/entities/branch.entity';
 import { TenantEntity } from '../../../platform/entities/tenant.entity';
+import type { QuotePaymentTerms } from '../quote-payment-terms';
 
 /** Renglón congelado del presupuesto (precio y promoción vigentes al emitirlo). */
 export interface SalesQuoteLine {
@@ -83,6 +84,10 @@ export class SalesQuoteEntity {
 
   @Column({ name: 'lines', type: 'json' })
   lines!: SalesQuoteLine[];
+
+  /** Descuento de efectivo y cuotas sin interés que ofrecía el presupuesto al emitirse (null en los anteriores). */
+  @Column({ name: 'payment_terms', type: 'json', nullable: true })
+  paymentTerms?: QuotePaymentTerms | null;
 
   @Column({ name: 'expires_at', type: 'timestamp', precision: 6 })
   expiresAt!: Date;

@@ -31,9 +31,11 @@ import { SalesOrdersService } from './orders/sales-orders.service';
 import { SalesQuoteEntity } from './quotes/entities/sales-quote.entity';
 import { SalesQuotesController } from './quotes/sales-quotes.controller';
 import { SalesQuotesService } from './quotes/sales-quotes.service';
+import { CardPlansModule } from './card-plans/card-plans.module';
 
 @Module({
   imports: [
+    CardPlansModule,
     TypeOrmModule.forFeature([
       SaleEntity,
       SaleItemEntity,

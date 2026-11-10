@@ -935,24 +935,21 @@ describe('Flujo comercial completo (e2e)', () => {
 
     // Datos de impresión: WhatsApp, web, leyenda de la factura y condición/descuento del presupuesto.
     expectStatus(await api('put', '/company/print-settings', { whatsapp: 'llamame<script>' }), 400);
-    expectStatus(await api('put', '/company/print-settings', { quoteCashDiscount: 80 }), 400);
     const printSettings = await api('put', '/company/print-settings', {
       whatsapp: ' +54 9 2964 49-4926 ',
       website: 'www.almacenesdelsur.com.ar',
       invoiceLegend: 'La mercadería debe retirarse dentro de los 7 días.',
-      quoteCondition: '3 y 6 cuotas sin interés',
-      quoteCashDiscount: 5,
+      quoteCondition: 'Consultá las promociones de la semana',
     });
     expectStatus(printSettings, 200);
     expect(printSettings.body.print).toEqual({
       whatsapp: '+54 9 2964 49-4926',
       website: 'www.almacenesdelsur.com.ar',
       invoiceLegend: 'La mercadería debe retirarse dentro de los 7 días.',
-      quoteCondition: '3 y 6 cuotas sin interés',
-      quoteCashDiscount: '5.00',
+      quoteCondition: 'Consultá las promociones de la semana',
     });
     const printedHead = await api('get', `/fiscal/letterhead?branchId=${A}`);
-    expect(printedHead.body).toMatchObject({ whatsapp: '+54 9 2964 49-4926', quoteCondition: '3 y 6 cuotas sin interés', quoteCashDiscount: '5.00' });
+    expect(printedHead.body).toMatchObject({ whatsapp: '+54 9 2964 49-4926', quoteCondition: 'Consultá las promociones de la semana' });
     // Un campo vacío se quita del impreso; los no enviados quedan como estaban.
     const cleared = await api('put', '/company/print-settings', { website: '' });
     expect(cleared.body.print).toMatchObject({ website: null, whatsapp: '+54 9 2964 49-4926' });
@@ -1203,6 +1200,14 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(tileQuote, 200);
     expect(tileQuote.body.total).toBe('2000.00');
     expect(tileQuote.body.cashDiscount).toMatchObject({ name: 'Ventas en efectivo', percentage: '-5.00', total: '1900.00' });
+    // El presupuesto X guarda el descuento de efectivo y las cuotas bancarizadas sin interés de todos los días al emitirlo:
+    // no el plan con recargo ni la promoción de un día puntual (Visa TDF 12 cuotas solo hoy).
+    const bankPlan = await api('post', '/card-plans', { name: 'Visa / Mastercard bancarias', cardBrand: 'VISA', paymentMethod: 'CREDIT_CARD', installments: 6, surchargePercentage: 0 });
+    expectStatus(bankPlan, 201);
+    const tileQuoteX = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId: tileId, quantity: 2 }] }, true);
+    expectStatus(tileQuoteX, 201);
+    expect(tileQuoteX.body.paymentTerms).toMatchObject({ accountCustomer: false, cash: { listName: 'Ventas en efectivo', percentage: '5.00', total: '1900.00' } });
+    expect(tileQuoteX.body.paymentTerms.cardPlans).toEqual([expect.objectContaining({ name: 'Visa / Mastercard bancarias', installments: 6 })]);
     // Con una lista elegida a propósito (gobierno) no se suma el descuento de efectivo.
     const govTile = await api('post', '/sales/quote', { branchId: A, lines: [{ productId: tileId, quantity: 1 }], priceListId: govList.body.id });
     expect(govTile.body.cashDiscount).toBeNull();
@@ -1365,6 +1370,11 @@ describe('Flujo comercial completo (e2e)', () => {
     const accountQuote = await api('post', '/sales/quote', { branchId: A, customerPersonId: debtorId, lines: [{ productId: tileId, quantity: 1 }] });
     expect(accountQuote.body.accountList).toMatchObject({ name: 'Cuenta corriente', total: '1100.00' });
     expect(accountQuote.body.customerAccount).toMatchObject({ creditEnabled: true, available: '2000.00', overdue: '0.00', termDays: 30 });
+    // Cliente de cuenta corriente: el presupuesto no ofrece descuento de efectivo (paga el precio de lista), sí las cuotas.
+    const accountQuoteX = await api('post', '/sales-quotes', { branchId: A, customerPersonId: debtorId, lines: [{ productId: tileId, quantity: 1 }] }, true);
+    expectStatus(accountQuoteX, 201);
+    expect(accountQuoteX.body).toMatchObject({ total: '1000.00', paymentTerms: { accountCustomer: true, cash: null } });
+    expect(accountQuoteX.body.paymentTerms.cardPlans).toHaveLength(1);
     expectStatus(await onAccount(1000), 400); // a cuenta se cobra con la lista de cuenta corriente
     const firstCredit = await onAccount(1100);
     expectStatus(firstCredit, 201);
