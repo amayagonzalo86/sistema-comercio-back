@@ -6,9 +6,11 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  Body,
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Req,
   Res,
   UploadedFile,
@@ -29,6 +31,7 @@ import { TenantContextGuard } from '../../common/guards/tenant-context.guard';
 import { buildAuditContext } from '../../common/http/request-context';
 import { IMAGE_CONTENT_TYPE } from '../inventory/product/product-images';
 import { UserRoleEnum } from '../roles/entities/role.entity';
+import { UpdatePrintSettingsDto } from './dto/print-settings.dto';
 import { TenantBrandingService, TenantBrandingView } from './tenant-branding.service';
 import { isTenantLogoName, MAX_TENANT_LOGO_BYTES, tenantLogosDir } from './tenant-logo';
 
@@ -80,6 +83,13 @@ export class CompanyBrandingController {
   @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
   remove(@GetTenantId() tenantId: string, @Req() request: Request): Promise<TenantBrandingView> {
     return this.branding.removeLogo(tenantId, actorId(request), buildAuditContext(request));
+  }
+
+  /** WhatsApp, web, leyenda de la factura y condición/descuento del presupuesto. */
+  @Put('print-settings')
+  @Roles(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN)
+  updatePrintSettings(@GetTenantId() tenantId: string, @Req() request: Request, @Body() dto: UpdatePrintSettingsDto): Promise<TenantBrandingView> {
+    return this.branding.updatePrintSettings(tenantId, dto, actorId(request), buildAuditContext(request));
   }
 }
 
