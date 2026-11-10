@@ -1109,8 +1109,8 @@ describe('Flujo comercial completo (e2e)', () => {
     const createdAt = new Date(storedQuote.body.createdAt).getTime();
     expect(Math.abs(createdAt - Date.now())).toBeLessThan(5 * 60 * 1000);
     expect(Math.abs(new Date(storedQuote.body.expiresAt).getTime() - createdAt - 24 * 3600 * 1000)).toBeLessThan(60 * 1000);
-    // Se borra a las 24 h, pero el impreso informa al cliente una validez de 72 h.
-    expect(storedQuote.body.printedValidityHours).toBe(72);
+    // El impreso informa la misma validez que el sistema: 24 h desde la emisión.
+    expect(storedQuote.body.printedValidityHours).toBe(24);
     expect(storedQuote.body.customer).toBeNull();
 
     // Otro vendedor no lo ve ni lo puede convertir; el encargado/administración sí lo ve.
