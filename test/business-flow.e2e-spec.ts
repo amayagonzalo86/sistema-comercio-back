@@ -1200,13 +1200,14 @@ describe('Flujo comercial completo (e2e)', () => {
     expectStatus(tileQuote, 200);
     expect(tileQuote.body.total).toBe('2000.00');
     expect(tileQuote.body.cashDiscount).toMatchObject({ name: 'Ventas en efectivo', percentage: '-5.00', total: '1900.00' });
-    // El presupuesto X guarda el descuento de efectivo y las cuotas sin interés vigentes al emitirlo (no el plan con recargo).
+    // El presupuesto X guarda el descuento de efectivo y las cuotas bancarizadas sin interés de todos los días al emitirlo:
+    // no el plan con recargo ni la promoción de un día puntual (Visa TDF 12 cuotas solo hoy).
+    const bankPlan = await api('post', '/card-plans', { name: 'Visa / Mastercard bancarias', cardBrand: 'VISA', paymentMethod: 'CREDIT_CARD', installments: 6, surchargePercentage: 0 });
+    expectStatus(bankPlan, 201);
     const tileQuoteX = await api('post', '/sales-quotes', { branchId: A, lines: [{ productId: tileId, quantity: 2 }] }, true);
     expectStatus(tileQuoteX, 201);
     expect(tileQuoteX.body.paymentTerms).toMatchObject({ accountCustomer: false, cash: { listName: 'Ventas en efectivo', percentage: '5.00', total: '1900.00' } });
-    expect(tileQuoteX.body.paymentTerms.cardPlans).toEqual([
-      expect.objectContaining({ name: 'Visa Banco de Tierra del Fuego', installments: 12, total: '2000.00', perInstallment: '166.67' }),
-    ]);
+    expect(tileQuoteX.body.paymentTerms.cardPlans).toEqual([expect.objectContaining({ name: 'Visa / Mastercard bancarias', installments: 6 })]);
     // Con una lista elegida a propósito (gobierno) no se suma el descuento de efectivo.
     const govTile = await api('post', '/sales/quote', { branchId: A, lines: [{ productId: tileId, quantity: 1 }], priceListId: govList.body.id });
     expect(govTile.body.cashDiscount).toBeNull();

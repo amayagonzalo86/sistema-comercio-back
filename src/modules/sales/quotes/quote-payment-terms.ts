@@ -5,7 +5,8 @@ import { WEEKDAY_NAMES } from '../card-plans/card-plan-rules';
  * Formas de pago que informa el presupuesto, congeladas al emitirlo (como los precios):
  * - Descuento por pago en efectivo (o los medios que tenga la lista de efectivo, p. ej. débito): sale de la lista
  *   «solo efectivo» de la empresa, producto por producto. Un cliente con cuenta corriente no lo tiene: paga el precio de lista.
- * - Planes de tarjeta de crédito en cuotas sin interés (o con descuento) vigentes ese día: sí valen para cualquier cliente.
+ * - Cuotas bancarizadas sin interés con tarjeta de crédito, que valen todos los días (las promociones de un día puntual no
+ *   se informan, porque el cliente puede volver otro día): sí valen para cualquier cliente.
  */
 export interface QuotePaymentTerms {
   /** El cliente tiene cuenta corriente habilitada: no se le ofrece el descuento de efectivo. */
@@ -52,6 +53,11 @@ export interface OfferablePlan {
 /** Hasta cuántos planes se imprimen (los de más cuotas primero dentro de cada tarjeta). */
 export const MAX_QUOTE_PLANS = 12;
 
+/** Plan de días puntuales (p. ej. «solo los jueves»): no se informa en el presupuesto. */
+function onlySomeDays(plan: OfferablePlan): boolean {
+  return Boolean(plan.weekdays && plan.weekdays.length > 0 && plan.weekdays.length < 7);
+}
+
 function availabilityOf(plan: OfferablePlan): string | null {
   const parts: string[] = [];
   if (plan.weekdays && plan.weekdays.length > 0 && plan.weekdays.length < 7) {
@@ -80,7 +86,7 @@ export function buildQuotePaymentTerms(totalValue: string, cashOffer: CashOffer 
   }
 
   const cardPlans = plans
-    .filter((plan) => plan.paymentMethod === 'CREDIT_CARD' && plan.installments >= 2 && Number(plan.surchargePercentage) <= 0)
+    .filter((plan) => plan.paymentMethod === 'CREDIT_CARD' && plan.installments >= 2 && Number(plan.surchargePercentage) <= 0 && !onlySomeDays(plan))
     .sort((a, b) => a.name.localeCompare(b.name, 'es') || a.installments - b.installments)
     .slice(0, MAX_QUOTE_PLANS)
     .map((plan) => {

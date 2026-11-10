@@ -33,7 +33,7 @@ describe('buildQuotePaymentTerms', () => {
     expect(buildQuotePaymentTerms('10000.00', { ...cashOffer, total: '10000.00' }, false, []).cash).toBeNull();
   });
 
-  it('solo ofrece cuotas de crédito sin interés (o con descuento), ordenadas, con su vigencia', () => {
+  it('solo ofrece cuotas de crédito sin interés (o con descuento) de todos los días, ordenadas', () => {
     const terms = buildQuotePaymentTerms('12000.00', null, false, [
       plan({ name: 'Mastercard', installments: 12, weekdays: [4] }),
       plan({ installments: 6 }),
@@ -43,7 +43,6 @@ describe('buildQuotePaymentTerms', () => {
       plan({ installments: 3, surchargePercentage: '-10.00', validTo: '2026-12-31' }),
     ]);
     expect(terms.cardPlans.map((item) => [item.name, item.installments, item.total, item.perInstallment, item.availability])).toEqual([
-      ['Mastercard', 12, '12000.00', '1000.00', 'solo los jueves'],
       ['Visa Banco de Tierra del Fuego', 3, '10800.00', '3600.00', 'hasta el 31/12/2026'],
       ['Visa Banco de Tierra del Fuego', 6, '12000.00', '2000.00', null],
     ]);
